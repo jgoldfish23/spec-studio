@@ -137,6 +137,7 @@ function missingPriceItem(p: LinePart): MissingItem {
     code: "missingPrice",
     message: `No price for ${name} (${p.code}), variant "${p.variant}", ${tier}`,
     step: "estimate",
+    ref: p.code,
   };
 }
 

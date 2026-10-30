@@ -22,6 +22,15 @@ const from1900 = {
   message: "Year must be 1900 or later",
   when: (payload: z.core.ParsePayload) => payload.issues.length === 0,
 };
+// The engine reads dates from its context too; a year past 2100 is as much a typing slip as one before 1900.
+const isThrough2100 = (yearFirst: string): boolean => Number(yearFirst.slice(0, 4)) <= 2100;
+const through2100 = { message: "Year must be 2100 or earlier", when: from1900.when };
+
+/** A real calendar date as `YYYY-MM-DD`, in year 1900 or later. A bad value raises one issue. */
+export const DateFrom1900Schema = z.iso.date("Must be a real date as YYYY-MM-DD").refine(isFrom1900, from1900);
+
+/** A real calendar date as `YYYY-MM-DD`, in years 1900 to 2100. A bad value raises one issue. */
+export const DateIn1900To2100Schema = DateFrom1900Schema.refine(isThrough2100, through2100);
 
 const UTILITIES = ["water", "sewer", "gas", "power", "secondaryWater"] as const;
 export const UtilitySchema = z.enum(UTILITIES);
@@ -131,7 +140,7 @@ export const BidSchema = z.object({
   code: z.string().min(1, "Required"),
   amountCents: cents,
   vendor: z.string().min(1, "Required"),
-  receivedOn: z.iso.date("Must be a real date as YYYY-MM-DD").refine(isFrom1900, from1900),
+  receivedOn: DateFrom1900Schema,
   notes: z.string().optional(),
 });
 export type Bid = z.infer<typeof BidSchema>;

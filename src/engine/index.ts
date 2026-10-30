@@ -6,6 +6,17 @@ export { evaluateDeal } from "./evaluate";
 export type { DealEvaluation, EngineContext } from "./evaluate";
 
 export {
+  CompSchema,
+  CostBookViewSchema,
+  DefaultPriceSchema,
+  EngineContextSchema,
+  MarketSettingsSchema,
+  PriceBookEntrySchema,
+  QuantityRulesSchema,
+  validateContext,
+} from "./context";
+
+export {
   BidSchema,
   CarrySchema,
   ConstructionLoanSchema,
@@ -73,7 +84,7 @@ export type {
 export { formatUsd } from "./money";
 export type { Cents } from "./money";
 
-export { fitSeasonalFactors } from "./dom";
+export { compDomDays, fitSeasonalFactors } from "./dom";
 export type { DomConfidence, DomEstimate } from "./dom";
 
 export type { ISODate, YearMonth } from "./dates";
