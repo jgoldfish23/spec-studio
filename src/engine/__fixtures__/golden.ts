@@ -1,5 +1,9 @@
+import { buildProFormaInput, type ProFormaInput, type ScenarioInputs } from "../cashflow";
 import type { DealInputs } from "../deal";
+import { buildEstimate, type Estimate } from "../estimate";
 import type { Cents } from "../money";
+import { computeQuantities, DEFAULT_QUANTITY_RULES } from "../quantities";
+import { isOk } from "../result";
 import goldenComps from "./golden-comps.json";
 import goldenExpected from "./golden-deal.expected.json";
 import goldenInputs from "./golden-deal.inputs.json";
@@ -79,3 +83,23 @@ export const GOLDEN_EXPECTED: GoldenExpected = goldenExpected;
 
 /** The 8 sold comps from the market mockup. Typed as `Comp[]` once the market model exists. */
 export const GOLDEN_COMPS: unknown[] = goldenComps;
+
+/** The golden deal's estimate, priced from its 25 bids alone (no price book or defaults). */
+export function goldenEstimate(): Estimate {
+  const quantities = computeQuantities(GOLDEN_DEAL.house, GOLDEN_DEAL.lot, DEFAULT_QUANTITY_RULES);
+  if (!isOk(quantities)) throw new Error(`golden quantities incomplete: ${JSON.stringify(quantities.missing)}`);
+  const context = { region: "utah-north", contingencyPct: 0.05, buildMonths: 9, today: "2026-10-30" };
+  const book = { defaults: [], priceBook: [] };
+  const estimate = buildEstimate(quantities.value, GOLDEN_DEAL.house, book, GOLDEN_DEAL.bids, context);
+  if (!isOk(estimate)) throw new Error(`golden estimate incomplete: ${JSON.stringify(estimate.missing)}`);
+  return estimate.value;
+}
+
+/** The cash-flow input for a golden scenario; `overrides` replaces any of its price, days on market, or overrun. */
+export function goldenProFormaInput(
+  scenario: keyof GoldenExpected["scenarios"],
+  overrides: Partial<ScenarioInputs> = {},
+): ProFormaInput {
+  const inputs = { ...GOLDEN_EXPECTED.scenarios[scenario].inputs, ...overrides };
+  return buildProFormaInput(GOLDEN_DEAL, goldenEstimate(), inputs);
+}

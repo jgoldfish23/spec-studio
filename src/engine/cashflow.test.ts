@@ -1,18 +1,10 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { arbProFormaInput } from "./__fixtures__/arbitraries";
-import { GOLDEN_DEAL, GOLDEN_EXPECTED } from "./__fixtures__/golden";
+import { GOLDEN_DEAL, GOLDEN_EXPECTED, goldenEstimate } from "./__fixtures__/golden";
 import { buildProFormaInput, drawWeights, runCashFlow, type Period, type ProFormaInput } from "./cashflow";
 import type { DealInputs } from "./deal";
-import { buildEstimate, type EstimateContext } from "./estimate";
 import { roundCents } from "./money";
-import { computeQuantities, DEFAULT_QUANTITY_RULES } from "./quantities";
-import { isOk, type Result } from "./result";
-
-function unwrap<T>(r: Result<T>): T {
-  if (!isOk(r)) throw new Error(`expected ok, got incomplete: ${JSON.stringify(r.missing)}`);
-  return r.value;
-}
 
 /** Hand-case input: every field 0, cash, or "paid" unless overridden. */
 const input = (overrides: Partial<ProFormaInput> = {}): ProFormaInput => ({
@@ -234,12 +226,6 @@ describe("buildProFormaInput", () => {
     expect(p.loan).not.toBe(deal.loan);
   });
 });
-
-function goldenEstimate() {
-  const goldenQ = unwrap(computeQuantities(GOLDEN_DEAL.house, GOLDEN_DEAL.lot, DEFAULT_QUANTITY_RULES));
-  const goldenCtx: EstimateContext = { region: "utah-north", contingencyPct: 0.05, buildMonths: 9, today: "2026-10-30" };
-  return unwrap(buildEstimate(goldenQ, GOLDEN_DEAL.house, { defaults: [], priceBook: [] }, GOLDEN_DEAL.bids, goldenCtx));
-}
 
 describe("runCashFlow: golden deal", () => {
   const est = goldenEstimate();
