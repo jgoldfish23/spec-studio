@@ -140,12 +140,25 @@ function overlap(k: number, a: number, b: number): number {
   return Math.max(0, Math.min(k + 1, b) - Math.max(k, a));
 }
 
+/**
+ * How close to a whole month a time must be to count as that month. Day counts over `MONTH_DAYS` can
+ * land a hair off one (17.000000000000004); whole days fall on multiples of 1/365 month, never this close.
+ */
+const WHOLE_MONTH_TOLERANCE = 1e-9;
+
+/** A time within `WHOLE_MONTH_TOLERANCE` of a whole month, as that month; any other time unchanged. */
+function snapToWholeMonth(months: number): number {
+  const whole = Math.round(months);
+  return Math.abs(months - whole) < WHOLE_MONTH_TOLERANCE ? whole : months;
+}
+
 function timesFor(input: ProFormaInput): CashFlowTimes {
   const buildStart = input.preConMonths;
   const completion = buildStart + input.buildMonths;
   const list = completion - input.listEarlyMonths;
-  const contract = list + input.domDays / MONTH_DAYS;
-  const saleClose = Math.max(contract + input.closingDays / MONTH_DAYS, completion);
+  // Snapped before the period count, the overlaps, and the extension test all read them.
+  const contract = snapToWholeMonth(list + input.domDays / MONTH_DAYS);
+  const saleClose = snapToWholeMonth(Math.max(contract + input.closingDays / MONTH_DAYS, completion));
   return { buildStart, completion, list, contract, saleClose, maturity: buildStart + input.loan.termMonths };
 }
 

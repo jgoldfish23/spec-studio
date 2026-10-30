@@ -45,6 +45,12 @@ const IRR_MAX_ITERATIONS = 200;
 /** The longest days on market `breakEvenDomDays` searches: three years. */
 const MAX_DOM_DAYS = 1095;
 
+/**
+ * Float noise allowed when flooring a day count, so months × `MONTH_DAYS` that should be a whole number
+ * of days is never floored a day short of what the cash flow (which snaps times to whole months) allows.
+ */
+const WHOLE_DAY_TOLERANCE = 1e-9;
+
 /** Divides, giving 0 instead of NaN or Infinity when there is nothing to divide by. */
 const ratio = (numerator: number, denominator: number): number => (denominator === 0 ? 0 : numerator / denominator);
 
@@ -101,7 +107,10 @@ export function computeMetrics(cf: CashFlow, input: ProFormaInput): Metrics {
   const maxDomWithoutExtension =
     cf.commitmentCents === 0
       ? null
-      : Math.max(0, Math.floor((times.maturity - times.list) * MONTH_DAYS - input.closingDays));
+      : Math.max(
+          0,
+          Math.floor((times.maturity - times.list) * MONTH_DAYS - input.closingDays + WHOLE_DAY_TOLERANCE),
+        );
 
   return {
     salePriceCents: sale.priceCents,

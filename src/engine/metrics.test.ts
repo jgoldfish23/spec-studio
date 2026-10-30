@@ -192,6 +192,60 @@ describe("extension boundary", () => {
     expect(at(57).extensions).toBe(1);
     expect(metricsFor(goldenProFormaInput("base")).maxDomWithoutExtension).toBe(56);
   });
+
+  const golden = goldenProFormaInput("base");
+  /** The golden deal on a different timeline and loan term. */
+  const timed = (t: { pre: number; build: number; listEarly: number; closing: number; term: number }) => ({
+    ...golden,
+    preConMonths: t.pre,
+    buildMonths: t.build,
+    listEarlyMonths: t.listEarly,
+    closingDays: t.closing,
+    loan: { ...golden.loan, termMonths: t.term },
+  });
+
+  it("does not extend at the reported max days on market when the sale closes exactly at a whole-month maturity", () => {
+    // List at month 5, maturity at month 17: (17 − 5) × 365/12 − 13 = 352 days lands the close on month 17,
+    // which floating point puts at 17.000000000000004 unless the cash flow snaps it.
+    const input = timed({ pre: 0, build: 5, listEarly: 0, closing: 13, term: 17 });
+    expect(metricsFor(input).maxDomWithoutExtension).toBe(352);
+
+    const atMax = runCashFlow({ ...input, domDays: 352 });
+    expect(atMax.commitmentCents).toBeGreaterThan(0);
+    expect(atMax.times.maturity).toBe(17);
+    expect(atMax.times.saleClose).toBe(17);
+    expect(atMax.extensions).toBe(0);
+    expect(atMax.periods).toHaveLength(Math.ceil(atMax.times.saleClose));
+    expect(atMax.periods.every((p) => p.extensionFeeCents === 0)).toBe(true);
+
+    expect(runCashFlow({ ...input, domDays: 353 }).extensions).toBe(1);
+  });
+
+  it("extends one day past the reported max days on market and not at it, for loans maturing a year or two after listing", () => {
+    const timing = fc
+      .record({
+        pre: fc.integer({ min: 0, max: 4 }),
+        build: fc.integer({ min: 4, max: 18 }),
+        closing: fc.integer({ min: 0, max: 90 }),
+        yearsAfterList: fc.constantFrom(1, 2),
+      })
+      .chain((t) =>
+        fc.integer({ min: 0, max: Math.min(2, t.build) }).map((listEarly) => ({
+          ...t,
+          listEarly,
+          term: t.build - listEarly + 12 * t.yearsAfterList,
+        })),
+      );
+    fc.assert(
+      fc.property(timing, (t) => {
+        const input = timed(t);
+        const max = metricsFor(input).maxDomWithoutExtension;
+        expect(max).not.toBeNull();
+        expect(runCashFlow({ ...input, domDays: max! }).extensions).toBe(0);
+        expect(runCashFlow({ ...input, domDays: max! + 1 }).extensions).toBeGreaterThanOrEqual(1);
+      }),
+    );
+  });
 });
 
 describe("metrics: properties", () => {
