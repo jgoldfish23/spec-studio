@@ -13,7 +13,7 @@ const nonNegative = z.number().min(0, "Must be 0 or more");
 const days = z.number().int("Must be a whole number of days").min(0, "Must be 0 or more");
 // Fields with a tighter range get their own schema: chaining onto `months` or `rate` would
 // run both ranges and report two issues for one bad value.
-const buildMonths = z.number().int("Must be a whole number of months").min(1, "Must be at least 1");
+const atLeastOneMonth = z.number().int("Must be a whole number of months").min(1, "Must be at least 1");
 const loanToCost = z.number().min(0, "Must be 0 or more").max(0.95, "Must be 0.95 or less");
 
 const UTILITIES = ["water", "sewer", "gas", "power", "secondaryWater"] as const;
@@ -45,7 +45,7 @@ export const TimelineSchema = z
   .object({
     landClose: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Must be a month as YYYY-MM"),
     preConMonths: months,
-    buildMonths,
+    buildMonths: atLeastOneMonth,
     listEarlyMonths: months,
     closingDays: days,
   })
@@ -63,7 +63,8 @@ export const ConstructionLoanSchema = z.object({
   drawFeeCents: cents,
   termMonths: months,
   extensionPct: rate,
-  extensionMonths: months,
+  // The extension count divides by this, so a loan always extends by at least a month.
+  extensionMonths: atLeastOneMonth,
   interestMode: z.enum(["paid", "capitalized"]),
 });
 export type ConstructionLoan = z.infer<typeof ConstructionLoanSchema>;

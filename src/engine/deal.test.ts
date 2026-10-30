@@ -106,6 +106,14 @@ describe("validateDeal", () => {
     expect(paths(d)).toContain("loan.ltc");
   });
 
+  it("requires at least one extension month, reporting zero as a single issue", () => {
+    const d = validDeal();
+    d.loan.extensionMonths = 1;
+    expect(validateDeal(d)).toEqual([]);
+    d.loan.extensionMonths = 0;
+    expect(paths(d)).toEqual(["loan.extensionMonths"]);
+  });
+
   it("rejects non-integer month counts", () => {
     const d = validDeal();
     d.timeline.preConMonths = 1.5;
