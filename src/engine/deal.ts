@@ -88,12 +88,22 @@ export const CarrySchema = z.object({
 });
 export type Carry = z.infer<typeof CarrySchema>;
 
-export const SellingSchema = z.object({
-  listingPct: rate,
-  buyerPct: rate,
-  closingPct: rate,
-  concessionsCents: cents,
-});
+const isRate = (r: number): boolean => r >= 0 && r <= 1;
+
+export const SellingSchema = z
+  .object({
+    listingPct: rate,
+    buyerPct: rate,
+    closingPct: rate,
+    concessionsCents: cents,
+  })
+  // At 100% or more the costs take the whole price, so no sale price breaks even. Skipped while a rate
+  // is itself out of range, so one bad value does not raise a second issue.
+  .refine(
+    (s) =>
+      ![s.listingPct, s.buyerPct, s.closingPct].every(isRate) || s.listingPct + s.buyerPct + s.closingPct < 1,
+    { message: "Listing, buyer and closing costs must total less than 100% of the sale price" },
+  );
 export type Selling = z.infer<typeof SellingSchema>;
 
 export const RulesSchema = z.object({

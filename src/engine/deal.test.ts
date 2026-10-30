@@ -135,6 +135,22 @@ describe("validateDeal", () => {
     );
   });
 
+  it("requires listing, buyer and closing costs to total under 100% of the price, as one issue on selling", () => {
+    const d = validDeal();
+    d.selling = { listingPct: 0.5, buyerPct: 0.5, closingPct: 0.01, concessionsCents: 0 };
+    expect(paths(d)).toEqual(["selling"]);
+    d.selling = { listingPct: 0.5, buyerPct: 0.5, closingPct: 0, concessionsCents: 0 };
+    expect(paths(d)).toEqual(["selling"]);
+    d.selling = { listingPct: 0.5, buyerPct: 0.49, closingPct: 0.0099, concessionsCents: 0 };
+    expect(validateDeal(d)).toEqual([]);
+  });
+
+  it("reports a selling rate above 1 once, not again as a selling-cost total", () => {
+    const d = validDeal();
+    d.selling.listingPct = 2.5;
+    expect(paths(d)).toEqual(["selling.listingPct"]);
+  });
+
   it("rejects fractional and negative cent amounts", () => {
     const d = validDeal();
     d.lot.priceCents = 29_500_000.5;

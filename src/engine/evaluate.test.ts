@@ -305,6 +305,14 @@ describe("evaluateDeal on an invalid deal", () => {
     }
   });
 
+  it("reports selling costs of 100% or more instead of an infinite break-even sale price", () => {
+    const selling = { ...GOLDEN_DEAL.selling, listingPct: 0.5, buyerPct: 0.5, closingPct: 0.01 };
+    const ev = evaluateDeal({ ...GOLDEN_DEAL, selling }, CTX);
+    expect(ev.validation.map((i) => i.path)).toEqual(["selling"]);
+    expectBlocked(ev);
+    expect(ev.verdict.missing?.map((m) => m.step)).toEqual(["proforma"]);
+  });
+
   it("stops at validation, before any cash flow, when the loan could never extend", () => {
     const deal: DealInputs = { ...GOLDEN_DEAL, loan: { ...GOLDEN_DEAL.loan, extensionMonths: 0 } };
     const ev = evaluateDeal(deal, CTX);
