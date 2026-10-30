@@ -261,7 +261,12 @@ If no source exists for a needed line, the estimate is `incomplete` with that li
 
 ### 5.5 Market model
 
-**Comp record:** address, city, county, region, status (sold / active / pending), list date, list price, original list price, price-cut count, sold date, sold price, above-grade finished sf, basement finished sf, unfinished sf, beds, baths, year built, new-construction flag, lot acres, garage bays, basement finish, walkout, ADU, pool, source (`manual` | `csv` | `claudeFile` | `ownSale`), verified flag, notes. Days on market = sold date − list date (sold comps only).
+**Comp record:** address, city, county, region, status (sold / active / pending), list date, list price, original list price, price-cut count, contract (pending) date (optional), sold date, sold price, above-grade finished sf, basement finished sf, unfinished sf, beds, baths, year built, new-construction flag, lot acres, garage bays, basement finish, walkout, ADU, pool, source (`manual` | `csv` | `claudeFile` | `ownSale`), verified flag, notes.
+
+**Comp days on market** means days to **contract**, to match the pro forma (which adds closing days separately):
+- With a contract date: contract date − list date.
+- Without one: sold date − list date − `assumedClosingDays` (market setting, default 35).
+- Sold comps only. Comps missing a list date, or whose dates are out of order, are skipped for DOM but still count for price.
 
 **Similarity score (0–100)** between subject and comp — weights are editable defaults:
 
@@ -408,7 +413,7 @@ Reasons list every rule with pass/fail and the actual value. A **loan warning** 
 
 ```ts
 computeQuantities(house: HouseModel, lot: Lot, rules: QuantityRules): Result<Quantities>
-buildEstimate(q: Quantities, house: HouseModel, book: CostBookView, region: string, contingencyPct: number, today: ISODate): Result<Estimate>
+buildEstimate(q: Quantities, house: HouseModel, book: CostBookView, bids: Bid[], ctx: { region: string; contingencyPct: number; buildMonths: number; today: ISODate }): Result<Estimate>
 estimateMarket(subject: Subject, comps: Comp[], settings: MarketSettings, listMonth: number, today: ISODate): Result<MarketEstimate>
 runCashFlow(input: ProFormaInput): Result<CashFlow>
 computeMetrics(cf: CashFlow, input: ProFormaInput): Metrics
