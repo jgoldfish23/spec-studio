@@ -1,6 +1,7 @@
 import { buildProFormaInput, type ProFormaInput, type ScenarioInputs } from "../cashflow";
 import type { DealInputs } from "../deal";
 import { buildEstimate, type Estimate } from "../estimate";
+import type { Comp } from "../market";
 import type { Cents } from "../money";
 import { computeQuantities, DEFAULT_QUANTITY_RULES } from "../quantities";
 import { isOk } from "../result";
@@ -81,8 +82,8 @@ export interface GoldenExpected {
 /** Expected cash flow and metrics for the golden deal's `base` and `stress` scenarios. */
 export const GOLDEN_EXPECTED: GoldenExpected = goldenExpected;
 
-/** The 8 sold comps from the market mockup. Typed as `Comp[]` once the market model exists. */
-export const GOLDEN_COMPS: unknown[] = goldenComps;
+/** The 8 sold comps from the market mockup. `market.test.ts` checks the JSON's enum fields against `Comp`. */
+export const GOLDEN_COMPS = goldenComps as Comp[];
 
 /** The golden deal's estimate, priced from its 25 bids alone (no price book or defaults). */
 export function goldenEstimate(): Estimate {
