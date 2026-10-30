@@ -23,7 +23,9 @@ function parseDate(d: ISODate): { year: number; month: number; day: number; utcM
   const year = Number(match?.[1]);
   const month = Number(match?.[2]);
   const day = Number(match?.[3]);
-  const utc = new Date(Date.UTC(year, month - 1, day));
+  // `Date.UTC` reads years 0-99 as 1900-1999; `setUTCFullYear` takes every year as written.
+  const utc = new Date(0);
+  utc.setUTCFullYear(year, month - 1, day);
   const isRealDate =
     match !== null &&
     utc.getUTCFullYear() === year &&
@@ -38,12 +40,13 @@ export function daysBetween(a: ISODate, b: ISODate): number {
   return (parseDate(b).utcMs - parseDate(a).utcMs) / MS_PER_DAY;
 }
 
-/** Adds `n` calendar months (negative `n` subtracts) to a year-month. */
+/** Adds `n` calendar months (negative `n` subtracts) to a year-month. The result must fall in years 0000-9999. */
 export function addMonths(ym: YearMonth, n: number): YearMonth {
   const { year, month } = parseYearMonth(ym);
   const index = year * 12 + (month - 1) + n;
   const newYear = Math.floor(index / 12);
   const newMonth = index - newYear * 12 + 1;
+  if (newYear < 0 || newYear > 9999) throw new RangeError(`"${ym}" plus ${n} months is outside years 0000-9999`);
   return `${String(newYear).padStart(4, "0")}-${String(newMonth).padStart(2, "0")}`;
 }
 

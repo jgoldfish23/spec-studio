@@ -293,6 +293,18 @@ describe("evaluateDeal on an invalid deal", () => {
     expect(steps).toEqual({ "lot.priceCents": "lot", contingencyPct: "proforma" });
   });
 
+  it("reports a bid dated before 1900 (a two-digit year typed into a date field) instead of throwing", () => {
+    for (const receivedOn of ["0026-10-12", "0000-01-01"]) {
+      const bids = GOLDEN_DEAL.bids.map((b, i) => (i === 0 ? { ...b, receivedOn } : b));
+      let ev: DealEvaluation | undefined;
+      expect(() => {
+        ev = evaluateDeal({ ...GOLDEN_DEAL, bids }, CTX);
+      }, receivedOn).not.toThrow();
+      expect(ev?.validation.map((i) => i.path)).toEqual(["bids.0.receivedOn"]);
+      if (ev) expectBlocked(ev);
+    }
+  });
+
   it("stops at validation, before any cash flow, when the loan could never extend", () => {
     const deal: DealInputs = { ...GOLDEN_DEAL, loan: { ...GOLDEN_DEAL.loan, extensionMonths: 0 } };
     const ev = evaluateDeal(deal, CTX);

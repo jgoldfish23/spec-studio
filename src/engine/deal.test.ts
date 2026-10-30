@@ -178,6 +178,29 @@ describe("validateDeal", () => {
     );
   });
 
+  it("requires bid dates in 1900 or later, reporting an earlier one as a single issue", () => {
+    // "0026-10-12" is what a browser date input stores for a two-digit year.
+    for (const receivedOn of ["0026-10-12", "0000-01-01", "1899-12-31", "0026-02-30"]) {
+      const d = validDeal();
+      d.bids = [{ code: "framing", amountCents: 6_500_000, vendor: "Wasatch Framing", receivedOn }];
+      expect(paths(d), receivedOn).toEqual(["bids.0.receivedOn"]);
+    }
+    const d = validDeal();
+    d.bids = [{ code: "framing", amountCents: 6_500_000, vendor: "Wasatch Framing", receivedOn: "1900-01-01" }];
+    expect(validateDeal(d)).toEqual([]);
+  });
+
+  it("requires the land-close month in 1900 or later, reporting an earlier one as a single issue", () => {
+    for (const landClose of ["0026-10", "0000-01", "1899-12", "0026-13"]) {
+      const d = validDeal();
+      d.timeline.landClose = landClose;
+      expect(paths(d), landClose).toEqual(["timeline.landClose"]);
+    }
+    const d = validDeal();
+    d.timeline.landClose = "1900-01";
+    expect(validateDeal(d)).toEqual([]);
+  });
+
   it("rejects invalid scenario sources", () => {
     const d: Record<string, unknown> = structuredClone(validDeal());
     (d.scenarioDefs as { base: Record<string, unknown> }).base.priceSource = "median";

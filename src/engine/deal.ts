@@ -15,6 +15,13 @@ const days = z.number().int("Must be a whole number of days").min(0, "Must be 0 
 // run both ranges and report two issues for one bad value.
 const atLeastOneMonth = z.number().int("Must be a whole number of months").min(1, "Must be at least 1");
 const loanToCost = z.number().min(0, "Must be 0 or more").max(0.95, "Must be 0.95 or less");
+// A year before 1900 is almost always a two-digit year typed into a date field, which stores "26" as
+// 0026. Checked only once the field's format check has passed, so one bad value raises one issue.
+const isFrom1900 = (yearFirst: string): boolean => Number(yearFirst.slice(0, 4)) >= 1900;
+const from1900 = {
+  message: "Year must be 1900 or later",
+  when: (payload: z.core.ParsePayload) => payload.issues.length === 0,
+};
 
 const UTILITIES = ["water", "sewer", "gas", "power", "secondaryWater"] as const;
 export const UtilitySchema = z.enum(UTILITIES);
@@ -43,7 +50,10 @@ export type Lot = z.infer<typeof LotSchema>;
 
 export const TimelineSchema = z
   .object({
-    landClose: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Must be a month as YYYY-MM"),
+    landClose: z
+      .string()
+      .regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Must be a month as YYYY-MM")
+      .refine(isFrom1900, from1900),
     preConMonths: months,
     buildMonths: atLeastOneMonth,
     listEarlyMonths: months,
@@ -111,7 +121,7 @@ export const BidSchema = z.object({
   code: z.string().min(1, "Required"),
   amountCents: cents,
   vendor: z.string().min(1, "Required"),
-  receivedOn: z.iso.date("Must be a real date as YYYY-MM-DD"),
+  receivedOn: z.iso.date("Must be a real date as YYYY-MM-DD").refine(isFrom1900, from1900),
   notes: z.string().optional(),
 });
 export type Bid = z.infer<typeof BidSchema>;

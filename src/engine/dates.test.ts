@@ -48,6 +48,35 @@ describe("daysBetween", () => {
     expect(() => daysBetween("2026-13-01", "2026-10-30")).toThrow(RangeError);
     expect(() => daysBetween("not a date", "2026-10-30")).toThrow(RangeError);
   });
+
+  it("reads years 0000-0099 as written, not as 1900-1999", () => {
+    // A browser date input stores a two-digit year typed as "26" like this.
+    expect(daysBetween("0026-10-12", "0026-10-13")).toBe(1);
+    expect(daysBetween("0026-10-12", "0027-10-12")).toBe(365);
+    expect(daysBetween("0000-01-01", "1970-01-01")).toBe(719_528);
+    expect(daysBetween("1970-01-01", "9999-12-31")).toBe(2_932_896);
+    expect(yearOfDate("0026-10-12")).toBe(26);
+    expect(monthOfDate("0026-10-12")).toBe(10);
+    expect(yearOfDate("0000-01-01")).toBe(0);
+  });
+
+  it("applies the Gregorian leap-year rule in every century, year 0 included", () => {
+    expect(daysBetween("0000-02-28", "0000-03-01")).toBe(2);
+    expect(daysBetween("0028-02-28", "0028-03-01")).toBe(2);
+    expect(daysBetween("0100-02-28", "0100-03-01")).toBe(1);
+    expect(() => yearOfDate("0026-02-29")).toThrow(RangeError);
+    expect(() => yearOfDate("0100-02-29")).toThrow(RangeError);
+  });
+
+  it("gives every year from 0000 to 9998 its 365 or 366 days", () => {
+    const isLeap = (y: number) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+    const iso = (y: number) => `${String(y).padStart(4, "0")}-01-01`;
+    fc.assert(
+      fc.property(fc.integer({ min: 0, max: 9_998 }), (y) => {
+        expect(daysBetween(iso(y), iso(y + 1))).toBe(isLeap(y) ? 366 : 365);
+      }),
+    );
+  });
 });
 
 describe("addMonths", () => {
@@ -84,6 +113,18 @@ describe("addMonths", () => {
     expect(() => addMonths("2027-13", 1)).toThrow(RangeError);
     expect(() => addMonths("2027-00", 1)).toThrow(RangeError);
     expect(() => addMonths("2027-06-15", 1)).toThrow(RangeError);
+  });
+
+  it("works on four-digit years below 1000", () => {
+    expect(addMonths("0026-11", 2)).toBe("0027-01");
+    expect(addMonths("0001-01", -1)).toBe("0000-12");
+    expect(addMonths("0999-12", 1)).toBe("1000-01");
+  });
+
+  it("rejects a result outside years 0000-9999, which YYYY-MM cannot write", () => {
+    expect(() => addMonths("0000-01", -1)).toThrow(RangeError);
+    expect(() => addMonths("9999-12", 1)).toThrow(RangeError);
+    expect(addMonths("9999-11", 1)).toBe("9999-12");
   });
 });
 
