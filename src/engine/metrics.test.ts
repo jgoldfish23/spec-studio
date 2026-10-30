@@ -4,6 +4,7 @@ import { arbProFormaInput } from "./__fixtures__/arbitraries";
 import { GOLDEN_EXPECTED, goldenProFormaInput } from "./__fixtures__/golden";
 import { runCashFlow, type ProFormaInput } from "./cashflow";
 import { breakEvenDomDays, computeMetrics, equityFlows, irrMonthly, type Metrics } from "./metrics";
+import { roundCents } from "./money";
 
 const metricsFor = (input: ProFormaInput): Metrics => computeMetrics(runCashFlow(input), input);
 const profitFor = (input: ProFormaInput): number => metricsFor(input).profitCents;
@@ -158,8 +159,10 @@ describe("computeMetrics: variations on the golden deal", () => {
     // Land financing leaves the construction loan alone, so only the land-loan terms change.
     const before = metricsFor(cash);
     const after = computeMetrics(cf, financed);
-    expect(after.financingCents - before.financingCents).toBe(0.02 * landLoan + landInterest);
-    expect(after.monthlyBurnWhileListedCents - before.monthlyBurnWhileListedCents).toBe((landLoan * 0.12) / 12);
+    expect(after.financingCents - before.financingCents).toBe(roundCents(0.02 * landLoan) + landInterest);
+    expect(after.monthlyBurnWhileListedCents - before.monthlyBurnWhileListedCents).toBe(
+      roundCents((landLoan * 0.12) / 12),
+    );
   });
 });
 

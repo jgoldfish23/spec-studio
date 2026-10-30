@@ -136,6 +136,29 @@ describe("runCashFlow: hand cases", () => {
     });
   });
 
+  it("charges land-loan interest from land close, through pre-construction, with the land points paid at land close", () => {
+    const rate = 0.12;
+    const cf = runCashFlow(
+      loanCase({
+        preConMonths: 2,
+        landPriceCents: 10_000_000,
+        landClosingCents: 300_000,
+        landFinancing: { kind: "loan", ltv: 0.7, rate, points: 0.02 },
+      }),
+    );
+    expect(cf.times.buildStart).toBe(2);
+    const landLoan = cf.landLoanCents;
+    expect(landLoan).toBe(7_000_000);
+    // Months 0 and 1 are pre-construction, yet the land loan is outstanding for all of both.
+    const fullMonth = roundCents((landLoan * rate) / 12);
+    expect(column(cf.periods, "landLoanInterestCents").slice(0, 2)).toEqual([fullMonth, fullMonth]);
+    // Nothing is spent before the build here, and construction points wait for build start, so period 0
+    // is the land purchase (equity's share of the price, closing, and land points) plus a month's interest.
+    const landPoints = roundCents(0.02 * landLoan);
+    expect(cf.periods[0]).toMatchObject({ spendCents: 0, pointsCents: 0 });
+    expect(cf.periods[0]?.equityOutCents).toBe(10_000_000 - landLoan + 300_000 + landPoints + fullMonth);
+  });
+
   it("charges each carry cost over its own window and adds it all to equity out", () => {
     // Build start 1, completion 3, list 2, contract = sale close = 4.4 (73 days = 2.4 months).
     const cf = runCashFlow(
