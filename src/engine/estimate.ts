@@ -31,12 +31,18 @@ export type EstimatePart = LinePart & {
   stale: boolean;
 };
 
-/** One cost code. A bid replaces the line outright, so a bid line has no parts. */
+/** One cost code. A bid replaces the line outright, so a bid line has no priced `parts`. */
 export type EstimateLine = {
   code: CostCodeId;
   name: string;
   division: Division;
+  /** The priced parts. Empty on a bid line. */
   parts: EstimatePart[];
+  /**
+   * The unpriced takeoff for this code (quantity and unit per part), kept so a bid line can still
+   * show its quantity for reference. Empty when the takeoff has nothing for the code. Never summed.
+   */
+  takeoff: LinePart[];
   totalCents: Cents;
   source: "bid" | "priceBook" | "default";
   bid?: Bid;
@@ -165,6 +171,7 @@ export function buildEstimate(
         name,
         division,
         parts: [],
+        takeoff: parts ?? [],
         totalCents: bid.amountCents,
         source: "bid",
         bid,
@@ -198,6 +205,7 @@ export function buildEstimate(
       name,
       division,
       parts: priced,
+      takeoff: parts ?? [],
       totalCents: sumCents(priced.map((p) => p.totalCents)),
       source: priced.some((p) => p.source === "default") ? "default" : "priceBook",
       stale: priced.some((p) => p.stale),

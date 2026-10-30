@@ -168,6 +168,19 @@ describe("buildEstimate from the default book", () => {
     expect(cabinets.bid).toBeUndefined();
   });
 
+  it("lists the unpriced takeoff on every line, matching the priced parts' quantities", () => {
+    const est = estimate();
+    const takeoffByCode = new Map<CostCodeId, LinePart[]>();
+    for (const part of SAMPLE_PARTS) takeoffByCode.set(part.code, [...(takeoffByCode.get(part.code) ?? []), part]);
+    for (const line of est.lines) {
+      expect(line.takeoff).toEqual(takeoffByCode.get(line.code));
+      expect(line.takeoff.map((t) => [t.variant, t.tier, t.quantity, t.unit])).toEqual(
+        line.parts.map((p) => [p.variant, p.tier, p.quantity, p.unit]),
+      );
+    }
+    expect(lineOf(est, "cabinets").takeoff.map((t) => t.quantity)).toEqual([36, 5, 19]);
+  });
+
   it("rounds each part total half away from zero, and sums the rounded parts", () => {
     const q = structuredClone(SAMPLE_Q);
     q.framingSf.value = 100.5;
@@ -292,6 +305,20 @@ describe("buildEstimate with bids", () => {
     });
   });
 
+  it("keeps the takeoff quantity and unit on a bid line for reference, without pricing it", () => {
+    const framing = lineOf(estimate(uniformBook(), [bid("framing", 7_000_000)]), "framing");
+    expect(framing.totalCents).toBe(7_000_000);
+    expect(framing.parts).toEqual([]);
+    expect(framing.takeoff).toHaveLength(1);
+    expect(framing.takeoff[0]).toMatchObject({ code: "framing", variant: "base", quantity: 4_568, unit: "sf" });
+    expect(framing.takeoff[0]).not.toHaveProperty("unitPriceCents");
+  });
+
+  it("has an empty takeoff for a bid on a code the takeoff does not use", () => {
+    const pool = lineOf(estimate(uniformBook(), [bid("pool", 6_000_000)]), "pool");
+    expect(pool.takeoff).toEqual([]);
+  });
+
   it("ignores a bid whose code is not a cost code, with a warning", () => {
     const r = buildEstimate(
       SAMPLE_Q,
@@ -333,6 +360,18 @@ describe("confidence", () => {
     expect(priceBookShare).toBe(priceBookCents / est.subtotalCents);
     expect(defaultShare).toBe(est.confidence.defaultCents / est.subtotalCents);
     expect(bidShare + priceBookShare + defaultShare).toBeCloseTo(1, 12);
+  });
+
+  it("does not count a bid line's takeoff toward any total or share", () => {
+    const est = estimate(uniformBook(), [bid("framing", 7_000_000)]);
+    // All-default subtotal 7,089,800 with framing's 456,800 swapped for the 7,000,000 bid.
+    expect(est.subtotalCents).toBe(7_089_800 - 456_800 + 7_000_000);
+    expect(est.confidence.bidCents).toBe(7_000_000);
+    expect(est.confidence.defaultCents).toBe(7_089_800 - 456_800);
+    expect(est.confidence.bidCents + est.confidence.priceBookCents + est.confidence.defaultCents).toBe(
+      est.subtotalCents,
+    );
+    expect(lineOf(est, "framing").takeoff).toHaveLength(1);
   });
 
   it("reports zero shares when the subtotal is zero", () => {
