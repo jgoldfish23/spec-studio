@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Deal · House</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F4F5F2;font-family:'Inter',system-ui,sans-serif;color:#1A1D1B;font-variant-numeric:tabular-nums}
+a{color:#1F4B3F}a:hover{color:#0F2F27}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #F4F5F2; font-family: 'Inter', system-ui, sans-serif; color: #1A1D1B">
+
+<header style="background: #16241F; color: #F4F5F2; padding: 0 32px">
+<div style="max-width: 1320px; margin: 0 auto; min-height: 60px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap">
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 10px; color: #F4F5F2; text-decoration: none">
+<svg aria-hidden="true" width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="#E9A06A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12 13 4l10 8"></path><path d="M6 10v12h14V10"></path><path d="M11 22v-6h4v6"></path></svg>
+<span style="font-weight: 700; font-size: 17px; letter-spacing: -0.01em">Spec Studio</span>
+</a>
+<nav aria-label="Main" style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 14px">
+<a href="Main.dc.html" aria-current="page" style="color: #FFFFFF; text-decoration: none; padding: 8px 12px; border-radius: 6px; background: #2A3D36; font-weight: 600">Deals</a>
+<a href="#" style="color: #C9D3CE; text-decoration: none; padding: 8px 12px; border-radius: 6px">Cost book</a>
+<a href="#" style="color: #C9D3CE; text-decoration: none; padding: 8px 12px; border-radius: 6px">Comps</a>
+<span style="color: #8E9C96; padding: 8px 12px; display: flex; align-items: center; gap: 6px">Plans <span style="font-size: 11px; border: 1px solid #4A5C55; border-radius: 4px; padding: 1px 5px">Later</span></span>
+<span style="color: #8E9C96; padding: 8px 12px; display: flex; align-items: center; gap: 6px">Builds <span style="font-size: 11px; border: 1px solid #4A5C55; border-radius: 4px; padding: 1px 5px">Later</span></span>
+</nav>
+</div>
+</header>
+
+<section style="background: #FFFFFF; border-bottom: 1px solid #DCDFD9; padding: 20px 32px 0">
+<div style="max-width: 1320px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<a href="Main.dc.html" style="font-size: 13px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 4px"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3 5 7l4 4"></path></svg>Deals</a>
+<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+<h1 style="margin: 0; font-size: 26px; letter-spacing: -0.02em">Kaysville lot · 3,800 sf rambler</h1>
+<span style="font-size: 12px; font-weight: 600; color: #7A4F00; background: #FFF1D6; border: 1px solid #F0D9A8; padding: 3px 8px; border-radius: 999px">Sample numbers</span>
+</div>
+<p style="margin: 0; color: #4F5A55; font-size: 14px">Davis County · 0.33 ac · finished basement · 3-car garage</p>
+</div>
+<div aria-live="polite">
+<sc-if value="{{isGo}}" hint-placeholder-val="{{ false }}">
+<span style="display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; color: #155C34; background: #E3F2E8; border: 1px solid #B9DEC7; padding: 8px 14px; border-radius: 999px"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5 6 10l5-6"></path></svg>Go</span>
+</sc-if>
+<sc-if value="{{isMarginal}}" hint-placeholder-val="{{ true }}">
+<span style="display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; color: #7A4F00; background: #FFF1D6; border: 1px solid #F0D9A8; padding: 8px 14px; border-radius: 999px"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3.5 7h7"></path></svg>Marginal</span>
+</sc-if>
+<sc-if value="{{isNoGo}}" hint-placeholder-val="{{ false }}">
+<span style="display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; color: #8F2323; background: #FBE4E2; border: 1px solid #F2C2BE; padding: 8px 14px; border-radius: 999px"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m4 4 6 6M10 4l-6 6"></path></svg>No-go</span>
+</sc-if>
+</div>
+</div>
+<dl aria-live="polite" style="margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px">
+<div style="background: #F7F8F6; border-radius: 10px; padding: 12px 14px"><dt style="font-size: 12px; color: #4F5A55">Sale price (base)</dt><dd style="margin: 4px 0 0; font-size: 20px; font-weight: 700">$1,350,000</dd></div>
+<div style="background: #F7F8F6; border-radius: 10px; padding: 12px 14px"><dt style="font-size: 12px; color: #4F5A55">Total project cost</dt><dd style="margin: 4px 0 0; font-size: 20px; font-weight: 700">{{s.total}}</dd></div>
+<div style="background: #F7F8F6; border-radius: 10px; padding: 12px 14px"><dt style="font-size: 12px; color: #4F5A55">Profit</dt><dd style="margin: 4px 0 0; font-size: 20px; font-weight: 700">{{s.profit}}</dd></div>
+<div style="background: #F7F8F6; border-radius: 10px; padding: 12px 14px"><dt style="font-size: 12px; color: #4F5A55">Margin on sale</dt><dd style="margin: 4px 0 0; font-size: 20px; font-weight: 700">{{s.margin}}</dd></div>
+<div style="background: #F7F8F6; border-radius: 10px; padding: 12px 14px"><dt style="font-size: 12px; color: #4F5A55">Days on market</dt><dd style="margin: 4px 0 0; font-size: 20px; font-weight: 700">45–90</dd></div>
+</dl>
+<nav aria-label="Deal steps" style="display: flex; gap: 4px; flex-wrap: wrap">
+<a href="Lot.dc.html" style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 3px solid transparent; color: #4F5A55; font-weight: 500; text-decoration: none; font-size: 15px"><span style="width: 22px; height: 22px; border-radius: 50%; background: #E7E9E4; color: #33403A; font-size: 12px; display: inline-flex; align-items: center; justify-content: center">1</span>Lot</a>
+<a href="House.dc.html" aria-current="step" style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 3px solid #1F4B3F; color: #1A1D1B; font-weight: 600; text-decoration: none; font-size: 15px"><span style="width: 22px; height: 22px; border-radius: 50%; background: #1F4B3F; color: #FFFFFF; font-size: 12px; display: inline-flex; align-items: center; justify-content: center">2</span>House</a>
+<a href="Estimate.dc.html" style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 3px solid transparent; color: #4F5A55; font-weight: 500; text-decoration: none; font-size: 15px"><span style="width: 22px; height: 22px; border-radius: 50%; background: #E7E9E4; color: #33403A; font-size: 12px; display: inline-flex; align-items: center; justify-content: center">3</span>Estimate</a>
+<a href="Market.dc.html" style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 3px solid transparent; color: #4F5A55; font-weight: 500; text-decoration: none; font-size: 15px"><span style="width: 22px; height: 22px; border-radius: 50%; background: #E7E9E4; color: #33403A; font-size: 12px; display: inline-flex; align-items: center; justify-content: center">4</span>Market</a>
+<a href="ProForma.dc.html" style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 3px solid transparent; color: #4F5A55; font-weight: 500; text-decoration: none; font-size: 15px"><span style="width: 22px; height: 22px; border-radius: 50%; background: #E7E9E4; color: #33403A; font-size: 12px; display: inline-flex; align-items: center; justify-content: center">5</span>Pro forma</a>
+</nav>
+</div>
+</section>
+
+<main style="max-width: 1320px; margin: 0 auto; padding: 28px 32px 48px; display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start">
+
+<div style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
+
+<section style="background: #FFFFFF; border: 1px solid #DCDFD9; border-radius: 12px; padding: 22px; display: flex; flex-direction: column; gap: 14px">
+<h2 style="margin: 0; font-size: 17px" id="start-label">Start from</h2>
+<div role="group" aria-labelledby="start-label" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px">
+<button type="button" aria-pressed="true" style="font: inherit; text-align: left; padding: 14px 16px; border-radius: 10px; border: 2px solid #1F4B3F; background: #F1F6F4; cursor: pointer; min-height: 44px"><div style="font-weight: 600; font-size: 15px; color: #1A1D1B">Describe it</div><div style="font-size: 13px; color: #4F5A55; margin-top: 4px">Sizes, levels, features</div></button>
+<button type="button" aria-pressed="false" style="font: inherit; text-align: left; padding: 14px 16px; border-radius: 10px; border: 1px solid #C9CEC8; background: #FFFFFF; cursor: pointer; min-height: 44px"><div style="font-weight: 600; font-size: 15px; color: #1A1D1B">Stock plan or drafter PDF</div><div style="font-size: 13px; color: #4F5A55; margin-top: 4px">Type in the plan's specs</div></button>
+<button type="button" disabled style="font: inherit; text-align: left; padding: 14px 16px; border-radius: 10px; border: 1px dashed #B8BEB9; background: #F7F8F6; min-height: 44px"><div style="font-weight: 600; font-size: 15px; color: #4F5A55">Plan library <span style="font-size: 11px; border: 1px solid #B8BEB9; border-radius: 4px; padding: 1px 5px; margin-left: 4px">Later</span></div><div style="font-size: 13px; color: #5B625E; margin-top: 4px">Your saved plans + options</div></button>
+</div>
+</section>
+
+<section style="background: #FFFFFF; border: 1px solid #DCDFD9; border-radius: 12px; padding: 22px; display: flex; flex-direction: column; gap: 18px">
+<h2 style="margin: 0; font-size: 17px">Size &amp; levels</h2>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 13px; font-weight: 600; color: #33403A" id="style-label">Style</span>
+<div role="group" aria-labelledby="style-label" style="display: flex; border: 1px solid #C9CEC8; border-radius: 8px; overflow: hidden; max-width: 480px">
+<button type="button" aria-pressed="true" style="flex: 1; font: inherit; font-size: 14px; min-height: 44px; border: 0; background: #1F4B3F; color: #FFFFFF; font-weight: 600; cursor: pointer">Rambler</button>
+<button type="button" aria-pressed="false" style="flex: 1; font: inherit; font-size: 14px; min-height: 44px; border: 0; border-left: 1px solid #C9CEC8; border-right: 1px solid #C9CEC8; background: #FFFFFF; color: #33403A; cursor: pointer">Two-story</button>
+<button type="button" aria-pressed="false" style="flex: 1; font: inherit; font-size: 14px; min-height: 44px; border: 0; background: #FFFFFF; color: #33403A; cursor: pointer">Multi-level</button>
+</div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="h-main" style="font-size: 13px; font-weight: 600; color: #33403A">Main level, finished</label><input id="h-main" value="2,200 sf" readonly style="font: inherit; font-size: 15px; padding: 10px 12px; border: 1px solid #C9CEC8; border-radius: 8px; background: #FFFFFF; color: #1A1D1B; min-height: 44px; box-sizing: border-box"></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="h-ceil" style="font-size: 13px; font-weight: 600; color: #33403A">Main ceilings</label><input id="h-ceil" value="10 ft" readonly style="font: inherit; font-size: 15px; padding: 10px 12px; border: 1px solid #C9CEC8; border-radius: 8px; background: #FFFFFF; color: #1A1D1B; min-height: 44px; box-sizing: border-box"></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="h-bsmt" style="font-size: 13px; font-weight: 600; color: #33403A">Basement, total</label><input id="h-bsmt" value="2,200 sf" readonly style="font: inherit; font-size: 15px; padding: 10px 12px; border: 1px solid #C9CEC8; border-radius: 8px; background: #FFFFFF; color: #1A1D1B; min-height: 44px; box-sizing: border-box"></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="h-bsmtfin" style="font-size: 13px; font-weight: 600; color: #33403A">Basement, finished</label><input id="h-bsmtfin" value="1,600 sf" readonly style="font: inherit; font-size: 15px; padding: 10px 12px; border: 1px solid #C9CEC8; border-radius: 8px; background: #FFFFFF; color: #1A1D1B; min-height: 44px; box-sizing: border-box"></div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 13px; font-weight: 600; color: #33403A" id="walkout-label">Walkout basement</span>
+<div role="group" aria-labelledby="walkout-label" style="display: flex; border: 1px solid #C9CEC8; border-radius: 8px; overflow: hidden">
+<button type="button" aria-pressed="true" style="flex: 1; font: inherit; font-size: 14px; min-height: 44px; border: 0; background: #1F4B3F; color: #FFFFFF; font-weight: 600; cursor: pointer">No</button>
+<button type="button" aria-pressed="false" style="flex: 1; font: inherit; font-size: 14px; min-height: 44px; border: 0; border-left: 1px solid #C9CEC8; background: #FFFFFF; color: #33403A; cursor: pointer">Yes</button>
+</div>
+</div>
+</div>
+</section>
+
+<section style="background: #FFFFFF; border: 1px solid #DCDFD9; border-radius: 12px; padding: 22px; display: flex; flex-direction: column; gap: 18px">
+<h2 style="margin: 0; font-size: 17px">Footprint, roof &amp; rooms</h2>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="h-foot" style="font-size: 13px; font-weight: 600; color: #33403A">Footprint</label><input id="h-foot" value="55 ft × 40 ft" readonly style="font: inherit; font-size: 15px; padding: 10px 12px; border: 1px solid #C9CEC8; border-radius: 8px; background: #FFFFFF; color: #1A1D1B; min-height: 44px; box-sizing: border-box"></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="h-pitch" style="font-size: 13px; font-weight: 600; color: #33403A">Roof pitch</label><input id="h-pitch" value="6/12" readonly style="font: inherit; font-size: 15px; padding: 10px 12px; border: 1px solid #C9CEC8; border-radius: 8px; background: #FFFFFF; color: #1A1D1B; min-height: 44px; box-sizing: border-box"></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="h-garage" style="font-size: 13px; font-weight: 600; color: #33403A">Garage bays</label><input id="h-garage" value="3" readonly style="font: inherit; font-size: 15px; padding: 10px 12px; border: 1px solid #C9CEC8; border-radius: 8px; background: #FFFFFF; color: #1A1D1B; min-height: 44px; box-sizing: border-box"></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="h-beds" style="font-size: 13px; font-weight: 600; color: #33403A">Bedrooms</label><input id="h-beds" value="5" readonly style="font: inherit; font-size: 15px; padding: 10px 12px; border: 1px solid #C9CEC8; border-radius: 8px; background: #FFFFFF; color: #1A1D1B; min-height: 44px; box-sizing: border-box"></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="h-baths" style="font-size: 13px; font-weight: 600; color: #33403A">Baths (full / half)</label><input id="h-baths" value="3 / 1" readonly style="font: inherit; font-size: 15px; padding: 10px 12px; border: 1px solid #C9CEC8; border-radius: 8px; background: #FFFFFF; color: #1A1D1B; min-height: 44px; box-sizing: border-box"></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="h-fp" style="font-size: 13px; font-weight: 600; color: #33403A">Fireplaces</label><input id="h-fp" value="1" readonly style="font: inherit; font-size: 15px; padding: 10px 12px; border: 1px solid #C9CEC8; border-radius: 8px; background: #FFFFFF; color: #1A1D1B; min-height: 44px; box-sizing: border-box"></div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 13px; font-weight: 600; color: #33403A" id="corners-label">Corners &amp; jogs</span>
+<div role="group" aria-labelledby="corners-label" style="display: flex; border: 1px solid #C9CEC8; border-radius: 8px; overflow: hidden">
+<button type="button" aria-pressed="false" style="flex: 1; font: inherit; font-size: 14px; min-height: 44px; border: 0; background: #FFFFFF; color: #33403A; cursor: pointer">Simple box</button>
+<button type="button" aria-pressed="true" style="flex: 1; font: inherit; font-size: 14px; min-height: 44px; border: 0; border-left: 1px solid #C9CEC8; border-right: 1px solid #C9CEC8; background: #1F4B3F; color: #FFFFFF; font-weight: 600; cursor: pointer">Moderate</button>
+<button type="button" aria-pressed="false" style="flex: 1; font: inherit; font-size: 14px; min-height: 44px; border: 0; background: #FFFFFF; color: #33403A; cursor: pointer">Complex</button>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 13px; font-weight: 600; color: #33403A" id="roof-label">Roof style</span>
+<div role="group" aria-labelledby="roof-label" style="display: flex; border: 1px solid #C9CEC8; border-radius: 8px; overflow: hidden">
+<button type="button" aria-pressed="false" style="flex: 1; font: inherit; font-size: 14px; min-height: 44px; border: 0; background: #FFFFFF; color: #33403A; cursor: pointer">Gable</button>
+<button type="button" aria-pressed="true" style="flex: 1; font: inherit; font-size: 14px; min-height: 44px; border: 0; border-left: 1px solid #C9CEC8; border-right: 1px solid #C9CEC8; background: #1F4B3F; color: #FFFFFF; font-weight: 600; cursor: pointer">Hip</button>
+<button type="button" aria-pressed="false" style="flex: 1; font: inherit; font-size: 14px; min-height: 44px; border: 0; background: #FFFFFF; color: #33403A; cursor: pointer">Mixed</button>
+</div>
+</div>
+</div>
+</section>
+
+<section style="background: #FFFFFF; border: 1px solid #DCDFD9; border-radius: 12px; padding: 22px; display: flex; flex-direction: column; gap: 14px">
+<h2 style="margin: 0; font-size: 17px">Exterior</h2>
+<div style="display: flex; height: 36px; border-radius: 8px; overflow: hidden; font-size: 13px; font-weight: 600" role="img" aria-label="Exterior cladding: 25% stone, 50% stucco, 25% board and batten">
+<div style="width: 25%; background: #8C8174; color: #FFFFFF; display: flex; align-items: center; justify-content: center">Stone 25%</div>
+<div style="width: 50%; background: #E4DDD0; color: #33403A; display: flex; align-items: center; justify-content: center">Stucco 50%</div>
+<div style="width: 25%; background: #33403A; color: #FFFFFF; display: flex; align-items: center; justify-content: center">Board &amp; batten 25%</div>
+</div>
+<p style="margin: 0; font-size: 13px; color: #5B625E">Drag the dividers to change the mix — stone costs the most per square foot.</p>
+</section>
+
+<section style="background: #FFFFFF; border: 2px solid #1F4B3F; border-radius: 12px; padding: 22px; display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap">
+<h2 style="margin: 0; font-size: 17px" id="tier-label">Finishes</h2>
+<span style="font-size: 12px; font-weight: 600; color: #1F4B3F; background: #E5EFEB; padding: 3px 8px; border-radius: 999px">Try it — the numbers update</span>
+</div>
+<div role="group" aria-labelledby="tier-label" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px">
+<sc-for list="{{tiers}}" as="t" hint-placeholder-count="3">
+<button type="button" aria-pressed="{{t.pressed}}" onClick="{{t.pick}}" style="{{t.style}}"><div style="font-weight: 700; font-size: 15px">{{t.label}}</div><div style="font-size: 13px; margin-top: 4px; opacity: 0.9">{{t.sub}}</div></button>
+</sc-for>
+</div>
+<div style="display: flex; flex-direction: column">
+<div style="display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #E7E9E4; font-size: 14px"><span>Kitchen</span><strong>Luxury <span style="font-weight: 500; color: #5B625E">(override)</span></strong></div>
+<div style="display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #E7E9E4; font-size: 14px"><span>Primary bath</span><strong>Same as house</strong></div>
+<div style="display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; font-size: 14px"><span>Basement</span><strong>Standard <span style="font-weight: 500; color: #5B625E">(override)</span></strong></div>
+</div>
+</section>
+
+<section style="background: #FFFFFF; border: 1px solid #DCDFD9; border-radius: 12px; padding: 22px; display: flex; flex-direction: column; gap: 18px">
+<h2 style="margin: 0; font-size: 17px">Extras &amp; outside</h2>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 13px; font-weight: 600; color: #33403A" id="adu-label">ADU</span>
+<div role="group" aria-labelledby="adu-label" style="display: flex; border: 1px solid #C9CEC8; border-radius: 8px; overflow: hidden">
+<button type="button" aria-pressed="true" style="flex: 1; font: inherit; font-size: 14px; min-height: 44px; border: 0; background: #1F4B3F; color: #FFFFFF; font-weight: 600; cursor: pointer">None</button>
+<button type="button" aria-pressed="false" style="flex: 1; font: inherit; font-size: 14px; min-height: 44px; border: 0; border-left: 1px solid #C9CEC8; border-right: 1px solid #C9CEC8; background: #FFFFFF; color: #33403A; cursor: pointer">Basement</button>
+<button type="button" aria-pressed="false" style="flex: 1; font: inherit; font-size: 14px; min-height: 44px; border: 0; background: #FFFFFF; color: #33403A; cursor: pointer">Detached</button>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 13px; font-weight: 600; color: #33403A" id="pool-label">Pool</span>
+<div role="group" aria-labelledby="pool-label" style="display: flex; border: 1px solid #C9CEC8; border-radius: 8px; overflow: hidden">
+<button type="button" aria-pressed="true" style="flex: 1; font: inherit; font-size: 14px; min-height: 44px; border: 0; background: #1F4B3F; color: #FFFFFF; font-weight: 600; cursor: pointer">None</button>
+<button type="button" aria-pressed="false" style="flex: 1; font: inherit; font-size: 14px; min-height: 44px; border: 0; border-left: 1px solid #C9CEC8; border-right: 1px solid #C9CEC8; background: #FFFFFF; color: #33403A; cursor: pointer">Fiberglass</button>
+<button type="button" aria-pressed="false" style="flex: 1; font: inherit; font-size: 14px; min-height: 44px; border: 0; background: #FFFFFF; color: #33403A; cursor: pointer">Gunite</button>
+</div>
+</div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="x-patio" style="font-size: 13px; font-weight: 600; color: #33403A">Covered patio</label><input id="x-patio" value="400 sf" readonly style="font: inherit; font-size: 15px; padding: 10px 12px; border: 1px solid #C9CEC8; border-radius: 8px; background: #FFFFFF; color: #1A1D1B; min-height: 44px; box-sizing: border-box"></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="x-flat" style="font-size: 13px; font-weight: 600; color: #33403A">Driveway &amp; flatwork</label><input id="x-flat" value="1,500 sf" readonly style="font: inherit; font-size: 15px; padding: 10px 12px; border: 1px solid #C9CEC8; border-radius: 8px; background: #FFFFFF; color: #1A1D1B; min-height: 44px; box-sizing: border-box"></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="x-fence" style="font-size: 13px; font-weight: 600; color: #33403A">Fencing</label><input id="x-fence" value="240 LF" readonly style="font: inherit; font-size: 15px; padding: 10px 12px; border: 1px solid #C9CEC8; border-radius: 8px; background: #FFFFFF; color: #1A1D1B; min-height: 44px; box-sizing: border-box"></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><label for="x-land" style="font-size: 13px; font-weight: 600; color: #33403A">Landscaping</label><input id="x-land" value="Upgraded" readonly style="font: inherit; font-size: 15px; padding: 10px 12px; border: 1px solid #C9CEC8; border-radius: 8px; background: #FFFFFF; color: #1A1D1B; min-height: 44px; box-sizing: border-box"></div>
+</div>
+</section>
+
+</div>
+
+<aside style="flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
+
+<section aria-live="polite" style="background: #16241F; color: #F4F5F2; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font-size: 14px; font-weight: 600; color: #C9D3CE">Build estimate</h2>
+<div style="font-size: 32px; font-weight: 700; letter-spacing: -0.02em">{{s.build}}</div>
+<div style="font-size: 14px; color: #C9D3CE">{{s.perSf}} per finished sf · {{s.tierName}} finishes</div>
+<div style="font-size: 14px; color: #E9D9C8; border-top: 1px solid #2E433B; padding-top: 12px">{{s.delta}}</div>
+<p style="margin: 0; font-size: 12px; color: #A9B6B0; line-height: 1.5">Sale price holds at $1.35M — your comps aren't tagged by finish level yet, so no premium is guessed.</p>
+</section>
+
+<section style="background: #FFFFFF; border: 1px solid #DCDFD9; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px">
+<h2 style="margin: 0; font-size: 15px">Live takeoff</h2>
+<span style="font-size: 12px; color: #5B625E">from your description</span>
+</div>
+<sc-for list="{{takeoff}}" as="q" hint-placeholder-count="12">
+<div style="display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid #EEF0EC; font-size: 14px"><span style="color: #4F5A55">{{q.label}}</span><strong>{{q.value}}</strong></div>
+</sc-for>
+<p style="margin: 10px 0 0; font-size: 12px; color: #5B625E; line-height: 1.5">Phase 2: these come from your drawn floor plan instead of estimates — nothing downstream changes.</p>
+</section>
+
+<a href="Estimate.dc.html" style="display: flex; align-items: center; justify-content: center; gap: 8px; background: #1F4B3F; color: #FFFFFF; text-decoration: none; font-weight: 600; font-size: 15px; padding: 14px 18px; border-radius: 8px; min-height: 48px; box-sizing: border-box">Next: review the estimate
+<svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3l5 5-5 5"></path></svg></a>
+</aside>
+
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1700}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { tier: 'upgraded' };
+  }
+  renderVals() {
+    const data = {
+      standard: { tierName: 'Standard', build: '$701,000', perSf: '$184', total: '$1,057,500', profit: '$196,500', margin: '14.6%', verdict: 'marginal', delta: '−$35,000 vs. Upgraded · 0.4 pts short of your 15% margin rule' },
+      upgraded: { tierName: 'Upgraded', build: '$736,000', perSf: '$194', total: '$1,092,500', profit: '$161,500', margin: '12.0%', verdict: 'marginal', delta: 'Baseline · 3.0 pts short of your 15% margin rule' },
+      luxury: { tierName: 'Luxury', build: '$802,000', perSf: '$211', total: '$1,158,500', profit: '$95,500', margin: '7.1%', verdict: 'nogo', delta: '+$66,000 vs. Upgraded · fails margin, return and downside rules' }
+    };
+    const tier = this.state.tier;
+    const s = data[tier];
+    const opts = [
+      { id: 'standard', label: 'Standard', sub: '$184 / fin sf' },
+      { id: 'upgraded', label: 'Upgraded', sub: '$194 / fin sf' },
+      { id: 'luxury', label: 'Luxury', sub: '$211 / fin sf' }
+    ];
+    const base = 'font: inherit; text-align: left; padding: 14px 16px; border-radius: 10px; cursor: pointer; min-height: 64px; ';
+    const on = base + 'border: 2px solid #1F4B3F; background: #1F4B3F; color: #FFFFFF;';
+    const off = base + 'border: 1px solid #C9CEC8; background: #FFFFFF; color: #1A1D1B;';
+    return {
+      s,
+      isGo: s.verdict === 'go',
+      isMarginal: s.verdict === 'marginal',
+      isNoGo: s.verdict === 'nogo',
+      tiers: opts.map((o) => ({
+        ...o,
+        pressed: o.id === tier ? 'true' : 'false',
+        style: o.id === tier ? on : off,
+        pick: () => this.setState({ tier: o.id })
+      })),
+      takeoff: [
+        { label: 'Finished area', value: '3,800 sf' },
+        { label: 'Foundation walls', value: '214 LF' },
+        { label: 'Excavation', value: '880 yd³' },
+        { label: 'Concrete', value: '112 yd³' },
+        { label: 'Roof', value: '40 squares' },
+        { label: 'Exterior walls (net)', value: '3,040 sf' },
+        { label: 'Insulated envelope', value: '4,375 sf' },
+        { label: 'Drywall', value: '15,000 sf' },
+        { label: 'Flooring', value: '3,800 sf' },
+        { label: 'Cabinets', value: '46 LF' },
+        { label: 'Plumbing fixtures', value: '22' },
+        { label: 'HVAC', value: '5 tons · 2 zones' },
+        { label: 'Windows', value: '28' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>
