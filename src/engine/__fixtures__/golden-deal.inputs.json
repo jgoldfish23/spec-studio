@@ -1,0 +1,96 @@
+{
+  "lot": {
+    "city": "Kaysville",
+    "county": "Davis",
+    "region": "utah-north",
+    "acres": 0.33,
+    "priceCents": 29500000,
+    "closingCents": 400000,
+    "financing": { "kind": "cash" },
+    "utilities": {
+      "water": "needsConnection",
+      "sewer": "needsConnection",
+      "gas": "needsConnection",
+      "power": "needsConnection",
+      "secondaryWater": "unknown"
+    },
+    "hoaMonthlyCents": 0,
+    "propertyTaxRate": 0.0048
+  },
+  "house": {
+    "schemaVersion": 1,
+    "source": "described",
+    "style": "rambler",
+    "levels": {
+      "main": { "finishedSf": 2200, "unfinishedSf": 0, "ceilingFt": 10 },
+      "basement": { "totalSf": 2200, "finishedSf": 1600, "walkout": false }
+    },
+    "footprint": { "widthFt": 55, "depthFt": 40, "complexity": "moderate" },
+    "garage": { "bays": 3, "tandem": false, "rvBay": false },
+    "roof": { "style": "hip", "pitchPer12": 6 },
+    "rooms": { "bedrooms": 5, "fullBaths": 3, "halfBaths": 1, "fireplaces": 0 },
+    "exterior": { "stonePct": 25, "stuccoPct": 50, "boardBattenPct": 25, "fiberCementPct": 0 },
+    "finishes": {
+      "houseTier": "upgraded",
+      "overrides": { "kitchen": "luxury", "basement": "standard" }
+    },
+    "adu": { "type": "none" },
+    "pool": { "type": "none", "spa": false, "heated": false },
+    "outside": { "coveredPatioSf": 0, "flatworkSf": 1500, "fenceLf": 240, "landscapingTier": "upgraded" }
+  },
+  "timeline": { "landClose": "2027-06", "preConMonths": 2, "buildMonths": 9, "listEarlyMonths": 0, "closingDays": 35 },
+  "loan": {
+    "ltc": 0.8,
+    "rate": 0.09,
+    "points": 0.01,
+    "drawFeeCents": 20000,
+    "termMonths": 12,
+    "extensionPct": 0.005,
+    "extensionMonths": 3,
+    "interestMode": "paid"
+  },
+  "carry": {
+    "insuranceRate": 0.0035,
+    "utilitiesBuildMonthlyCents": 15000,
+    "utilitiesAfterMonthlyCents": 25000,
+    "stagingMonthlyCents": 50000,
+    "upkeepMonthlyCents": 10000
+  },
+  "selling": { "listingPct": 0.025, "buyerPct": 0.025, "closingPct": 0.01, "concessionsCents": 1500000 },
+  "rules": { "minMarginOnSale": 0.15, "minAnnualizedReturn": 0.25, "minDownsideProfitCents": 0 },
+  "scenarioDefs": {
+    "downside": { "priceSource": "low", "domSource": "high", "overrunPct": 0.05 },
+    "base": { "priceSource": "mid", "domSource": "typical", "overrunPct": 0 },
+    "upside": { "priceSource": "high", "domSource": "low", "overrunPct": 0 }
+  },
+  "contingencyPct": 0.05,
+  "overrides": { "basePriceCents": 135000000, "baseDomDays": 62 },
+  "bids": [
+    { "code": "plans", "amountCents": 850000, "vendor": "Golden", "receivedOn": "2026-10-12" },
+    { "code": "permits", "amountCents": 2680000, "vendor": "Golden", "receivedOn": "2026-10-12" },
+    { "code": "surveySoils", "amountCents": 320000, "vendor": "Golden", "receivedOn": "2026-10-12" },
+    { "code": "excavation", "amountCents": 2200000, "vendor": "Golden", "receivedOn": "2026-10-12" },
+    { "code": "utilities", "amountCents": 1550000, "vendor": "Golden", "receivedOn": "2026-10-12" },
+    { "code": "foundation", "amountCents": 6200000, "vendor": "Golden", "receivedOn": "2026-10-12" },
+    { "code": "framing", "amountCents": 10800000, "vendor": "Golden", "receivedOn": "2026-10-12" },
+    { "code": "roofing", "amountCents": 2400000, "vendor": "Golden", "receivedOn": "2026-10-12" },
+    { "code": "windows", "amountCents": 3100000, "vendor": "Golden", "receivedOn": "2026-10-12" },
+    { "code": "cladding", "amountCents": 3800000, "vendor": "Golden", "receivedOn": "2026-10-12" },
+    { "code": "insulation", "amountCents": 1050000, "vendor": "Golden", "receivedOn": "2026-10-12" },
+    { "code": "plumbing", "amountCents": 3300000, "vendor": "Golden", "receivedOn": "2026-10-12" },
+    { "code": "electrical", "amountCents": 2970000, "vendor": "Golden", "receivedOn": "2026-10-12" },
+    { "code": "hvac", "amountCents": 2650000, "vendor": "Golden", "receivedOn": "2026-10-12" },
+    { "code": "drywall", "amountCents": 3000000, "vendor": "Golden", "receivedOn": "2026-10-12" },
+    { "code": "trim", "amountCents": 2450000, "vendor": "Golden", "receivedOn": "2026-10-12" },
+    { "code": "cabinets", "amountCents": 5400000, "vendor": "Golden", "receivedOn": "2026-10-12" },
+    { "code": "flooring", "amountCents": 3100000, "vendor": "Golden", "receivedOn": "2026-10-12" },
+    { "code": "paint", "amountCents": 1800000, "vendor": "Golden", "receivedOn": "2026-10-12" },
+    { "code": "fixtures", "amountCents": 2400000, "vendor": "Golden", "receivedOn": "2026-10-12" },
+    { "code": "garageDoors", "amountCents": 680000, "vendor": "Golden", "receivedOn": "2026-10-12" },
+    { "code": "flatwork", "amountCents": 1650000, "vendor": "Golden", "receivedOn": "2026-10-12" },
+    { "code": "landscaping", "amountCents": 2000000, "vendor": "Golden", "receivedOn": "2026-10-12" },
+    { "code": "cleaning", "amountCents": 415000, "vendor": "Golden", "receivedOn": "2026-10-12" },
+    { "code": "supervision", "amountCents": 3330000, "vendor": "Golden", "receivedOn": "2026-10-12" }
+  ],
+  "compSelections": {}
+}
