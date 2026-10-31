@@ -6,7 +6,7 @@ import { STEPS } from "../deal/steps";
 import { stepForMissing } from "../deal/summary";
 import { BidForm } from "./BidForm";
 import type { FocusTarget } from "./CostTable";
-import { ACTION_BUTTON } from "./shared";
+import { ACTION_BUTTON, FOCUS_RING } from "./shared";
 
 interface ItemProps {
   dealId: string;
@@ -63,14 +63,22 @@ export interface IncompleteEstimateProps {
   openForm: string | null;
   onOpenForm: (key: string) => void;
   onCloseForm: (key: string, target: FocusTarget) => void;
-  onSaveBid: (bid: Bid) => void;
+  /** Called with the key of the item the bid form was open on, and the bid. */
+  onSaveBid: (key: string, bid: Bid) => void;
 }
 
 /** What the cost lines show in place of the table while the engine cannot price every line: each thing it is missing. */
 export function IncompleteEstimate({ dealId, missing, openForm, onOpenForm, onCloseForm, onSaveBid }: IncompleteEstimateProps) {
   return (
     <div className="flex flex-col gap-3">
-      <h3 className="m-0 text-base font-bold">Some lines have no price yet</h3>
+      {/* Where focus goes after a bid is saved here and the estimate still cannot be priced: the list is what is left to read. */}
+      <h3
+        tabIndex={-1}
+        data-focus="incomplete-heading"
+        className={`m-0 rounded-md text-base font-bold ${FOCUS_RING}`}
+      >
+        Some lines have no price yet
+      </h3>
       <ul className="m-0 flex list-none flex-col gap-2 p-0">
         {missing.map((item, index) => {
           const key = `item-${index}`;
@@ -83,7 +91,7 @@ export function IncompleteEstimate({ dealId, missing, openForm, onOpenForm, onCl
               formOpen={openForm === key}
               onOpenForm={() => onOpenForm(key)}
               onCloseForm={(target) => onCloseForm(key, target)}
-              onSaveBid={onSaveBid}
+              onSaveBid={(bid) => onSaveBid(key, bid)}
             />
           );
         })}

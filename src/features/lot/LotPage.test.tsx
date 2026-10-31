@@ -1,6 +1,5 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
 import { evaluateDeal } from "@engine";
 import type { DealInputs, ValidationIssue } from "@engine";
@@ -8,6 +7,7 @@ import { newDealInputs } from "../../data/newDeal";
 import { SAMPLE_DEAL_NAME, sampleDealInputs } from "../../data/sample";
 import type { StoredDeal } from "../../data/types";
 import { formatMoney } from "../../lib/format";
+import { advance, installFakeClock, newUser, pasteOver, savedAfterAutosave, typeOver } from "../../testing/editorTiming";
 import { contextFor, evaluated } from "../../testing/engineContext";
 import { createHarness, renderApp, seedSampleDeal } from "../../testing/renderApp";
 import type { Harness } from "../../testing/renderApp";
@@ -16,38 +16,7 @@ import { summarize } from "../deal/summary";
 import type { DealEditor } from "../deal/useDealEditor";
 import { LotPage } from "./LotPage";
 
-beforeEach(() => {
-  window.location.hash = "";
-  // Timers are fake so the 150 ms evaluation delay and the 1 s autosave can be stepped through. Fake time also moves
-  // with real time, so the data layer's reads (which are promises, not timers) finish as they do in the app.
-  vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date(2026, 9, 31, 12) });
-});
-afterEach(() => {
-  vi.useRealTimers();
-});
-
-const advance = (ms: number) =>
-  act(async () => {
-    await vi.advanceTimersByTimeAsync(ms);
-  });
-
-/** One `userEvent` that steps the fake clock, as real typing would. */
-const newUser = () => userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-
-/** Replaces whatever is in the box with `text` as a single change. */
-async function pasteOver(user: ReturnType<typeof newUser>, label: string, text: string) {
-  const input = screen.getByLabelText(label);
-  await user.clear(input);
-  await user.click(input);
-  await user.paste(text);
-}
-
-/** Replaces whatever is in the box with `text`, key by key. */
-async function typeOver(user: ReturnType<typeof newUser>, label: string, text: string) {
-  const input = screen.getByLabelText(label);
-  await user.clear(input);
-  await user.type(input, text);
-}
+installFakeClock();
 
 async function sampleSetup() {
   const harness = createHarness();
@@ -68,15 +37,6 @@ async function newDealSetup(change: (inputs: DealInputs) => void = () => {}) {
 async function openLot(harness: Harness, deal: StoredDeal) {
   renderApp(`#/deals/${deal.id}/lot`, harness);
   await screen.findByLabelText("City");
-}
-
-/** The deal as stored, once the autosave has had its second and the page says "Saved". */
-async function savedAfterAutosave(harness: Harness, deal: StoredDeal): Promise<DealInputs> {
-  await advance(1100);
-  await screen.findByText("Saved");
-  const stored = await harness.repository.getDeal(deal.id);
-  if (stored === null) throw new Error("the deal is gone");
-  return stored.inputs;
 }
 
 const card = (name: string) => screen.getByRole("region", { name });

@@ -30,15 +30,30 @@ export function CostLinesCard({ dealId, evaluation, edit }: CostLinesCardProps) 
   /** The one bid form that is open: a line's code in the table, or an item's key in the incomplete list. */
   const [openForm, setOpenForm] = useState<string | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
-  /** Where focus goes once the form has gone: set when it is closed, used when the screen has drawn without it. */
-  const returnFocus = useRef<string | null>(null);
+  /**
+   * Set when a bid is saved while the estimate cannot be priced yet: the line it is for gets the focus once the
+   * table has come back. `evaluation` is the one the bid was saved against, so a different one means the answer is in.
+   */
+  const awaitingTable = useRef<{ code: string; evaluation: DealEvaluation } | null>(null);
+
+  /** Moves focus to the element in the cost lines marked `marker` (a `data-focus` value). False when there is none. */
+  function focusMarked(marker: string): boolean {
+    const target = boxRef.current?.querySelector<HTMLElement>(`[data-focus="${marker}"]`);
+    target?.focus();
+    return target != null;
+  }
 
   useEffect(() => {
-    if (openForm !== null || returnFocus.current === null) return;
-    const marker = returnFocus.current;
-    returnFocus.current = null;
-    boxRef.current?.querySelector<HTMLElement>(`[data-focus="${marker}"]`)?.focus();
-  }, [openForm]);
+    const waiting = awaitingTable.current;
+    if (waiting === null || waiting.evaluation === evaluation) return;
+    awaitingTable.current = null;
+    // Focus is only put back where it was lost: if the owner has gone to something else meanwhile, it stays there.
+    const active = document.activeElement;
+    const lost = active === null || active === document.body;
+    if (!lost && !boxRef.current?.contains(active)) return;
+    // The line's name when the table is back with it; else what is still to be fixed; else the cost lines themselves.
+    if (!focusMarked(`name:${waiting.code}`) && !focusMarked("incomplete-heading")) boxRef.current?.focus();
+  }, [evaluation]);
 
   function toggle(code: string) {
     setExpanded((current) => {
@@ -48,18 +63,29 @@ export function CostLinesCard({ dealId, evaluation, edit }: CostLinesCardProps) 
     });
   }
 
+  /** Closes the form for `key`, with focus on the button that opened it or on the line's name. */
   function closeForm(key: string, target: FocusTarget) {
-    returnFocus.current = `${target}:${key}`;
+    // Before the form goes: its button is what holds focus now, and would take it with it.
+    focusMarked(`${target}:${key}`);
     setOpenForm(null);
   }
 
   function saveBid(key: string, bid: Bid) {
     edit((draft) => void (draft.bids = upsertBid(draft.bids, bid)));
-    // The line's own button changes (Add bid becomes Edit bid) once the estimate is worked out again; its name stays.
-    closeForm(key, "name");
+    if (estimate.status === "ok") {
+      // The line's own button changes (Add bid becomes Edit bid) once the estimate is worked out again; its name stays.
+      closeForm(key, "name");
+      return;
+    }
+    // The table is not there to focus yet; the list of what is missing keeps the focus until it is.
+    awaitingTable.current = { code: bid.code, evaluation };
+    focusMarked("incomplete-heading");
+    setOpenForm(null);
   }
 
   function dropBid(code: string) {
+    // The button pressed is about to go (a line without a bid has no Remove bid); the line's name stays.
+    focusMarked(`name:${code}`);
     edit((draft) => void (draft.bids = removeBid(draft.bids, code)));
   }
 
@@ -75,7 +101,8 @@ export function CostLinesCard({ dealId, evaluation, edit }: CostLinesCardProps) 
         ) : undefined
       }
     >
-      <div ref={boxRef}>
+      {/* Focusable only from code: the last place focus can go back to (see `awaitingTable`). */}
+      <div ref={boxRef} tabIndex={-1} className="outline-none">
         {estimate.status === "ok" ? (
           <CostTable
             estimate={estimate.value}
@@ -85,7 +112,7 @@ export function CostLinesCard({ dealId, evaluation, edit }: CostLinesCardProps) 
             onToggle={toggle}
             onOpenForm={setOpenForm}
             onCloseForm={closeForm}
-            onSaveBid={(bid) => saveBid(bid.code, bid)}
+            onSaveBid={saveBid}
             onRemoveBid={dropBid}
           />
         ) : (
@@ -95,7 +122,7 @@ export function CostLinesCard({ dealId, evaluation, edit }: CostLinesCardProps) 
             openForm={openForm}
             onOpenForm={setOpenForm}
             onCloseForm={closeForm}
-            onSaveBid={(bid) => saveBid(openForm ?? bid.code, bid)}
+            onSaveBid={saveBid}
           />
         )}
       </div>

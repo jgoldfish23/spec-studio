@@ -2,7 +2,8 @@ import type { DealEditor } from "../deal/useDealEditor";
 
 export type Edit = DealEditor["edit"];
 
-const FOCUS_RING = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spruce";
+/** The ring that shows where the keyboard is, on a button or link on a light background. */
+export const FOCUS_RING = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spruce";
 
 /** A text-style button in a table row or a list ("Add bid", "Edit bid"): spruce text, at least 44 px to touch. */
 export const ACTION_BUTTON = `inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-lg px-2 text-[13px] font-semibold text-spruce underline-offset-2 hover:underline ${FOCUS_RING}`;

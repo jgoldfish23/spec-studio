@@ -3,9 +3,10 @@ import { describe, expect, it } from "vitest";
 import type { Bid, DealInputs } from "@engine";
 import { sampleDealInputs } from "../../data/sample";
 import { formatPercent } from "../../lib/format";
+import { advance, installFakeClock, newUser, savedAfterAutosave } from "../../testing/editorTiming";
+import type { User } from "../../testing/editorTiming";
 import { evaluated } from "../../testing/engineContext";
-import { advance, lineRow, newUser, openEstimate, region, sampleSetup, savedAfterAutosave, installFakeClock } from "./estimateTestUtils";
-import type { User } from "./estimateTestUtils";
+import { lineRow, openEstimate, region, sampleSetup } from "./estimateTestUtils";
 
 installFakeClock();
 
@@ -208,5 +209,45 @@ describe("removing a bid", () => {
     await user.click(screen.getByRole("button", { name: "Undo" }));
     await advance(200);
     expect(within(lineRow("Framing")).getByText("Bid")).toBeVisible();
+  });
+});
+
+describe("where keyboard focus goes", () => {
+  /** The button with a line's name, which stays in the row whatever the line's price comes from. */
+  const nameButton = (name: string) => within(lineRow(name)).getByRole("button", { name });
+
+  it("is the line's name when a bid is saved, since the Save button goes with the form", async () => {
+    const { harness, deal } = await sampleSetup();
+    await openEstimate(harness, deal);
+
+    await addRoofingBid(newUser());
+
+    expect(screen.queryByRole("form")).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(nameButton("Roofing"));
+  });
+
+  it("is the line's name when Remove bid is pressed, since that button goes with the bid", async () => {
+    const { harness, deal } = await sampleSetup();
+    await openEstimate(harness, deal);
+    const user = newUser();
+
+    await user.click(within(lineRow("Framing")).getByRole("button", { name: "Remove bid" }));
+    expect(document.activeElement).toBe(nameButton("Framing"));
+
+    // And it is still there once the line has been redrawn as a default.
+    await advance(200);
+    expect(within(lineRow("Framing")).getByText("Default")).toBeVisible();
+    expect(document.activeElement).toBe(nameButton("Framing"));
+  });
+
+  it("is the button that opened the form when it is cancelled", async () => {
+    const { harness, deal } = await sampleSetup();
+    await openEstimate(harness, deal);
+    const user = newUser();
+
+    await user.click(within(lineRow("Framing")).getByRole("button", { name: "Edit bid" }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(document.activeElement).toBe(within(lineRow("Framing")).getByRole("button", { name: "Edit bid" }));
   });
 });

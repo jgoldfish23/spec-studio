@@ -1,18 +1,11 @@
 import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import type { DealInputs, Estimate } from "@engine";
 import { sampleDealInputs } from "../../data/sample";
 import { formatMoney, formatPercent } from "../../lib/format";
-import { evaluated } from "../../testing/engineContext";
-import { advance, costTable, newUser, openEstimate, pasteOver, region, sampleSetup, savedAfterAutosave, setupWith, installFakeClock } from "./estimateTestUtils";
+import { advance, installFakeClock, newUser, pasteOver, savedAfterAutosave } from "../../testing/editorTiming";
+import { costTable, estimateOf, openEstimate, region, sampleSetup, setupEveryLineBid } from "./estimateTestUtils";
 
 installFakeClock();
-
-async function estimateOf(inputs: DealInputs = sampleDealInputs()): Promise<Estimate> {
-  const evaluation = await evaluated(inputs);
-  if (evaluation.estimate.status !== "ok") throw new Error("the estimate is incomplete");
-  return evaluation.estimate.value;
-}
 
 describe("Build estimate card", () => {
   it("shows the total, the cost per finished sf and the subtotal from the estimate", async () => {
@@ -123,10 +116,7 @@ describe("Get bids here next", () => {
   });
 
   it("has nothing to say once no line is on a default", async () => {
-    const estimate = await estimateOf();
-    const { harness, deal } = await setupWith((inputs) => {
-      inputs.bids = estimate.lines.map((l) => ({ code: l.code, amountCents: 500_000, vendor: "Crew", receivedOn: "2026-10-12" }));
-    });
+    const { harness, deal } = await setupEveryLineBid();
     await openEstimate(harness, deal);
 
     const card = region("Get bids here next");

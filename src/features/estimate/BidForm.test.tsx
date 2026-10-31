@@ -1,8 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { Bid } from "@engine";
+import { installFakeClock, newUser } from "../../testing/editorTiming";
 import { BidForm } from "./BidForm";
-import { newUser, installFakeClock } from "./estimateTestUtils";
 
 installFakeClock();
 

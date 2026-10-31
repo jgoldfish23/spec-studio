@@ -1,20 +1,23 @@
 import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import type { DealInputs, Estimate } from "@engine";
-import { sampleDealInputs } from "../../data/sample";
+import type { Estimate } from "@engine";
 import { formatMoney } from "../../lib/format";
-import { evaluated } from "../../testing/engineContext";
-import { bodyRows, costTable, lineRow, newUser, openEstimate, region, sampleSetup, setupWith, installFakeClock } from "./estimateTestUtils";
+import { installFakeClock, newUser } from "../../testing/editorTiming";
+import {
+  bodyRows,
+  costTable,
+  crewBid,
+  estimateOf,
+  lineRow,
+  openEstimate,
+  region,
+  sampleSetup,
+  setupEveryLineBid,
+  setupWith,
+} from "./estimateTestUtils";
 import { formatAsOf, formatQuantity, variantName } from "./lineFormat";
 
 installFakeClock();
-
-/** What the engine says the estimate is for a deal (the sample when omitted). */
-async function estimateOf(inputs: DealInputs = sampleDealInputs()): Promise<Estimate> {
-  const evaluation = await evaluated(inputs);
-  if (evaluation.estimate.status !== "ok") throw new Error("the estimate is incomplete");
-  return evaluation.estimate.value;
-}
 
 const line = (estimate: Estimate, code: string) => {
   const found = estimate.lines.find((l) => l.code === code);
@@ -176,9 +179,7 @@ describe("Estimate page filter", () => {
   it("hides a division with no default lines, and its subtotal row, but keeps the footer's whole-estimate totals", async () => {
     // Every line of the General division is bid, so under Defaults only it has nothing to show.
     const { harness, deal } = await setupWith((inputs) => {
-      for (const code of ["cleaning", "supervision"]) {
-        inputs.bids.push({ code, amountCents: 500_000, vendor: "Crew", receivedOn: "2026-10-12" });
-      }
+      for (const code of ["cleaning", "supervision"]) inputs.bids.push(crewBid(code));
     });
     await openEstimate(harness, deal);
     const user = newUser();
@@ -188,16 +189,36 @@ describe("Estimate page filter", () => {
 
     await user.click(screen.getByRole("button", { name: "Defaults only" }));
 
-    expect(within(costTable()).queryByRole("rowheader", { name: "General" })).not.toBeInTheDocument();
-    expect(within(costTable()).getByRole("rowheader", { name: "Structure" })).toBeVisible();
+    expect(within(costTable()).queryByRole("rowheader", { name: /^General/ })).not.toBeInTheDocument();
+    expect(within(costTable()).getByRole("rowheader", { name: /^Structure/ })).toBeVisible();
     expect(totalRow()?.textContent).toBe(totalBefore);
   });
 
-  it("says so when no line is on a default", async () => {
+  it("labels a division's subtotal as the whole division's while only some of its lines are listed", async () => {
+    const { harness, deal } = await sampleSetup();
+    await openEstimate(harness, deal);
     const estimate = await estimateOf();
-    const { harness, deal } = await setupWith((inputs) => {
-      inputs.bids = estimate.lines.map((l) => ({ code: l.code, amountCents: 500_000, vendor: "Crew", receivedOn: "2026-10-12" }));
-    });
+    const user = newUser();
+    const structure = () => within(costTable()).getByRole("rowheader", { name: /^Structure/ }).closest("tr");
+
+    // Every line is listed, so the subtotal is just the division's.
+    expect(within(costTable()).getByRole("rowheader", { name: "Structure" })).toBeVisible();
+    expect(within(costTable()).queryByRole("rowheader", { name: /all lines/ })).not.toBeInTheDocument();
+
+    // Only Roofing is a default in the Structure division, yet its subtotal is still the whole division's.
+    await user.click(screen.getByRole("button", { name: "Defaults only" }));
+    expect(within(costTable()).getByRole("rowheader", { name: "Structure subtotal (all lines)" })).toBeVisible();
+    expect(structure()).toHaveTextContent(formatMoney(estimate.divisionSubtotals.structure));
+    expect(within(costTable()).queryByRole("button", { name: "Framing" })).not.toBeInTheDocument();
+    expect(within(costTable()).getByRole("button", { name: "Roofing" })).toBeVisible();
+
+    // Back to every line: the plain name again.
+    await user.click(screen.getByRole("button", { name: "All lines" }));
+    expect(within(costTable()).getByRole("rowheader", { name: "Structure" })).toBeVisible();
+  });
+
+  it("says so when no line is on a default", async () => {
+    const { harness, deal } = await setupEveryLineBid();
     await openEstimate(harness, deal);
 
     await newUser().click(screen.getByRole("button", { name: "Defaults only" }));

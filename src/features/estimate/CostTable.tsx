@@ -14,7 +14,7 @@ import {
   unitCostText,
   variantName,
 } from "./lineFormat";
-import { ACTION_BUTTON } from "./shared";
+import { ACTION_BUTTON, FOCUS_RING } from "./shared";
 
 /** Which lines the table lists. */
 export type LineFilter = "all" | "defaults";
@@ -25,7 +25,6 @@ export type FocusTarget = "trigger" | "name";
 /** The columns of the table, which the rows that span it have to know. */
 const COLUMNS = 6;
 
-const FOCUS_RING = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spruce";
 const HEADER_CELL = "px-3 py-2.5 font-semibold";
 const MISSING = "—";
 
@@ -273,7 +272,8 @@ export interface CostTableProps {
   onToggle: (code: string) => void;
   onOpenForm: (code: string) => void;
   onCloseForm: (code: string, target: FocusTarget) => void;
-  onSaveBid: (bid: Bid) => void;
+  /** Called with the code of the line the bid form is open on, and the bid. */
+  onSaveBid: (code: string, bid: Bid) => void;
   onRemoveBid: (code: string) => void;
 }
 
@@ -325,8 +325,9 @@ export function CostTable({
         {groups.map(({ division, lines }) => (
           <tbody key={division}>
             <tr className="border-t border-line bg-[#F1F3EF]">
+              {/* The amount is the whole division's, so with only some of its lines listed the label says so. */}
               <th scope="rowgroup" colSpan={3} className="px-3 py-2.5 text-left text-[13px] font-bold text-[#33403A]">
-                {DIVISION_NAMES[division]}
+                {filter === "defaults" ? `${DIVISION_NAMES[division]} subtotal (all lines)` : DIVISION_NAMES[division]}
               </th>
               <td className="px-3 py-2.5 text-right text-[13px] font-bold text-[#33403A]">
                 {formatMoney(estimate.divisionSubtotals[division])}
@@ -342,7 +343,7 @@ export function CostTable({
                 onToggle={() => onToggle(line.code)}
                 onOpenForm={() => onOpenForm(line.code)}
                 onCloseForm={(target) => onCloseForm(line.code, target)}
-                onSaveBid={onSaveBid}
+                onSaveBid={(bid) => onSaveBid(line.code, bid)}
                 onRemoveBid={() => onRemoveBid(line.code)}
               />
             ))}
