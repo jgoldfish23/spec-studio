@@ -78,12 +78,28 @@ function distinct(items: readonly MissingItem[]): MissingItem[] {
   });
 }
 
-/** The wizard step that fixes a validation issue, from the top of its path. */
+/**
+ * The wizard step that fixes a validation issue, from the top of its path: the step whose screen edits that part of
+ * the deal. The timeline is set with the lot; the contingency and the bids with the estimate; the owner's own price,
+ * days on market, list price and comp choices with the market; the loan, selling, carry and rules on the pro forma.
+ */
 function stepFor(path: string): MissingItem["step"] {
-  const top = path.split(".")[0];
-  if (top === "house") return "house";
-  if (top === "lot") return "lot";
-  return "proforma";
+  switch (path.split(".")[0]) {
+    case "house":
+      return "house";
+    case "lot":
+    case "timeline":
+      return "lot";
+    case "contingencyPct":
+    case "bids":
+      return "estimate";
+    case "overrides":
+    case "plannedListPriceCents":
+    case "compSelections":
+      return "market";
+    default:
+      return "proforma";
+  }
 }
 
 /** Nothing could run: every step is incomplete with the same items, and there is nothing to show past them. */
@@ -103,7 +119,7 @@ function blockedEvaluation(validation: ValidationIssue[], missing: MissingItem[]
   };
 }
 
-/** An invalid deal: every step is incomplete with one item per issue, and nothing is computed. */
+/** An invalid deal: every step is incomplete with one item per issue (its `ref` the issue's path), and nothing is computed. */
 function invalidEvaluation(validation: ValidationIssue[]): DealEvaluation {
   return blockedEvaluation(
     validation,
@@ -111,6 +127,7 @@ function invalidEvaluation(validation: ValidationIssue[]): DealEvaluation {
       code: "invalidDeal",
       message: `${issue.path}: ${issue.message}`,
       step: stepFor(issue.path),
+      ref: issue.path,
     })),
   );
 }

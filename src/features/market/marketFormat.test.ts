@@ -129,9 +129,11 @@ describe("whyIncomplete", () => {
     );
   });
 
-  it("gives the engine's own reason when something else is missing", () => {
-    expect(whyIncomplete([item("invalidDeal", "lot.city: Required")], "noComps", NEEDS_PRICE_COMPS)).toBe(
-      "lot.city: Required",
+  it("gives the engine's own reason, in the owner's words, when something else is missing", () => {
+    const city: MissingItem = { code: "invalidDeal", message: "lot.city: Required", step: "lot", ref: "lot.city" };
+    expect(whyIncomplete([city], "noComps", NEEDS_PRICE_COMPS)).toBe("City: Required");
+    expect(whyIncomplete([item("missingFinishedArea", "The house needs finished area")], "noComps", NEEDS_PRICE_COMPS)).toBe(
+      "The house needs finished area",
     );
   });
 

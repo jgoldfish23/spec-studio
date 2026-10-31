@@ -1,7 +1,9 @@
 import type { DealEvaluation, DealInputs } from "@engine";
+import { BlockedNote } from "../deal/BlockedNote";
 import { useDealEditorContext } from "../deal/DealEditorContext";
 import { fieldError } from "../deal/fieldErrors";
 import { NextStepLink } from "../deal/NextStepLink";
+import { estimateBlocker } from "../deal/summary";
 import { CostLinesCard } from "./CostLinesCard";
 import type { Edit } from "../deal/stepShared";
 import { BidsNextCard, BuildEstimateCard, ConfidenceCard } from "./SummaryCards";
@@ -15,6 +17,10 @@ interface EstimateScreenProps {
 
 function EstimateScreen({ dealId, inputs, evaluation, edit }: EstimateScreenProps) {
   const estimate = evaluation.estimate.status === "ok" ? evaluation.estimate.value : null;
+  // A problem with the deal (on this step or another) stops the estimate: every card says what to fix, not that prices
+  // are missing.
+  const blocker = estimateBlocker(evaluation);
+  const blocked = blocker ? <BlockedNote dealId={dealId} item={blocker} /> : undefined;
   return (
     <div className="flex flex-col gap-6">
       <h1 className="sr-only">Estimate</h1>
@@ -26,10 +32,10 @@ function EstimateScreen({ dealId, inputs, evaluation, edit }: EstimateScreenProp
           contingencyError={fieldError(evaluation, "contingencyPct")}
           onContingencyChange={(rate) => edit((draft) => void (draft.contingencyPct = rate))}
         />
-        <ConfidenceCard estimate={estimate} />
-        <BidsNextCard estimate={estimate} />
+        <ConfidenceCard estimate={estimate} blocked={blocked} />
+        <BidsNextCard estimate={estimate} blocked={blocked} />
       </div>
-      <CostLinesCard dealId={dealId} evaluation={evaluation} edit={edit} />
+      <CostLinesCard dealId={dealId} evaluation={evaluation} edit={edit} blocked={blocked} />
       <div className="flex justify-end">
         <NextStepLink to={`/deals/${dealId}/market`}>Next: check the market →</NextStepLink>
       </div>

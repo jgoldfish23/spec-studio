@@ -44,6 +44,19 @@ export function stepForMissing(item: MissingItem): StepId {
   return item.step === "settings" ? "proforma" : item.step;
 }
 
+/**
+ * What stops the estimate when the deal itself is invalid: the first of its validation problems, for a screen to point
+ * at ("Fix City: Required on Lot"). Undefined when the deal is valid, so a screen keeps its own copy for a genuine gap
+ * (a line with no price, a house with no finished area). A screen that passes `here` also gets undefined when one of
+ * the problems is its own: its boxes already say what is wrong.
+ */
+export function estimateBlocker(evaluation: DealEvaluation, here?: StepId): MissingItem | undefined {
+  if (evaluation.validation.length === 0 || evaluation.estimate.status !== "incomplete") return undefined;
+  const { missing } = evaluation.estimate;
+  if (here !== undefined && missing.some((item) => stepForMissing(item) === here)) return undefined;
+  return missing[0];
+}
+
 /** What the "Needs:" list shows: the first `limit` distinct items, and how many distinct ones are left out. */
 export function topNeeds(
   missing: readonly MissingItem[] | undefined,

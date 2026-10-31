@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { advance, installFakeClock, newUser, savedAfterAutosave } from "../../testing/editorTiming";
 import type { User } from "../../testing/editorTiming";
 import { createHarness } from "../../testing/renderApp";
-import { harnessOver, sampleSetup, setupWith } from "../../testing/stepHarness";
+import { harnessOver, newDealSetup, sampleSetup, setupWith } from "../../testing/stepHarness";
 import { openEstimate, region, withoutPricesFor } from "./estimateTestUtils";
 
 installFakeClock();
@@ -28,7 +28,7 @@ describe("an estimate with a line that has no price", () => {
 
     const lines = region("Cost lines");
     expect(within(lines).getByRole("heading", { level: 3, name: "Some lines have no price yet" })).toBeVisible();
-    expect(within(lines).getByText(/^No price for Windows & exterior doors \(windows\)/)).toBeVisible();
+    expect(within(lines).getByText("No price for Windows & exterior doors (upgraded tier)")).toBeVisible();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     // The filter is for the table.
     expect(screen.queryByRole("group", { name: "Show" })).not.toBeInTheDocument();
@@ -156,15 +156,18 @@ describe("where keyboard focus goes after a bid is saved on an unpriced line", (
 
 describe("an estimate that is incomplete for another reason", () => {
   it("links an item that is not about a cost code to the step that fixes it", async () => {
-    // A negative finished area stops the house from being evaluated; the engine's item names the House step.
+    // A house with no finished area is a valid deal, but there is no cost per finished sf; the item names the House step.
     const { harness, deal } = await setupWith((inputs) => {
-      inputs.house.levels.main.finishedSf = -1;
+      inputs.house.levels.main.unfinishedSf += inputs.house.levels.main.finishedSf;
+      inputs.house.levels.main.finishedSf = 0;
+      delete inputs.house.levels.upper;
+      if (inputs.house.levels.basement) inputs.house.levels.basement.finishedSf = 0;
     });
     await openEstimate(harness, deal);
 
     const lines = region("Cost lines");
     expect(within(lines).getByText("Some lines have no price yet")).toBeVisible();
-    expect(within(lines).getByText("house.levels.main.finishedSf: Must be 0 or more")).toBeVisible();
+    expect(within(lines).getByText("The house needs finished area above zero to work out cost per finished sf")).toBeVisible();
     const link = within(lines).getByRole("link", { name: "Go to House" });
     expect(link).toHaveAttribute("href", `#/deals/${deal.id}/house`);
     expect(within(lines).queryByRole("button", { name: "Add bid" })).not.toBeInTheDocument();
@@ -178,5 +181,30 @@ describe("a complete estimate", () => {
 
     expect(screen.queryByText("Some lines have no price yet")).not.toBeInTheDocument();
     expect(screen.getByRole("table", { name: "Cost lines by division" })).toBeVisible();
+  });
+});
+
+describe("a deal stopped by a problem on another step", () => {
+  const BLOCKED = "Fix City: Required on Lot to see the estimate";
+
+  it("says what to fix and where, instead of blaming missing prices", async () => {
+    const { harness, deal } = await newDealSetup();
+    await openEstimate(harness, deal);
+
+    for (const name of ["Cost lines", "How solid is this number?", "Get bids here next"]) {
+      expect(within(region(name)).getByRole("link", { name: BLOCKED })).toHaveAttribute("href", `#/deals/${deal.id}/lot`);
+    }
+    expect(screen.queryByText("Some lines have no price yet")).not.toBeInTheDocument();
+    expect(screen.queryByText("Fill in the missing prices to see this.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add bid" })).not.toBeInTheDocument();
+  });
+
+  it("points at the house when the house is what stops the estimate", async () => {
+    const { harness, deal } = await setupWith((inputs) => {
+      inputs.house.rooms.bedrooms = -1;
+    });
+    await openEstimate(harness, deal);
+    const link = within(region("Cost lines")).getByRole("link", { name: "Fix Bedrooms: Must be 0 or more on House to see the estimate" });
+    expect(link).toHaveAttribute("href", `#/deals/${deal.id}/house`);
   });
 });

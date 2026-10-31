@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import type { Bid, DealEvaluation } from "@engine";
 import { Card } from "../../ui/Card";
 import { SegmentedControl } from "../../ui/SegmentedControl";
@@ -17,13 +18,15 @@ interface CostLinesCardProps {
   dealId: string;
   evaluation: DealEvaluation;
   edit: Edit;
+  /** What to say in place of the lines when a problem with the deal stops the estimate (no bid can help then). */
+  blocked?: ReactNode;
 }
 
 /**
  * The cost lines: the table with its filter, the parts of the lines that are open and the bid forms, or, while the
- * engine cannot price every line, what it is missing. Bids go into the deal through `edit`, one bid per cost code.
+ * engine cannot price every line, what it is missing (or, when a problem with the deal stops it, what to fix). Bids go into the deal through `edit`, one bid per cost code.
  */
-export function CostLinesCard({ dealId, evaluation, edit }: CostLinesCardProps) {
+export function CostLinesCard({ dealId, evaluation, edit, blocked }: CostLinesCardProps) {
   const { estimate } = evaluation;
   const [filter, setFilter] = useState<LineFilter>("all");
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
@@ -115,6 +118,8 @@ export function CostLinesCard({ dealId, evaluation, edit }: CostLinesCardProps) 
             onSaveBid={saveBid}
             onRemoveBid={dropBid}
           />
+        ) : blocked ? (
+          blocked
         ) : (
           <IncompleteEstimate
             dealId={dealId}

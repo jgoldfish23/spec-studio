@@ -319,6 +319,7 @@ describe("evaluateDeal on an invalid deal", () => {
       code: "invalidDeal",
       message: `${i.path}: ${i.message}`,
       step: "house",
+      ref: i.path,
     }));
     expect(ev.verdict.missing).toEqual(expected);
     const steps: Result<unknown>[] = [ev.quantities, ev.estimate, ev.price, ev.dom, ev.scenarios];
@@ -326,11 +327,39 @@ describe("evaluateDeal on an invalid deal", () => {
     expect(ev.scoredComps).toEqual([]);
   });
 
-  it("sends each issue to the wizard step that fixes it", () => {
-    const deal: DealInputs = { ...GOLDEN_DEAL, lot: { ...GOLDEN_DEAL.lot, priceCents: -1 }, contingencyPct: 2 };
+  it("sends each issue to the wizard step where the app edits it, with the issue's path as its ref", () => {
+    const deal: DealInputs = {
+      ...GOLDEN_DEAL,
+      lot: { ...GOLDEN_DEAL.lot, priceCents: -1 },
+      house: { ...GOLDEN_DEAL.house, garage: { ...GOLDEN_DEAL.house.garage, bays: -1 } },
+      timeline: { ...GOLDEN_DEAL.timeline, closingDays: -1 },
+      loan: { ...GOLDEN_DEAL.loan, rate: 2 },
+      carry: { ...GOLDEN_DEAL.carry, stagingMonthlyCents: -1 },
+      selling: { ...GOLDEN_DEAL.selling, concessionsCents: -1 },
+      rules: { ...GOLDEN_DEAL.rules, minMarginOnSale: 2 },
+      contingencyPct: 2,
+      overrides: { baseDomDays: -1 },
+      plannedListPriceCents: -1,
+      bids: GOLDEN_DEAL.bids.map((b, i) => (i === 0 ? { ...b, vendor: "" } : b)),
+      compSelections: { c1: "yes" as unknown as boolean },
+    };
     const ev = evaluateDeal(deal, CTX);
-    const steps = Object.fromEntries((ev.verdict.missing ?? []).map((m) => [m.message.split(":")[0], m.step]));
-    expect(steps).toEqual({ "lot.priceCents": "lot", contingencyPct: "proforma" });
+    const steps = Object.fromEntries((ev.verdict.missing ?? []).map((m) => [m.ref, m.step]));
+    expect(steps).toEqual({
+      "lot.priceCents": "lot",
+      "house.garage.bays": "house",
+      "timeline.closingDays": "lot",
+      "loan.rate": "proforma",
+      "carry.stagingMonthlyCents": "proforma",
+      "selling.concessionsCents": "proforma",
+      "rules.minMarginOnSale": "proforma",
+      contingencyPct: "estimate",
+      "overrides.baseDomDays": "market",
+      plannedListPriceCents: "market",
+      "bids.0.vendor": "estimate",
+      "compSelections.c1": "market",
+    });
+    for (const item of ev.verdict.missing ?? []) expect(item.message.startsWith(`${item.ref}: `)).toBe(true);
   });
 
   it("reports a bid dated before 1900 (a two-digit year typed into a date field) instead of throwing", () => {

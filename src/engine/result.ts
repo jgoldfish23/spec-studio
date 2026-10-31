@@ -7,7 +7,10 @@ export type MissingItem = {
   message: string;
   /** The wizard step that supplies it; `settings` is the engine context (comps, cost book, market settings, rules). */
   step: "lot" | "house" | "estimate" | "market" | "proforma" | "settings";
-  /** What the item is about, when that is one identifiable thing: the cost-code id on a `missingPrice` item. */
+  /**
+   * What the item is about, when that is one identifiable thing: the cost-code id on a `missingPrice` item, the field
+   * path (as `validateDeal` reports it) on an `invalidDeal` item.
+   */
   ref?: string;
 };
 

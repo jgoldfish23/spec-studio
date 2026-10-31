@@ -424,7 +424,8 @@ describe("a new deal", () => {
     expect(city).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByText("Needs info")).toBeVisible();
     const needs = screen.getByText("Needs:").parentElement as HTMLElement;
-    expect(within(needs).getByRole("link", { name: "lot.city: Required" })).toBeVisible();
+    const cityNeed = within(needs).getByRole("link", { name: "City: Required" });
+    expect(cityNeed).toHaveAttribute("href", `#/deals/${deal.id}/lot`);
 
     await user.type(city, "Layton");
     await advance(200);
@@ -435,7 +436,7 @@ describe("a new deal", () => {
     // 2,000 sf rambler), so the verdict is still "Needs info" but no longer mentions the city.
     expect(screen.getByText("Needs info")).toBeVisible();
     const remaining = screen.getByText("Needs:").parentElement as HTMLElement;
-    expect(within(remaining).queryByText(/lot\.city/)).not.toBeInTheDocument();
+    expect(within(remaining).queryByText(/City/)).not.toBeInTheDocument();
     expect(within(remaining).getByRole("link")).toHaveAttribute("href", `#/deals/${deal.id}/market`);
   });
 

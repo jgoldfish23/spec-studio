@@ -4,6 +4,7 @@ import { Link } from "react-router";
 import type { LeverResult, Verdict, VerdictKind } from "@engine";
 import { formatMoney, formatPercent } from "../../lib/format";
 import { VerdictChip } from "../../ui/VerdictChip";
+import { needText } from "../deal/needText";
 import { stepForMissing, topNeeds } from "../deal/summary";
 import { FOCUS_RING } from "../deal/stepShared";
 import { checkLine, loanWarningText, verdictHeadline } from "./verdictText";
@@ -145,7 +146,7 @@ export function VerdictPanel({ dealId, verdict, goalSeek }: VerdictPanelProps) {
               <li key={item.message} className="flex items-center gap-2.5">
                 <Badge tone="warn" />
                 <Link to={`/deals/${dealId}/${stepForMissing(item)}`} className={LINK}>
-                  {item.message}
+                  {needText(item)}
                 </Link>
               </li>
             ))}

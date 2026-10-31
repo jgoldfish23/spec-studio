@@ -10,7 +10,7 @@ import { advance, installFakeClock, newUser, pasteOver, savedAfterAutosave } fro
 import { contextFor, evaluated } from "../../testing/engineContext";
 import { renderApp } from "../../testing/renderApp";
 import type { Harness } from "../../testing/renderApp";
-import { sampleSetup, setupWith } from "../../testing/stepHarness";
+import { newDealSetup, sampleSetup, setupWith } from "../../testing/stepHarness";
 import { DealEditorContext } from "../deal/DealEditorContext";
 import { useDealEditor } from "../deal/useDealEditor";
 import type { DealEditor } from "../deal/useDealEditor";
@@ -1003,5 +1003,33 @@ describe("House page in the app", () => {
     await openHouse(harness, deal);
     expect(screen.getByLabelText("Deal name")).toHaveValue(SAMPLE_DEAL_NAME);
     expect(screen.getByRole("link", { name: /House/, current: "step" })).toBeInTheDocument();
+  });
+});
+
+describe("a deal stopped by a problem on another step", () => {
+  const BLOCKED = "Fix City: Required on Lot to see the estimate";
+
+  it("says what to fix and where, in the takeoff and under the tiers, instead of asking for the house", async () => {
+    const { harness, deal } = await newDealSetup();
+    await openHouse(harness, deal);
+
+    const takeoff = card("Live takeoff");
+    expect(within(takeoff).getByRole("link", { name: BLOCKED })).toHaveAttribute("href", `#/deals/${deal.id}/lot`);
+    expect(within(takeoff).queryByText("Fill in the house to see the takeoff.")).not.toBeInTheDocument();
+
+    const finishes = card("Finishes");
+    expect(within(finishes).getByRole("link", { name: BLOCKED })).toHaveAttribute("href", `#/deals/${deal.id}/lot`);
+    // The tiers have no price to show, and say nothing rather than a dash per tier.
+    expect(within(group("Finishes")).queryByText(/\/ fin sf$/)).not.toBeInTheDocument();
+  });
+
+  it("keeps asking for the house when the house itself is what is wrong", async () => {
+    const { harness, deal } = await newDealSetup((inputs) => {
+      inputs.house.rooms.bedrooms = -1;
+    });
+    await openHouse(harness, deal);
+    expect(within(card("Live takeoff")).getByText("Fill in the house to see the takeoff.")).toBeVisible();
+    expect(screen.queryByRole("link", { name: /^Fix / })).not.toBeInTheDocument();
+    expect(perSf("Luxury")).toBe("— / fin sf");
   });
 });

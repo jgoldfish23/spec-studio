@@ -157,7 +157,7 @@ describe("DealLayout when ready", () => {
       const links = within(needs).getAllByRole("link");
       expect(links).toHaveLength(3);
       for (const link of links) expect(link).toHaveAttribute("href", `/deals/${deal.id}/lot`);
-      expect(links[0]).toHaveTextContent("lot.city: Required");
+      expect(links.map((link) => link.textContent)).toEqual(["City: Required", "County: Required", "Acres: Must be 0 or more"]);
       expect(within(needs).getByText("+1 more")).toBeVisible();
     });
   });

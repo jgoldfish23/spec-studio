@@ -113,8 +113,8 @@ describe("a deal that cannot be evaluated yet", () => {
     });
     await openMarket(harness, deal);
 
-    expect(within(card("Sale price estimate")).getByText("lot.city: Required")).toBeVisible();
-    expect(within(card("Days on market")).getByText("lot.city: Required")).toBeVisible();
+    expect(within(card("Sale price estimate")).getByText("City: Required")).toBeVisible();
+    expect(within(card("Days on market")).getByText("City: Required")).toBeVisible();
     expect(screen.queryByText(NEEDS_PRICE)).not.toBeInTheDocument();
     // Without a score there is nothing to rank or to include, but the comps are still there to edit and delete.
     expect(listedAddresses("Comps")).toHaveLength(8);

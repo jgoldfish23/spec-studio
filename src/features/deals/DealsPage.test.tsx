@@ -83,7 +83,7 @@ describe("Deals page", () => {
 
     expect(await within(main()).findByText("Needs info")).toBeVisible();
     expect(within(main()).getByText("Needs:")).toBeVisible();
-    const city = within(main()).getByRole("link", { name: /city/i });
+    const city = within(main()).getByRole("link", { name: "City: Required" });
     expect(city).toHaveAttribute("href", `#/deals/${id}/lot`);
     expect(within(main()).getByLabelText("Deal name")).toHaveValue("Untitled deal");
     expect((await harness.repository.getDeal(id))?.name).toBe("Untitled deal");

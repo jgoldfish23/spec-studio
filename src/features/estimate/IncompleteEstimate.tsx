@@ -2,6 +2,7 @@ import { useId } from "react";
 import { Link } from "react-router";
 import { COST_CODES } from "@engine";
 import type { Bid, MissingItem } from "@engine";
+import { needText } from "../deal/needText";
 import { STEPS } from "../deal/steps";
 import { stepForMissing } from "../deal/summary";
 import { BidForm } from "./BidForm";
@@ -29,7 +30,7 @@ function MissingEntry({ dealId, item, itemKey, formOpen, onOpenForm, onCloseForm
     <li className="flex flex-col gap-3 rounded-lg border border-line px-4 py-2">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <span id={messageId} className="min-w-0 flex-1 basis-60 py-1 text-sm font-medium">
-          {item.message}
+          {needText(item)}
         </span>
         {costCode ? (
           <button

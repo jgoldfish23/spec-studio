@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { DealEvaluation, DealInputs, EngineContext } from "@engine";
 import { useDealEditorContext } from "../deal/DealEditorContext";
+import { estimateBlocker } from "../deal/summary";
 import { ExteriorCard } from "./ExteriorCard";
 import { ExtrasCard } from "./ExtrasCard";
 import { FinishesCard } from "./FinishesCard";
@@ -32,6 +33,8 @@ function HouseScreen({ dealId, inputs, evaluatedInputs, evaluation, context, edi
   );
   const total = evaluation.estimate.status === "ok" ? evaluation.estimate.value.totalCents : null;
   const change = useEstimateChange(evaluatedInputs, total);
+  // A problem on another step stops the estimate; the house's own problems show under its boxes.
+  const blocker = estimateBlocker(evaluation, "house");
   return (
     <div className="flex flex-wrap items-start gap-6">
       <h1 className="sr-only">House</h1>
@@ -40,10 +43,10 @@ function HouseScreen({ dealId, inputs, evaluatedInputs, evaluation, context, edi
         <SizeCard house={house} evaluation={evaluation} edit={edit} />
         <FootprintCard house={house} evaluation={evaluation} edit={edit} />
         <ExteriorCard house={house} evaluation={evaluation} edit={edit} />
-        <FinishesCard house={house} evaluation={evaluation} edit={edit} previews={previews} />
+        <FinishesCard house={house} evaluation={evaluation} edit={edit} previews={previews} dealId={dealId} blocker={blocker} />
         <ExtrasCard house={house} evaluation={evaluation} edit={edit} />
       </div>
-      <HouseSidePanel dealId={dealId} inputs={evaluatedInputs} evaluation={evaluation} change={change} />
+      <HouseSidePanel dealId={dealId} inputs={evaluatedInputs} evaluation={evaluation} change={change} blocker={blocker} />
     </div>
   );
 }

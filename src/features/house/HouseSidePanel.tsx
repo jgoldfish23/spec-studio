@@ -1,7 +1,8 @@
 import { useId } from "react";
-import type { Cents, DealEvaluation, DealInputs } from "@engine";
+import type { Cents, DealEvaluation, DealInputs, MissingItem } from "@engine";
 import { formatMoney } from "../../lib/format";
 import { Card } from "../../ui/Card";
+import { BlockedNote } from "../deal/BlockedNote";
 import { NextStepLink } from "../deal/NextStepLink";
 import { summarize } from "../deal/summary";
 import { TIER_NAMES } from "./shared";
@@ -55,7 +56,7 @@ function BuildEstimate({
   );
 }
 
-function LiveTakeoff({ evaluation }: { evaluation: DealEvaluation }) {
+function LiveTakeoff({ dealId, evaluation, blocker }: { dealId: string; evaluation: DealEvaluation; blocker: MissingItem | undefined }) {
   const { quantities } = evaluation;
   return (
     <Card title="Live takeoff" actions={<span className="text-xs text-muted">from your description</span>}>
@@ -75,6 +76,8 @@ function LiveTakeoff({ evaluation }: { evaluation: DealEvaluation }) {
             </div>
           ))}
         </dl>
+      ) : blocker ? (
+        <BlockedNote dealId={dealId} item={blocker} />
       ) : (
         <p className="m-0 text-sm text-muted">Fill in the house to see the takeoff.</p>
       )}
@@ -89,14 +92,16 @@ interface HouseSidePanelProps {
   inputs: DealInputs;
   evaluation: DealEvaluation;
   change: EstimateChange | null;
+  /** The problem on another step that stops the estimate, if one does. */
+  blocker?: MissingItem;
 }
 
 /** The build estimate and how the last edit moved it, the takeoff behind it, and the way on. */
-export function HouseSidePanel({ dealId, inputs, evaluation, change }: HouseSidePanelProps) {
+export function HouseSidePanel({ dealId, inputs, evaluation, change, blocker }: HouseSidePanelProps) {
   return (
     <aside aria-label="About this house" className="flex min-w-0 flex-[1_1_340px] flex-col gap-5">
       <BuildEstimate inputs={inputs} evaluation={evaluation} change={change} />
-      <LiveTakeoff evaluation={evaluation} />
+      <LiveTakeoff dealId={dealId} evaluation={evaluation} blocker={blocker} />
       <NextStepLink to={`/deals/${dealId}/estimate`}>Next: review the estimate →</NextStepLink>
     </aside>
   );

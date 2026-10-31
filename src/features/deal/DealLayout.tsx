@@ -14,6 +14,7 @@ import type { SaveStatus } from "./autosaver";
 import { useDealEditorContext } from "./DealEditorContext";
 import type { DealEditor, EvaluationError } from "./useDealEditor";
 import { STEPS } from "./steps";
+import { needText } from "./needText";
 import { headsUp, stepForMissing, summarize, topNeeds } from "./summary";
 
 const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spruce";
@@ -167,7 +168,7 @@ function VerdictBlock({ dealId, evaluation }: { dealId: string; evaluation: Deal
             {shown.map((item) => (
               <li key={item.message}>
                 <Link to={`/deals/${dealId}/${stepForMissing(item)}`} className={`inline-flex min-h-11 items-center ${LINK}`}>
-                  {item.message}
+                  {needText(item)}
                 </Link>
               </li>
             ))}

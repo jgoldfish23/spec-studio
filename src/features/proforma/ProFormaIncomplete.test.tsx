@@ -27,7 +27,7 @@ describe("a new deal", () => {
     const { harness, deal } = await newDealSetup();
     await openProForma(harness, deal);
 
-    const city = within(card("Verdict")).getByRole("link", { name: /city/i });
+    const city = within(card("Verdict")).getByRole("link", { name: "City: Required" });
     expect(city).toHaveAttribute("href", `#/deals/${deal.id}/lot`);
   });
 

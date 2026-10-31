@@ -1,7 +1,8 @@
 import { FinishTierSchema } from "@engine";
-import type { FinishTier } from "@engine";
+import type { FinishTier, MissingItem } from "@engine";
 import { formatMoney } from "../../lib/format";
 import { Card } from "../../ui/Card";
+import { BlockedNote } from "../deal/BlockedNote";
 import { fieldError } from "../deal/fieldErrors";
 import { SegmentedField } from "../deal/SegmentedField";
 import { CHOICE_GRID, TIER_NAMES, TIER_OPTIONS } from "./shared";
@@ -29,7 +30,8 @@ function TierButton({
 }: {
   tier: FinishTier;
   selected: boolean;
-  cost: TierCost;
+  /** What the house costs at this tier; null when a problem elsewhere stops the estimate, and nothing is shown. */
+  cost: TierCost | null;
   onChoose: () => void;
 }) {
   return (
@@ -44,7 +46,9 @@ function TierButton({
       }`}
     >
       <span className="block text-[15px] font-bold">{TIER_NAMES[tier]}</span>
-      <span className={`mt-1 block text-xs sm:text-[13px] ${selected ? "text-white" : "text-muted"}`}>{`${formatMoney(cost.costPerFinishedSfCents)} / fin sf`}</span>
+      {cost ? (
+        <span className={`mt-1 block text-xs sm:text-[13px] ${selected ? "text-white" : "text-muted"}`}>{`${formatMoney(cost.costPerFinishedSfCents)} / fin sf`}</span>
+      ) : null}
     </button>
   );
 }
@@ -52,10 +56,13 @@ function TierButton({
 interface FinishesCardProps extends HouseCardProps {
   /** What the estimate comes to at each house tier. */
   previews: Record<FinishTier, TierCost>;
+  dealId: string;
+  /** The problem on another step that stops the estimate, said in place of the tiers' prices. */
+  blocker?: MissingItem;
 }
 
 /** The house finish tier, each tier priced per finished square foot, and the areas that are finished differently. */
-export function FinishesCard({ house, evaluation, edit, previews }: FinishesCardProps) {
+export function FinishesCard({ house, evaluation, edit, previews, dealId, blocker }: FinishesCardProps) {
   const { finishes } = house;
   const tierError = fieldError(evaluation, "house.finishes.houseTier");
   return (
@@ -71,12 +78,13 @@ export function FinishesCard({ house, evaluation, edit, previews }: FinishesCard
             key={tier}
             tier={tier}
             selected={finishes.houseTier === tier}
-            cost={previews[tier]}
+            cost={blocker ? null : previews[tier]}
             onChoose={() => edit((draft) => void (draft.house.finishes.houseTier = tier))}
           />
         ))}
       </div>
       {tierError ? <p className="m-0 text-[13px] font-medium text-no-go">{tierError}</p> : null}
+      {blocker ? <BlockedNote dealId={dealId} item={blocker} /> : null}
 
       <div className={CHOICE_GRID}>
         {AREAS.map(({ area, label }) => (

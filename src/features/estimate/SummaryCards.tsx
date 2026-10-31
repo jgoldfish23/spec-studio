@@ -1,4 +1,5 @@
 import { useId } from "react";
+import type { ReactNode } from "react";
 import type { Estimate } from "@engine";
 import { formatMoney, formatPercent } from "../../lib/format";
 import { Card } from "../../ui/Card";
@@ -79,14 +80,17 @@ function LegendRow({ color, label, cents, outline = false }: { color: string; la
   );
 }
 
+interface WaitingProps {
+  /** The estimate, or null while it cannot be worked out. */
+  estimate: Estimate | null;
+  /** What to say in its place when a problem with the deal stops it; "fill in the missing prices" otherwise. */
+  blocked?: ReactNode;
+}
+
 /** How much of the subtotal rests on real bids, on the owner's price book, and on starter defaults. */
-export function ConfidenceCard({ estimate }: { estimate: Estimate | null }) {
+export function ConfidenceCard({ estimate, blocked }: WaitingProps) {
   if (estimate === null) {
-    return (
-      <Card title="How solid is this number?">
-        <p className={MUTED_NOTE}>{WAITING}</p>
-      </Card>
-    );
+    return <Card title="How solid is this number?">{blocked ?? <p className={MUTED_NOTE}>{WAITING}</p>}</Card>;
   }
   const { confidence } = estimate;
   const bids = formatPercent(confidence.bidShare, 0);
@@ -117,13 +121,9 @@ export function ConfidenceCard({ estimate }: { estimate: Estimate | null }) {
 }
 
 /** The biggest lines still on starter defaults, and how much of the number bidding them would firm up. */
-export function BidsNextCard({ estimate }: { estimate: Estimate | null }) {
+export function BidsNextCard({ estimate, blocked }: WaitingProps) {
   if (estimate === null) {
-    return (
-      <Card title="Get bids here next">
-        <p className={MUTED_NOTE}>{WAITING}</p>
-      </Card>
-    );
+    return <Card title="Get bids here next">{blocked ?? <p className={MUTED_NOTE}>{WAITING}</p>}</Card>;
   }
   const { codes, defaultShareAfter } = estimate.bidsNext;
   const lines = codes.flatMap((code) => estimate.lines.filter((line) => line.code === code));

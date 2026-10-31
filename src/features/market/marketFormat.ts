@@ -1,5 +1,6 @@
 import { listYearMonth } from "@engine";
 import type { Cents, Comp, MissingItem, Timeline } from "@engine";
+import { needText } from "../deal/needText";
 
 /** Shown wherever a figure is missing, so a blank never reads as zero. */
 export const MISSING = "—";
@@ -91,5 +92,6 @@ export const NEEDS_DOM_COMPS =
  */
 export function whyIncomplete(missing: readonly MissingItem[], code: string, needsComps: string): string {
   if (missing.some((item) => item.code === code)) return needsComps;
-  return missing[0]?.message ?? "Not available yet.";
+  const [first] = missing;
+  return first === undefined ? "Not available yet." : needText(first);
 }
