@@ -81,8 +81,17 @@ describe("app shell", () => {
     expect(within(main).queryByText("This step is being built.")).not.toBeInTheDocument();
   });
 
+  it("has a route for the house step, with its screen", async () => {
+    const harness = createHarness();
+    const deal = await seedSampleDeal(harness.repository);
+    renderApp(`#/deals/${deal.id}/house`, harness);
+    const main = screen.getByRole("main");
+    expect(await within(main).findByRole("heading", { level: 1, name: "House" })).toBeInTheDocument();
+    expect(await within(main).findByLabelText("Main finished sf")).toHaveValue("2,200");
+    expect(within(main).queryByText("This step is being built.")).not.toBeInTheDocument();
+  });
+
   it.each([
-    ["house", "House"],
     ["estimate", "Estimate"],
     ["market", "Market"],
     ["proforma", "Pro forma"],

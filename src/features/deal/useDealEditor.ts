@@ -26,6 +26,8 @@ export interface DealEditor {
   inputs?: DealInputs;
   /** The deal evaluated, up to 150 ms behind `inputs` while edits are coming in. Set when ready. */
   evaluation?: DealEvaluation;
+  /** The inputs `evaluation` is of: `inputs` as they were when the deal was last evaluated. Set when ready. */
+  evaluatedInputs?: DealInputs;
   /** What the engine was given besides the deal. Set when ready. */
   context?: EngineContext;
   edit(recipe: (draft: DealInputs) => void): void;
@@ -193,6 +195,7 @@ export function useDealEditor(dealId: string): DealEditor {
       deal: isReady ? deal : undefined,
       inputs: isReady ? present : undefined,
       evaluation: isReady ? evaluation : undefined,
+      evaluatedInputs: isReady ? (evaluated ?? undefined) : undefined,
       context: isReady ? context : undefined,
       edit,
       rename,
@@ -203,6 +206,6 @@ export function useDealEditor(dealId: string): DealEditor {
       canRedo: live && editor.future.length > 0,
       saveStatus,
     }),
-    [status, error, isReady, deal, present, evaluation, context, edit, rename, undo, redo, discardChanges, live, editor, saveStatus],
+    [status, error, isReady, deal, present, evaluation, evaluated, context, edit, rename, undo, redo, discardChanges, live, editor, saveStatus],
   );
 }

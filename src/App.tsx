@@ -7,11 +7,13 @@ import { DealRoute } from "./features/deal/DealRoute";
 import { StepPlaceholder } from "./features/deal/StepPlaceholder";
 import { STEPS, type StepId } from "./features/deal/steps";
 import { DealsPage } from "./features/deals/DealsPage";
+import { HousePage } from "./features/house/HousePage";
 import { LotPage } from "./features/lot/LotPage";
 
 /** The screen of each step that has one built; the others show a placeholder. */
 const STEP_SCREENS: Partial<Record<StepId, ReactNode>> = {
   lot: <LotPage />,
+  house: <HousePage />,
 };
 
 const routes: RouteObject[] = [

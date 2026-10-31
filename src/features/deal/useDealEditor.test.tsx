@@ -215,6 +215,18 @@ describe("useDealEditor editing", () => {
     expect(after?.scenarios).not.toEqual(before?.scenarios);
   });
 
+  it("gives the inputs the evaluation is of, which trail an edit by 150 ms", async () => {
+    const s = await setup();
+    const view = await ready(s);
+    expect(view.result.current.evaluatedInputs).toBe(view.result.current.inputs);
+
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    expect(view.result.current.evaluatedInputs?.lot.priceCents).toBe(ORIGINAL_PRICE);
+    await advance(150);
+    expect(view.result.current.evaluatedInputs).toBe(view.result.current.inputs);
+    expect(view.result.current.evaluatedInputs?.lot.priceCents).toBe(NEW_PRICE);
+  });
+
   it("re-evaluates once for a burst of edits, 150 ms after the last", async () => {
     const s = await setup();
     const view = await ready(s);
