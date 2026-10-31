@@ -38,20 +38,28 @@ export function monthLabel(landClose: YearMonth, months: number): string {
   return `${MONTH_NAMES[index - year * 12]} ${year}`;
 }
 
-/** Days per month, as the engine converts days on market to months. Used only to put a duration into words. */
-const DAYS_PER_MONTH = 365 / 12;
-
 /** A whole number of months as "9", and anything else to one decimal. */
 const monthsText = (n: number): string => (Number.isInteger(n) ? String(n) : n.toFixed(1));
+
+export interface TimelineOptions {
+  /** The scenario's days on market, for the "Listed N d" label; without it the label is just "Listed". */
+  domDays?: number;
+  /** False when the deal has no construction loan (the engine's commitment is 0), so there is no maturity to mark. */
+  hasLoan?: boolean;
+}
 
 /**
  * Cuts one scenario's cash-flow times into the four stretches of the deal for the timeline bar, with the month the
  * loan matures and the names of the three months worth marking. Every month is the engine's own time, not rounded.
- * Only for a scenario that ran, so `landClose` is a real month.
+ * Only for a scenario that ran, so `landClose` is a real month. The engine gives a maturity month even for a deal with
+ * no loan, so the caller says whether there is one.
  */
-export function timelineSegments(times: CashFlowTimes, landClose: YearMonth): Timeline {
+export function timelineSegments(
+  times: CashFlowTimes,
+  landClose: YearMonth,
+  { domDays, hasLoan = true }: TimelineOptions = {},
+): Timeline {
   const { buildStart, completion, list, contract, saleClose, maturity } = times;
-  const listedDays = Math.round((contract - list) * DAYS_PER_MONTH);
   return {
     segments: [
       { key: "permits", startMonth: 0, endMonth: buildStart, label: `Permits ${monthsText(buildStart)} mo` },
@@ -61,11 +69,11 @@ export function timelineSegments(times: CashFlowTimes, landClose: YearMonth): Ti
         endMonth: completion,
         label: `Build ${monthsText(completion - buildStart)} mo · loan draws`,
       },
-      { key: "listed", startMonth: list, endMonth: contract, label: `Listed ${listedDays} d` },
+      { key: "listed", startMonth: list, endMonth: contract, label: domDays === undefined ? "Listed" : `Listed ${Math.round(domDays)} d` },
       { key: "closing", startMonth: contract, endMonth: saleClose, label: "Close" },
     ],
-    // A loan that matures after the sale has closed is repaid long before; there is nothing to mark on the bar.
-    maturityMonth: Number.isFinite(maturity) && maturity <= saleClose ? maturity : null,
+    // No loan has no maturity, and a loan that matures after the sale has closed is repaid before it: nothing to mark.
+    maturityMonth: hasLoan && Number.isFinite(maturity) && maturity <= saleClose ? maturity : null,
     dates: {
       landClose: monthLabel(landClose, 0),
       list: monthLabel(landClose, list),
@@ -84,13 +92,14 @@ export interface BarPiece {
 /**
  * Where each segment sits on the bar, as percents. A segment stops where the next one starts, so a house listed before
  * the build is done (the build and the listing overlap) is drawn as the build up to the listing and then the listing,
- * never two pieces on top of each other. The bar runs to the end of the last segment, or to the loan marker if later.
+ * never two pieces on top of each other. The bar runs to the end of the last segment; the loan marker is inside it,
+ * since `timelineSegments` gives no maturity month after the sale closes.
  */
 export function barLayout(
   segments: readonly TimelineSegment[],
   maturityMonth: number | null,
 ): { pieces: BarPiece[]; maturityPct: number | null } {
-  const total = Math.max(segments.at(-1)?.endMonth ?? 0, maturityMonth ?? 0);
+  const total = segments.at(-1)?.endMonth ?? 0;
   if (!(total > 0)) return { pieces: [], maturityPct: null };
   const pct = (months: number) => (months / total) * 100;
   const pieces = segments.map((segment, index): BarPiece => {

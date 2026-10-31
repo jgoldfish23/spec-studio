@@ -122,6 +122,17 @@ describe("Card", () => {
     expect(within(region).getByText("Body")).toBeInTheDocument();
   });
 
+  it("draws its title as a level 3 heading when asked, and is still a region named by it", () => {
+    render(
+      <Card title="Financing" headingLevel={3}>
+        <p>Body</p>
+      </Card>,
+    );
+    const region = screen.getByRole("region", { name: "Financing" });
+    expect(within(region).getByRole("heading", { level: 3, name: "Financing" })).toBeInTheDocument();
+    expect(within(region).queryByRole("heading", { level: 2 })).not.toBeInTheDocument();
+  });
+
   it("shows the actions slot beside the title", () => {
     render(
       <Card title="Comps" actions={<button type="button">Add comp</button>}>

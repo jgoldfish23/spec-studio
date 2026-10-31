@@ -67,6 +67,19 @@ describe("the scenario selector", () => {
   });
 });
 
+describe("what a screen reader is told when the scenario changes", () => {
+  it("announces the assumptions line, not the eight tiles", async () => {
+    const { harness, deal } = await sampleSetup();
+    await openProForma(harness, deal);
+
+    const scenarios = within(card("Scenarios"));
+    const line = scenarios.getByText(/^Sale price \$[\d,]+ · /);
+    expect(line).toHaveAttribute("aria-live", "polite");
+    expect(tile("Margin on sale").parentElement).not.toHaveAttribute("aria-live");
+    expect(card("Scenarios").querySelectorAll("[aria-live]")).toHaveLength(1);
+  });
+});
+
 describe("the assumptions line", () => {
   it("names the sale price and days on market, and leaves out the overrun when there is none", async () => {
     const { harness, deal } = await sampleSetup();

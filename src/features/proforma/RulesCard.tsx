@@ -15,7 +15,7 @@ function Row({ label, value }: { label: string; value: string }) {
 /** The three rules the verdict judges the deal by, read-only: they are the company's, and are edited in Settings, later. */
 export function RulesCard({ rules }: { rules: Rules }) {
   return (
-    <Card title="Your rules">
+    <Card title="Your rules" headingLevel={3}>
       <dl className="m-0 flex flex-col gap-3">
         <Row label="Minimum margin on sale" value={formatPercent(rules.minMarginOnSale)} />
         <Row label="Minimum annualized return" value={formatPercent(rules.minAnnualizedReturn)} />

@@ -8,6 +8,7 @@ import { SAMPLE_DEAL_NAME } from "../../data/sample";
 import type { StoredDeal } from "../../data/types";
 import { createHarness, seedSampleDeal } from "../../testing/renderApp";
 import type { Harness } from "../../testing/renderApp";
+import { sampleSetup } from "../../testing/stepHarness";
 import { useDealEditorContext } from "./DealEditorContext";
 import { DealRoute } from "./DealRoute";
 
@@ -64,12 +65,6 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
 });
-
-async function sampleSetup() {
-  const harness = createHarness();
-  const deal = await seedSampleDeal(harness.repository);
-  return { harness, deal };
-}
 
 describe("DealLayout when ready", () => {
   it("shows the back link, the name, the verdict, undo and redo, and that it is saved", async () => {

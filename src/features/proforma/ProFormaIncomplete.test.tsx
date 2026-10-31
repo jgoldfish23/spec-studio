@@ -1,26 +1,14 @@
 import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
-import type { DealInputs } from "@engine";
-import { newDealInputs } from "../../data/newDeal";
 import { installFakeClock } from "../../testing/editorTiming";
-import { createHarness } from "../../testing/renderApp";
+import { newDealSetup } from "../../testing/stepHarness";
 import { card, openProForma } from "./proformaTestUtils";
 import { VerdictPanel } from "./VerdictPanel";
 
 installFakeClock();
 
 const NUMBERS_WAIT = "The numbers appear once the missing details are filled in.";
-
-/** A deal as "New deal" makes it: no city, so the engine cannot run. */
-async function newDealSetup(change: (inputs: DealInputs) => void = () => {}) {
-  const harness = createHarness();
-  const settings = await harness.repository.getCompanySettings();
-  const inputs = newDealInputs("2026-10-31", settings);
-  change(inputs);
-  const deal = await harness.repository.createDeal({ name: "Untitled deal", inputs });
-  return { harness, deal };
-}
 
 describe("a new deal", () => {
   it("shows Needs info, says it needs a few more details, and lists what is missing", async () => {

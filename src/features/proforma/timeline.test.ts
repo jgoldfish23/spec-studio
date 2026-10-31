@@ -79,8 +79,12 @@ describe("timelineSegments", () => {
   });
 
   it("labels each segment with how long it lasts", () => {
-    const { segments } = timelineSegments(GOLDEN_BASE, "2027-06");
+    const { segments } = timelineSegments(GOLDEN_BASE, "2027-06", { domDays: 62 });
     expect(segments.map((s) => s.label)).toEqual(["Permits 2 mo", "Build 9 mo · loan draws", "Listed 62 d", "Close"]);
+  });
+
+  it("says just Listed without the scenario's days on market, rather than working them back from the times", () => {
+    expect(timelineSegments(GOLDEN_BASE, "2027-06").segments[2]?.label).toBe("Listed");
   });
 
   it("marks the month the loan matures", () => {
@@ -90,6 +94,13 @@ describe("timelineSegments", () => {
   it("has no maturity mark when the loan matures after the sale has closed", () => {
     const easy: CashFlowTimes = { ...GOLDEN_BASE, maturity: 20 };
     expect(timelineSegments(easy, "2027-06").maturityMonth).toBeNull();
+  });
+
+  it("has no maturity mark for a deal with no loan, though the engine still gives it a maturity month", () => {
+    const slow: CashFlowTimes = { ...GOLDEN_BASE, saleClose: 20 };
+    expect(timelineSegments(slow, "2027-06").maturityMonth).toBe(14);
+    expect(timelineSegments(slow, "2027-06", { hasLoan: false }).maturityMonth).toBeNull();
+    expect(timelineSegments(slow, "2027-06", { hasLoan: true }).maturityMonth).toBe(14);
   });
 
   it("marks a loan that matures on the day of the sale", () => {
@@ -110,9 +121,9 @@ describe("timelineSegments", () => {
     expect(dates).toEqual({ landClose: "Nov 2026", list: "May 2027", saleClose: "Jul 2027" });
   });
 
-  it("reads the days listed from the times of a longer stay", () => {
-    const slow: CashFlowTimes = { ...GOLDEN_BASE, contract: 11 + 400 / (365 / 12), saleClose: 11 + 435 / (365 / 12) };
-    expect(timelineSegments(slow, "2027-06").segments[2]?.label).toBe("Listed 400 d");
+  it("labels the listing with the days on market it is given", () => {
+    expect(timelineSegments(GOLDEN_BASE, "2027-06", { domDays: 400 }).segments[2]?.label).toBe("Listed 400 d");
+    expect(timelineSegments(GOLDEN_BASE, "2027-06", { domDays: 1 }).segments[2]?.label).toBe("Listed 1 d");
   });
 });
 

@@ -16,7 +16,8 @@ function percentFormat(minDigits: number, maxDigits: number): Intl.NumberFormat 
       style: "percent",
       minimumFractionDigits: minDigits,
       maximumFractionDigits: maxDigits,
-      // No separators, so a shown percent reads back through parsePercent.
+      // No thousands separators: `parsePercent` reads none, and the text `formatPercentInput` puts in a form field must
+      // read back through it. (`formatPercent` itself no longer reads back: its negatives use the minus sign.)
       useGrouping: false,
     });
     percentFormats.set(key, format);

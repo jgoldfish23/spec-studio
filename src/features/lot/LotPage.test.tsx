@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
 import { evaluateDeal } from "@engine";
 import type { DealInputs, ValidationIssue } from "@engine";
-import { newDealInputs } from "../../data/newDeal";
 import { SAMPLE_DEAL_NAME, sampleDealInputs } from "../../data/sample";
 import type { StoredDeal } from "../../data/types";
 import { formatMoney } from "../../lib/format";
@@ -11,28 +10,13 @@ import { advance, installFakeClock, newUser, pasteOver, savedAfterAutosave, type
 import { contextFor, evaluated } from "../../testing/engineContext";
 import { createHarness, renderApp, seedSampleDeal } from "../../testing/renderApp";
 import type { Harness } from "../../testing/renderApp";
+import { newDealSetup, sampleSetup } from "../../testing/stepHarness";
 import { DealEditorContext } from "../deal/DealEditorContext";
 import { summarize } from "../deal/summary";
 import type { DealEditor } from "../deal/useDealEditor";
 import { LotPage } from "./LotPage";
 
 installFakeClock();
-
-async function sampleSetup() {
-  const harness = createHarness();
-  const deal = await seedSampleDeal(harness.repository);
-  return { harness, deal };
-}
-
-/** A deal as "New deal" makes it (the city is empty), with an optional change. */
-async function newDealSetup(change: (inputs: DealInputs) => void = () => {}) {
-  const harness = createHarness();
-  const settings = await harness.repository.getCompanySettings();
-  const inputs = newDealInputs("2026-10-31", settings);
-  change(inputs);
-  const deal = await harness.repository.createDeal({ name: "Untitled deal", inputs });
-  return { harness, deal };
-}
 
 async function openLot(harness: Harness, deal: StoredDeal) {
   renderApp(`#/deals/${deal.id}/lot`, harness);

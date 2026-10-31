@@ -1,7 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { installFakeClock, newUser } from "../../testing/editorTiming";
-import { sampleSetup } from "../../testing/stepHarness";
+import { sampleSetup, setupWith } from "../../testing/stepHarness";
 import { card, openProForma, pickScenario, scenariosOf } from "./proformaTestUtils";
 import { TimelineCard } from "./TimelineCard";
 
@@ -61,6 +61,36 @@ describe("the timeline", () => {
     expect(within(timeline()).getByText("Loan matures")).toBeVisible();
     await pickScenario(user, "Base");
     expect(within(timeline()).queryByText("Loan matures")).not.toBeInTheDocument();
+  });
+});
+
+describe("a deal with no construction loan", () => {
+  it("draws no loan marker, even in a slow scenario that sells after the month the loan would have matured", async () => {
+    const { harness, deal } = await setupWith((inputs) => {
+      inputs.loan.ltc = 0;
+    });
+    const { downside } = await scenariosOf(deal.inputs);
+    // The engine still reports a maturity month, and the downside sells after it, but there is no loan to mature.
+    expect(downside.cashFlow.commitmentCents).toBe(0);
+    expect(downside.cashFlow.times.saleClose).toBeGreaterThan(downside.cashFlow.times.maturity);
+    await openProForma(harness, deal);
+
+    await pickScenario(newUser(), "Downside");
+    expect(within(timeline()).queryByText("Loan matures")).not.toBeInTheDocument();
+    expect(within(timeline()).queryByTestId("loan-marker")).not.toBeInTheDocument();
+    expect(within(timeline()).getByText("Jun 2027 · land closes")).toBeVisible();
+  });
+
+  it("draws the marker for the same slow scenario once there is a loan", async () => {
+    const { harness, deal } = await setupWith((inputs) => {
+      inputs.loan.ltc = 0.5;
+    });
+    const { downside } = await scenariosOf(deal.inputs);
+    expect(downside.cashFlow.commitmentCents).toBeGreaterThan(0);
+    await openProForma(harness, deal);
+
+    await pickScenario(newUser(), "Downside");
+    expect(within(timeline()).getByText("Loan matures")).toBeVisible();
   });
 });
 

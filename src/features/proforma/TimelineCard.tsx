@@ -26,7 +26,11 @@ interface TimelineCardProps {
  * same, with the three months worth knowing.
  */
 export function TimelineCard({ scenario, result, landClose }: TimelineCardProps) {
-  const { segments, maturityMonth, dates } = timelineSegments(result.cashFlow.times, landClose);
+  const { segments, maturityMonth, dates } = timelineSegments(result.cashFlow.times, landClose, {
+    domDays: result.inputs.domDays,
+    // The engine reads a commitment of 0 as no construction loan, and gives such a deal a maturity month all the same.
+    hasLoan: result.cashFlow.commitmentCents > 0,
+  });
   const { pieces, maturityPct } = barLayout(segments, maturityMonth);
   const months = result.metrics.monthsLandToClose;
   return (

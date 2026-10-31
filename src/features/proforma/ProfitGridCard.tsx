@@ -48,10 +48,11 @@ interface ProfitGridCardProps {
  */
 export function ProfitGridCard({ grid, basePriceCents, breakEvenDomDays }: ProfitGridCardProps) {
   const columns = grid[0] ?? [];
+  // 0 days is the engine saying the deal already loses money at full price, however fast it sells.
   const sits =
-    breakEvenDomDays === null
-      ? "more than 3 years"
-      : `about ${formatDays(breakEvenDomDays)}`;
+    breakEvenDomDays === 0
+      ? "At full price it loses money even if it sells right away"
+      : `At full price it could sit ${breakEvenDomDays === null ? "more than 3 years" : `about ${formatDays(breakEvenDomDays)}`} before profit hits $0`;
   return (
     <Card title="Profit by sale price × days on market">
       <div className="overflow-x-auto">
@@ -99,7 +100,7 @@ export function ProfitGridCard({ grid, basePriceCents, breakEvenDomDays }: Profi
       </div>
       <Legend />
       <p className="m-0 rounded-lg bg-[#F7F8F6] px-3.5 py-3 text-[13px] leading-normal text-[#33403A]">
-        {`At full price it could sit ${sits} before profit hits $0`}
+        {sits}
       </p>
     </Card>
   );

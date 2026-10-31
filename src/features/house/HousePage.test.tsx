@@ -8,8 +8,9 @@ import type { StoredDeal } from "../../data/types";
 import { formatMoney } from "../../lib/format";
 import { advance, installFakeClock, newUser, pasteOver, savedAfterAutosave } from "../../testing/editorTiming";
 import { contextFor, evaluated } from "../../testing/engineContext";
-import { createHarness, renderApp, seedSampleDeal } from "../../testing/renderApp";
+import { renderApp } from "../../testing/renderApp";
 import type { Harness } from "../../testing/renderApp";
+import { sampleSetup, setupWith } from "../../testing/stepHarness";
 import { DealEditorContext } from "../deal/DealEditorContext";
 import { useDealEditor } from "../deal/useDealEditor";
 import type { DealEditor } from "../deal/useDealEditor";
@@ -24,22 +25,6 @@ vi.mock("@engine", async (importOriginal) => {
 const engineRuns = vi.mocked(evaluateDeal);
 
 installFakeClock();
-
-async function sampleSetup() {
-  const harness = createHarness();
-  const deal = await seedSampleDeal(harness.repository);
-  return { harness, deal };
-}
-
-/** The sample deal with a change, stored as a deal of its own. */
-async function setupWith(change: (inputs: DealInputs) => void) {
-  const harness = createHarness();
-  const sample = await seedSampleDeal(harness.repository);
-  const inputs = structuredClone(sample.inputs);
-  change(inputs);
-  const deal = await harness.repository.createDeal({ name: "Changed", inputs });
-  return { harness, deal };
-}
 
 async function openHouse(harness: Harness, deal: StoredDeal) {
   renderApp(`#/deals/${deal.id}/house`, harness);

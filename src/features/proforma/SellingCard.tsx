@@ -19,7 +19,7 @@ export function SellingCard({ inputs, evaluation, edit }: CardProps) {
   // box's own message for the group, so the group's is looked up by its exact path.
   const totalError = evaluation.validation.find((issue) => issue.path === "selling")?.message;
   return (
-    <Card title="Selling">
+    <Card title="Selling" headingLevel={3}>
       <div className={FIELD_GRID}>
         <PercentField
           label="Listing agent %"

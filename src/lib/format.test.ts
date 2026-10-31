@@ -323,7 +323,7 @@ describe("formatPercent", () => {
     expect(formatPercent(Number.POSITIVE_INFINITY, 1, { signed: true })).toBe("—");
   });
 
-  it("does not group digits, so the text reads back with parsePercent", () => {
+  it("does not group digits in the thousands", () => {
     expect(formatPercent(12.345, 2)).toBe("1234.50%");
   });
 });

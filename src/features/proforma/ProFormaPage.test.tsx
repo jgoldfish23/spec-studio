@@ -19,12 +19,12 @@ describe("Pro forma page layout", () => {
       "Timeline & loan",
       "Profit by sale price × days on market",
       "Assumptions",
-      "Financing",
-      "Selling",
-      "Carrying",
-      "Your rules",
       "Monthly cash flow",
     ]);
+    // The four assumption cards sit under the "Assumptions" heading, one level down.
+    const under = screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent);
+    expect(under).toEqual(["Financing", "Selling", "Carrying", "Your rules"]);
+    expect(card("Financing")).toBeVisible();
   });
 
   it("is the page the Pro forma tab opens, not a placeholder", async () => {

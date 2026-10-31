@@ -5,10 +5,10 @@ import type { LeverResult, Verdict, VerdictKind } from "@engine";
 import { formatMoney, formatPercent } from "../../lib/format";
 import { VerdictChip } from "../../ui/VerdictChip";
 import { stepForMissing, topNeeds } from "../deal/summary";
+import { FOCUS_RING } from "../deal/stepShared";
 import { checkLine, loanWarningText, verdictHeadline } from "./verdictText";
 
-const LINK =
-  "inline-flex min-h-11 items-center font-semibold text-spruce underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spruce";
+const LINK = `inline-flex min-h-11 items-center font-semibold text-spruce underline-offset-2 hover:underline ${FOCUS_RING}`;
 
 /** The panel's edge takes the verdict's own tint, so the panel reads as the verdict before any word is read. */
 const EDGE: Record<VerdictKind, string> = {

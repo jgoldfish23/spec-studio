@@ -135,7 +135,7 @@ export function ScenariosCard({ scenario, onScenario, result, inputs }: Scenario
             ))}
           </tbody>
         </table>
-        <div aria-live="polite" className="grid min-w-0 flex-[1_1_360px] grid-cols-2 gap-2.5">
+        <div className="grid min-w-0 flex-[1_1_360px] grid-cols-2 gap-2.5">
           <StatTile label="Margin on sale" value={formatPercent(metrics.marginOnSale)} />
           <StatTile label="Margin on cost" value={formatPercent(metrics.marginOnCost)} />
           <StatTile label="Peak cash you put in" value={formatMoney(metrics.peakCashCents)} />

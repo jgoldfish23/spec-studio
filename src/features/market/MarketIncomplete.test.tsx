@@ -1,27 +1,15 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import type { DealInputs } from "@engine";
-import { newDealInputs } from "../../data/newDeal";
 import { advance, installFakeClock, newUser, pasteOver, typeOver } from "../../testing/editorTiming";
-import { createHarness, renderApp } from "../../testing/renderApp";
+import { renderApp } from "../../testing/renderApp";
 import type { Harness } from "../../testing/renderApp";
-import { sampleSetup } from "../../testing/stepHarness";
+import { newDealSetup, sampleSetup } from "../../testing/stepHarness";
 import { card, compsTable, fillBoxes, listedAddresses, openMarket } from "./marketTestUtils";
 
 installFakeClock();
 
 const NEEDS_PRICE = "Needs sold comps — add at least one below, or enter your own base sale price above.";
 const NEEDS_DOM = "Needs sold comps — add at least one below, or enter your own base days on market above.";
-
-/** A deal as "New deal" makes it, in a fresh local repository that holds only the starter cost book and no comps. */
-async function newDealSetup(change: (inputs: DealInputs) => void = () => {}) {
-  const harness = createHarness();
-  const settings = await harness.repository.getCompanySettings();
-  const inputs = newDealInputs("2026-10-31", settings);
-  change(inputs);
-  const deal = await harness.repository.createDeal({ name: "Untitled deal", inputs });
-  return { harness, deal };
-}
 
 const stepLink = (name: string) => within(screen.getByRole("navigation", { name: "Deal steps" })).getByRole("link", { name });
 

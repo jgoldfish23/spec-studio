@@ -7,10 +7,10 @@ import { card, openProForma, pickScenario, scenariosOf } from "./proformaTestUti
 
 installFakeClock();
 
-const cashFlow = () => card("Monthly cash flow");
+const cashFlowCard = () => card("Monthly cash flow");
 
 async function expand(user: ReturnType<typeof newUser>) {
-  await user.click(within(cashFlow()).getByText("Show month by month"));
+  await user.click(within(cashFlowCard()).getByText("Show month by month"));
 }
 
 describe("the month by month table", () => {
@@ -18,10 +18,10 @@ describe("the month by month table", () => {
     const { harness, deal } = await sampleSetup();
     await openProForma(harness, deal);
 
-    const details = within(cashFlow()).getByText("Show month by month").closest("details");
+    const details = within(cashFlowCard()).getByText("Show month by month").closest("details");
     expect(details).not.toBeNull();
     expect(details).not.toHaveAttribute("open");
-    expect(within(cashFlow()).getByRole("table")).not.toBeVisible();
+    expect(within(cashFlowCard()).getByRole("table")).not.toBeVisible();
   });
 
   it("shows ceil(saleClose) rows once it is expanded", async () => {
@@ -32,7 +32,7 @@ describe("the month by month table", () => {
 
     await expand(user);
 
-    const table = within(cashFlow()).getByRole("table");
+    const table = within(cashFlowCard()).getByRole("table");
     expect(table).toBeVisible();
     const rows = within(table).getAllByRole("row").slice(1);
     expect(rows).toHaveLength(Math.ceil(base.cashFlow.times.saleClose));
@@ -43,7 +43,7 @@ describe("the month by month table", () => {
     const { harness, deal } = await sampleSetup();
     await openProForma(harness, deal);
 
-    const headers = within(within(cashFlow()).getByRole("table")).getAllByRole("columnheader");
+    const headers = within(within(cashFlowCard()).getByRole("table")).getAllByRole("columnheader");
     expect(headers.map((header) => header.textContent)).toEqual([
       "Month",
       "Spend",
@@ -61,7 +61,7 @@ describe("the month by month table", () => {
     const { base } = await scenariosOf();
     await openProForma(harness, deal);
 
-    const rows = within(within(cashFlow()).getByRole("table")).getAllByRole("row").slice(1);
+    const rows = within(within(cashFlowCard()).getByRole("table")).getAllByRole("row").slice(1);
     expect(within(rows[0] as HTMLElement).getByRole("rowheader")).toHaveTextContent("Jun 2027");
     expect(within(rows[1] as HTMLElement).getByRole("rowheader")).toHaveTextContent("Jul 2027");
     expect(within(rows[7] as HTMLElement).getByRole("rowheader")).toHaveTextContent("Jan 2028");
@@ -83,6 +83,30 @@ describe("the month by month table", () => {
     });
   });
 
+  it("adds the carry up to the engine's own carry total, so the columns it sums are the right ones", async () => {
+    const { harness, deal } = await sampleSetup();
+    const scenarios = await scenariosOf();
+    await openProForma(harness, deal);
+    const user = newUser();
+
+    for (const [name, label] of [
+      ["base", "Base"],
+      ["downside", "Downside"],
+      ["upside", "Upside"],
+    ] as const) {
+      const { cashFlow, metrics } = scenarios[name];
+      await pickScenario(user, label);
+      const rows = within(within(cashFlowCard()).getByRole("table")).getAllByRole("row").slice(1);
+      const carryCells = rows.map((row) => within(row).getAllByRole("cell")[3]?.textContent);
+      const carries = cashFlow.periods.map(
+        (p) => p.taxCents + p.insuranceCents + p.utilitiesCents + p.stagingCents + p.upkeepCents + p.hoaCents,
+      );
+      // The engine's total is what it adds up from the same fields; a wrong list here would miss it.
+      expect(carries.reduce((sum, cents) => sum + cents, 0)).toBe(metrics.carryCents);
+      expect(carryCells).toEqual(carries.map((cents) => formatMoney(cents)));
+    }
+  });
+
   it("follows the scenario picked", async () => {
     const { harness, deal } = await sampleSetup();
     const { downside } = await scenariosOf();
@@ -92,7 +116,7 @@ describe("the month by month table", () => {
     await pickScenario(user, "Downside");
     await expand(user);
 
-    const rows = within(within(cashFlow()).getByRole("table")).getAllByRole("row").slice(1);
+    const rows = within(within(cashFlowCard()).getByRole("table")).getAllByRole("row").slice(1);
     expect(rows).toHaveLength(Math.ceil(downside.cashFlow.times.saleClose));
     expect(rows).toHaveLength(15);
   });
@@ -102,7 +126,7 @@ describe("the month by month table", () => {
     await openProForma(harness, deal);
 
     expect(
-      within(cashFlow()).getByText(
+      within(cashFlowCard()).getByText(
         "Carry is property tax, insurance, utilities, staging, upkeep and HOA. Interest is the construction loan's; points, fees and land-loan interest are in Equity out.",
       ),
     ).toBeInTheDocument();

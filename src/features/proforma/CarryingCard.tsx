@@ -16,7 +16,7 @@ export function CarryingCard({ inputs, evaluation, edit }: CardProps) {
   const { carry } = inputs;
   const error = (path: string) => fieldError(evaluation, path);
   return (
-    <Card title="Carrying">
+    <Card title="Carrying" headingLevel={3}>
       <div className={FIELD_GRID}>
         <PercentField
           label="Builder's risk %/yr"

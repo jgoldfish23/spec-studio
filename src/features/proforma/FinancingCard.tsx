@@ -19,7 +19,7 @@ export function FinancingCard({ inputs, evaluation, edit }: CardProps) {
   const { loan } = inputs;
   const error = (path: string) => fieldError(evaluation, path);
   return (
-    <Card title="Financing">
+    <Card title="Financing" headingLevel={3}>
       <div className={FIELD_GRID}>
         <PercentField
           label="Loan-to-cost %"

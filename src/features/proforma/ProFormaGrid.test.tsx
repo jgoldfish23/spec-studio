@@ -4,7 +4,7 @@ import type { GridCell } from "@engine";
 import { formatMoney } from "../../lib/format";
 import { installFakeClock, newUser } from "../../testing/editorTiming";
 import { evaluated } from "../../testing/engineContext";
-import { sampleSetup } from "../../testing/stepHarness";
+import { sampleSetup, setupWith } from "../../testing/stepHarness";
 import { BAND_STYLES } from "./gridPalette";
 import { ProfitGridCard } from "./ProfitGridCard";
 import { card, openProForma, pickScenario } from "./proformaTestUtils";
@@ -126,6 +126,18 @@ describe("the profit grid", () => {
     ).toBeVisible();
   });
 
+  it("says it loses money even if it sells right away, for a deal that loses money at its base price", async () => {
+    const { harness, deal } = await setupWith((inputs) => {
+      inputs.overrides.basePriceCents = 115_000_000;
+    });
+    expect((await evaluated(deal.inputs)).breakEvenDomDays).toBe(0);
+    await openProForma(harness, deal);
+
+    const grid = within(card("Profit by sale price × days on market"));
+    expect(grid.getByText("At full price it loses money even if it sells right away")).toBeVisible();
+    expect(grid.queryByText(/could sit/)).not.toBeInTheDocument();
+  });
+
   it("is the same grid whichever scenario is picked, since it is built on the base case", async () => {
     const { harness, deal } = await sampleSetup();
     const { grid } = await sampleGrid();
@@ -143,6 +155,14 @@ describe("ProfitGridCard", () => {
     render(<ProfitGridCard grid={grid} basePriceCents={basePrice} breakEvenDomDays={null} />);
 
     expect(screen.getByText("At full price it could sit more than 3 years before profit hits $0")).toBeVisible();
+  });
+
+  it("says the deal loses money even if it sells right away when it already does at full price", async () => {
+    const { grid, basePrice } = await sampleGrid();
+    render(<ProfitGridCard grid={grid} basePriceCents={basePrice} breakEvenDomDays={0} />);
+
+    expect(screen.getByText("At full price it loses money even if it sells right away")).toBeVisible();
+    expect(screen.queryByText(/could sit/)).not.toBeInTheDocument();
   });
 
   it("says one day, not 1 days", async () => {
