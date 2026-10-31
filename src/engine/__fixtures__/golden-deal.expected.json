@@ -946,6 +946,322 @@
           "cents": 57637200
         }
       ]
+    },
+    "financed": {
+      "inputs": {
+        "priceCents": 135000000,
+        "domDays": 62,
+        "overrunPct": 0
+      },
+      "times": {
+        "buildStart": 2,
+        "completion": 11,
+        "list": 9,
+        "contract": 11.0383561643836,
+        "saleClose": 12.1890410958904,
+        "maturity": 14
+      },
+      "extensions": 0,
+      "periods": [
+        {
+          "spendCents": 3850000,
+          "equitySpendCents": 3850000,
+          "loanDrawCents": 0,
+          "drawFeeCents": 0,
+          "pointsCents": 0,
+          "interestCents": 0,
+          "landLoanInterestCents": 172083,
+          "extensionFeeCents": 0,
+          "taxCents": 13340,
+          "insuranceCents": 0,
+          "utilitiesCents": 0,
+          "stagingCents": 0,
+          "upkeepCents": 0,
+          "hoaCents": 0,
+          "equityOutCents": 13595173
+        },
+        {
+          "spendCents": 0,
+          "equitySpendCents": 0,
+          "loanDrawCents": 0,
+          "drawFeeCents": 0,
+          "pointsCents": 0,
+          "interestCents": 0,
+          "landLoanInterestCents": 172083,
+          "extensionFeeCents": 0,
+          "taxCents": 13340,
+          "insuranceCents": 0,
+          "utilitiesCents": 0,
+          "stagingCents": 0,
+          "upkeepCents": 0,
+          "hoaCents": 0,
+          "equityOutCents": 185423
+        },
+        {
+          "spendCents": 2103212,
+          "equitySpendCents": 2103212,
+          "loanDrawCents": 0,
+          "drawFeeCents": 0,
+          "pointsCents": 588798,
+          "interestCents": 0,
+          "landLoanInterestCents": 172083,
+          "extensionFeeCents": 0,
+          "taxCents": 14181,
+          "insuranceCents": 21467,
+          "utilitiesCents": 15000,
+          "stagingCents": 0,
+          "upkeepCents": 0,
+          "hoaCents": 0,
+          "equityOutCents": 2914741
+        },
+        {
+          "spendCents": 6055958,
+          "equitySpendCents": 6055958,
+          "loanDrawCents": 0,
+          "drawFeeCents": 0,
+          "pointsCents": 0,
+          "interestCents": 0,
+          "landLoanInterestCents": 172083,
+          "extensionFeeCents": 0,
+          "taxCents": 16604,
+          "insuranceCents": 21467,
+          "utilitiesCents": 15000,
+          "stagingCents": 0,
+          "upkeepCents": 0,
+          "hoaCents": 0,
+          "equityOutCents": 6281112
+        },
+        {
+          "spendCents": 9278267,
+          "equitySpendCents": 2710780,
+          "loanDrawCents": 6567487,
+          "drawFeeCents": 20000,
+          "pointsCents": 0,
+          "interestCents": 0,
+          "landLoanInterestCents": 172083,
+          "extensionFeeCents": 0,
+          "taxCents": 20315,
+          "insuranceCents": 21467,
+          "utilitiesCents": 15000,
+          "stagingCents": 0,
+          "upkeepCents": 0,
+          "hoaCents": 0,
+          "equityOutCents": 2959645
+        },
+        {
+          "spendCents": 11381479,
+          "equitySpendCents": 0,
+          "loanDrawCents": 11381479,
+          "drawFeeCents": 20000,
+          "pointsCents": 0,
+          "interestCents": 49256,
+          "landLoanInterestCents": 172083,
+          "extensionFeeCents": 0,
+          "taxCents": 24868,
+          "insuranceCents": 21467,
+          "utilitiesCents": 15000,
+          "stagingCents": 0,
+          "upkeepCents": 0,
+          "hoaCents": 0,
+          "equityOutCents": 253418
+        },
+        {
+          "spendCents": 12111917,
+          "equitySpendCents": 0,
+          "loanDrawCents": 12111917,
+          "drawFeeCents": 20000,
+          "pointsCents": 0,
+          "interestCents": 134987,
+          "landLoanInterestCents": 172083,
+          "extensionFeeCents": 0,
+          "taxCents": 29712,
+          "insuranceCents": 21467,
+          "utilitiesCents": 15000,
+          "stagingCents": 0,
+          "upkeepCents": 0,
+          "hoaCents": 0,
+          "equityOutCents": 258262
+        },
+        {
+          "spendCents": 11381479,
+          "equitySpendCents": 0,
+          "loanDrawCents": 11381479,
+          "drawFeeCents": 20000,
+          "pointsCents": 0,
+          "interestCents": 226838,
+          "landLoanInterestCents": 172083,
+          "extensionFeeCents": 0,
+          "taxCents": 34265,
+          "insuranceCents": 21467,
+          "utilitiesCents": 15000,
+          "stagingCents": 0,
+          "upkeepCents": 0,
+          "hoaCents": 0,
+          "equityOutCents": 262815
+        },
+        {
+          "spendCents": 9278267,
+          "equitySpendCents": 0,
+          "loanDrawCents": 9278267,
+          "drawFeeCents": 20000,
+          "pointsCents": 0,
+          "interestCents": 313901,
+          "landLoanInterestCents": 172083,
+          "extensionFeeCents": 0,
+          "taxCents": 37976,
+          "insuranceCents": 21467,
+          "utilitiesCents": 15000,
+          "stagingCents": 0,
+          "upkeepCents": 0,
+          "hoaCents": 0,
+          "equityOutCents": 266526
+        },
+        {
+          "spendCents": 6055958,
+          "equitySpendCents": 0,
+          "loanDrawCents": 6055958,
+          "drawFeeCents": 20000,
+          "pointsCents": 0,
+          "interestCents": 385842,
+          "landLoanInterestCents": 172083,
+          "extensionFeeCents": 0,
+          "taxCents": 40399,
+          "insuranceCents": 21467,
+          "utilitiesCents": 15000,
+          "stagingCents": 50000,
+          "upkeepCents": 0,
+          "hoaCents": 0,
+          "equityOutCents": 318949
+        },
+        {
+          "spendCents": 2103213,
+          "equitySpendCents": 0,
+          "loanDrawCents": 2103213,
+          "drawFeeCents": 20000,
+          "pointsCents": 0,
+          "interestCents": 434156,
+          "landLoanInterestCents": 172083,
+          "extensionFeeCents": 0,
+          "taxCents": 41240,
+          "insuranceCents": 21467,
+          "utilitiesCents": 15000,
+          "stagingCents": 50000,
+          "upkeepCents": 0,
+          "hoaCents": 0,
+          "equityOutCents": 319790
+        },
+        {
+          "spendCents": 0,
+          "equitySpendCents": 0,
+          "loanDrawCents": 0,
+          "drawFeeCents": 0,
+          "pointsCents": 0,
+          "interestCents": 453186,
+          "landLoanInterestCents": 172083,
+          "extensionFeeCents": 0,
+          "taxCents": 41240,
+          "insuranceCents": 21467,
+          "utilitiesCents": 25000,
+          "stagingCents": 1918,
+          "upkeepCents": 10000,
+          "hoaCents": 0,
+          "equityOutCents": 271708
+        },
+        {
+          "spendCents": 0,
+          "equitySpendCents": 0,
+          "loanDrawCents": 0,
+          "drawFeeCents": 0,
+          "pointsCents": 0,
+          "interestCents": 86313,
+          "landLoanInterestCents": 32531,
+          "extensionFeeCents": 0,
+          "taxCents": 7796,
+          "insuranceCents": 4058,
+          "utilitiesCents": 4726,
+          "stagingCents": 0,
+          "upkeepCents": 1890,
+          "hoaCents": 0,
+          "equityOutCents": 51001
+        }
+      ],
+      "sale": {
+        "commissionsCents": 6750000,
+        "closingCents": 1350000,
+        "netCents": 125400000,
+        "loanPayoffCents": 81614279,
+        "equityReturnCents": 43785721
+      },
+      "metrics": {
+        "totalProjectCostCents": 109552842,
+        "buildSpentCents": 73599750,
+        "financingCents": 5220554,
+        "carryCents": 832538,
+        "sellingCostsCents": 9600000,
+        "profitCents": 15847158,
+        "peakCashCents": 27938563,
+        "breakEvenSalePriceCents": 118141321,
+        "monthlyBurnWhileListedCents": 772976,
+        "maxDomWithoutExtension": 117
+      },
+      "equityFlows": [
+        {
+          "t": 0,
+          "cents": -13595173
+        },
+        {
+          "t": 1,
+          "cents": -185423
+        },
+        {
+          "t": 2,
+          "cents": -2914741
+        },
+        {
+          "t": 3,
+          "cents": -6281112
+        },
+        {
+          "t": 4,
+          "cents": -2959645
+        },
+        {
+          "t": 5,
+          "cents": -253418
+        },
+        {
+          "t": 6,
+          "cents": -258262
+        },
+        {
+          "t": 7,
+          "cents": -262815
+        },
+        {
+          "t": 8,
+          "cents": -266526
+        },
+        {
+          "t": 9,
+          "cents": -318949
+        },
+        {
+          "t": 10,
+          "cents": -319790
+        },
+        {
+          "t": 11,
+          "cents": -271708
+        },
+        {
+          "t": 12,
+          "cents": -51001
+        },
+        {
+          "t": 12.1890410958904,
+          "cents": 43785721
+        }
+      ]
     }
   }
 }

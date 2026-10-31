@@ -76,11 +76,28 @@ export interface GoldenScenario {
 }
 
 export interface GoldenExpected {
-  scenarios: { base: GoldenScenario; stress: GoldenScenario };
+  scenarios: { base: GoldenScenario; stress: GoldenScenario; financed: GoldenScenario };
 }
 
-/** Expected cash flow and metrics for the golden deal's `base` and `stress` scenarios. */
+/** Expected cash flow and metrics for the golden deal's `base`, `stress` and `financed` scenarios. */
 export const GOLDEN_EXPECTED: GoldenExpected = goldenExpected;
+
+/**
+ * The golden deal as the `financed` scenario runs it: a 70% land loan at 10% with 1.5 points, construction
+ * interest capitalized, and listing 2 months before completion. The spreadsheet applies the same overrides
+ * (`FINANCED` in `scripts/golden/build_golden.py`); the scenario's price, days on market and overrun are its `inputs`.
+ */
+export const GOLDEN_FINANCED_DEAL: DealInputs = {
+  ...GOLDEN_DEAL,
+  lot: { ...GOLDEN_DEAL.lot, financing: { kind: "loan", ltv: 0.7, rate: 0.1, points: 0.015 } },
+  timeline: { ...GOLDEN_DEAL.timeline, listEarlyMonths: 2 },
+  loan: { ...GOLDEN_DEAL.loan, interestMode: "capitalized" },
+};
+
+/** The deal a golden scenario runs on: `financed` changes the deal's terms, `base` and `stress` only its scenario inputs. */
+export function goldenDeal(scenario: keyof GoldenExpected["scenarios"]): DealInputs {
+  return scenario === "financed" ? GOLDEN_FINANCED_DEAL : GOLDEN_DEAL;
+}
 
 /** The 8 sold comps from the market mockup. `market.test.ts` checks the JSON's enum fields against `Comp`. */
 export const GOLDEN_COMPS = goldenComps as Comp[];
@@ -102,5 +119,5 @@ export function goldenProFormaInput(
   overrides: Partial<ScenarioInputs> = {},
 ): ProFormaInput {
   const inputs = { ...GOLDEN_EXPECTED.scenarios[scenario].inputs, ...overrides };
-  return buildProFormaInput(GOLDEN_DEAL, goldenEstimate(), inputs);
+  return buildProFormaInput(goldenDeal(scenario), goldenEstimate(), inputs);
 }

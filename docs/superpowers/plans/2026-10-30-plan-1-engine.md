@@ -43,6 +43,7 @@ The spreadsheet (Task 7) and `runCashFlow` (Task 8) implement exactly this. All 
    - `buildStart = P` (pre-con months), `completion = P + B`, `list = completion − L`
    - `contract = list + dom / MONTH_DAYS`
    - `saleClose = max(contract + closingDays / MONTH_DAYS, completion)`
+   - `contract`, then `saleClose`, is snapped to the nearest whole month when within 1e-9 of it, so float noise (17.000000000000004) never adds a period or an extension.
    - `maturity = buildStart + termMonths`
    - Periods `k = 0 … N−1`, where `N = ceil(saleClose)`
    - `overlap(k, a, b) = max(0, min(k + 1, b) − max(k, a))`
@@ -91,7 +92,7 @@ The spreadsheet (Task 7) and `runCashFlow` (Task 8) implement exactly this. All 
     - `profit = price − sellingCosts − totalProjectCost`
 13. **Peak cash** = max over k of cumulative equity out through period k (sale inflow excluded).
 14. **Monthly burn while listed** = `round(balanceAtCompletion × rate / 12) + round(landLoan × landRate / 12) + round(taxRate / 12 × (landPrice + buildSpent)) + round(insuranceRate / 12 × estimateTotal) + uAfter + staging + upkeep + hoa`. `balanceAtCompletion` = loan balance after period `completion − 1`.
-15. **`maxDomWithoutExtension`** = `max(0, floor((maturity − list) × MONTH_DAYS − closingDays))`; `null` when commitment = 0.
+15. **`maxDomWithoutExtension`** = `max(0, floor((maturity − list) × MONTH_DAYS − closingDays + 1e-9))`; `null` when commitment = 0.
 
 ## File map
 
@@ -911,8 +912,8 @@ expect(r.upside).toEqual({ priceCents: 140_400_000, domDays: 52, overrunPct: 0 }
 - Produces:
   - `VerdictKind = "incomplete" | "go" | "marginal" | "nogo"`
   - `RuleCheck { rule: "marginOnSale" | "annualizedReturn" | "downsideProfit"; pass: boolean; actual: number | null; threshold: number }`
-  - `Verdict { kind; checks: RuleCheck[]; loanWarning?: { maxDomWithoutExtension: number; baseDomDays: number }; missing?: MissingItem[] }`
-  - `evaluateVerdict(base: Metrics, downside: Metrics, rules: Rules, baseDomDays: number): Verdict` — spec §5.8 definitions. A `null` annualized return fails its rule. The loan warning appears when `maxDomWithoutExtension !== null && baseDomDays > maxDomWithoutExtension`.
+  - `Verdict { kind; checks: RuleCheck[]; loanWarning?: { maxDomWithoutExtension: number | null; baseDomDays: number; extensions: number }; missing?: MissingItem[] }`
+  - `evaluateVerdict(base: Metrics, downside: Metrics, rules: Rules, baseDomDays: number, baseExtensions: number): Verdict` — spec §5.8 definitions. A `null` annualized return fails its rule. The loan warning appears exactly when `baseExtensions > 0` (the base cash flow pays extension fees).
   - `incompleteVerdict(missing: MissingItem[]): Verdict`
   - `seekMax(passes: (x: number) => boolean, lo: number, hi: number, step: number): number | null` — largest x on the step grid in [lo, hi] that passes, assuming passes is monotone (true for x ≤ answer)
   - `seekMin(...)` — mirror image
@@ -934,7 +935,7 @@ expect(r.upside).toEqual({ priceCents: 140_400_000, domDays: 52, overrunPct: 0 }
 //   only the downside rule fails                            → "nogo"
 //   margin and annual fail                                  → "nogo"
 //   annualizedReturn null                                   → the annual check fails with actual null
-//   maxDomWithoutExtension 56, baseDomDays 62               → loanWarning present
+//   base extensions 1 (maxDom 56, baseDomDays 62)           → loanWarning present
 // Property (fast-check): kind === "go" only if every check passes
 
 expect(seekMax((x) => x <= 25_400_000, 0, 29_500_000, 10_000)).toBe(25_400_000);

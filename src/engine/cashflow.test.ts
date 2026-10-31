@@ -1,7 +1,7 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { arbProFormaInput } from "./__fixtures__/arbitraries";
-import { GOLDEN_DEAL, GOLDEN_EXPECTED, goldenEstimate } from "./__fixtures__/golden";
+import { GOLDEN_DEAL, GOLDEN_EXPECTED, goldenDeal, goldenEstimate } from "./__fixtures__/golden";
 import { buildProFormaInput, drawWeights, runCashFlow, type Period, type ProFormaInput } from "./cashflow";
 import type { DealInputs } from "./deal";
 import { roundCents } from "./money";
@@ -257,9 +257,9 @@ describe("runCashFlow: golden deal", () => {
     expect(est.totalCents).toBe(73_599_750);
   });
 
-  describe.each(["base", "stress"] as const)("%s scenario", (name) => {
+  describe.each(["base", "stress", "financed"] as const)("%s scenario", (name) => {
     const expected = GOLDEN_EXPECTED.scenarios[name];
-    const cf = runCashFlow(buildProFormaInput(GOLDEN_DEAL, est, expected.inputs));
+    const cf = runCashFlow(buildProFormaInput(goldenDeal(name), est, expected.inputs));
 
     it("matches the spreadsheet's times and extension count", () => {
       for (const [key, value] of Object.entries(expected.times)) {
@@ -282,10 +282,18 @@ describe("runCashFlow: golden deal", () => {
 
     it("tracks the loan balance and cumulative equity out", () => {
       expect(cf.commitmentCents).toBe(58_879_800);
-      expect(cf.loanDrawnCents).toBe(expected.sale.loanPayoffCents);
-      expect(cf.periods.at(-1)?.loanBalanceEndCents).toBe(expected.sale.loanPayoffCents);
+      expect(cf.loanDrawnCents + cf.capitalizedInterestCents + cf.landLoanCents).toBe(expected.sale.loanPayoffCents);
+      expect(cf.periods.at(-1)?.loanBalanceEndCents).toBe(cf.loanDrawnCents + cf.capitalizedInterestCents);
       expect(Math.max(...column(cf.periods, "cumulativeEquityCents"))).toBe(expected.metrics.peakCashCents);
     });
+  });
+
+  it("finances the lot and capitalizes every month's construction interest in the financed scenario", () => {
+    const expected = GOLDEN_EXPECTED.scenarios.financed;
+    const cf = runCashFlow(buildProFormaInput(goldenDeal("financed"), est, expected.inputs));
+    expect(cf.landLoanCents).toBe(20_650_000);
+    expect(cf.capitalizedInterestCents).toBeGreaterThan(0);
+    expect(cf.capitalizedInterestCents).toBe(expected.periods.reduce((s, p) => s + p.interestCents, 0));
   });
 });
 
