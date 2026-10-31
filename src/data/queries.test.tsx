@@ -16,6 +16,7 @@ import {
   useDeleteDeal,
   useEngineContext,
   useRepository,
+  useResetDeals,
   useSaveComp,
 } from "./queries";
 import { RepositoryProvider } from "./RepositoryProvider";
@@ -113,6 +114,44 @@ describe("deal hooks", () => {
     await waitFor(() => expect(result.current.list.data?.deals).toEqual([]));
     // The single-deal entry was removed, not left holding the deleted deal.
     expect(client.getQueryData(["deal", created.id])).not.toEqual(expect.objectContaining({ name: "Doomed" }));
+  });
+});
+
+describe("useResetDeals", () => {
+  it("removes every deal, forgets every deal's cache entry and refreshes the list", async () => {
+    const { base, wrapper, client } = setup();
+    const first = await base.createDeal({ name: "One", inputs: sampleDealInputs() });
+    const second = await base.createDeal({ name: "Two", inputs: sampleDealInputs() });
+    const { result } = renderHook(
+      () => ({ list: useDeals(), one: useDeal(first.id), two: useDeal(second.id), reset: useResetDeals() }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.list.data?.deals).toHaveLength(2));
+    await waitFor(() => expect(result.current.one.data?.name).toBe("One"));
+    await waitFor(() => expect(result.current.two.data?.name).toBe("Two"));
+
+    await act(async () => {
+      await result.current.reset.mutateAsync();
+    });
+    expect((await base.listDeals()).deals).toEqual([]);
+    await waitFor(() => expect(result.current.list.data?.deals).toEqual([]));
+    // The single-deal entries were removed, not left holding deals that are gone: reading them again finds nothing.
+    await waitFor(() => expect(result.current.one.data).toBeNull());
+    await waitFor(() => expect(result.current.two.data).toBeNull());
+    expect(client.getQueryData(["deal", first.id])).not.toEqual(expect.objectContaining({ name: "One" }));
+    expect(client.getQueryData(["deal", second.id])).not.toEqual(expect.objectContaining({ name: "Two" }));
+  });
+
+  it("reports a failure to reset and leaves the list as it was", async () => {
+    const { base, wrapper, client } = setup({ resetDeals: async () => Promise.reject(new DataError("storage is locked")) });
+    await base.createDeal({ name: "Keep", inputs: sampleDealInputs() });
+    const { result } = renderHook(() => ({ list: useDeals(), reset: useResetDeals() }), { wrapper });
+    await waitFor(() => expect(result.current.list.data?.deals).toHaveLength(1));
+    await act(async () => {
+      await expect(result.current.reset.mutateAsync()).rejects.toThrow("storage is locked");
+    });
+    expect(isInvalidated(client, ["deals"])).toBe(false);
+    expect(result.current.list.data?.deals).toHaveLength(1);
   });
 });
 

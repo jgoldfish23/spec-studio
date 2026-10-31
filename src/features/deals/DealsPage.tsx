@@ -1,16 +1,15 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { DEFAULT_MARKET_SETTINGS } from "@engine";
 import { newDealInputs } from "../../data/newDeal";
 import {
-  queryKeys,
   useCompanySettings,
   useComps,
   useCreateDeal,
   useDeals,
   useDeleteDeal,
   useRepository,
+  useResetDeals,
   useSaveComp,
 } from "../../data/queries";
 import { SAMPLE_DEAL_NAME, sampleComps, sampleDealInputs } from "../../data/sample";
@@ -88,16 +87,12 @@ function CompsCard() {
 
 export function DealsPage() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const repository = useRepository();
   const deals = useDeals();
   const createDeal = useCreateDeal();
   const deleteDeal = useDeleteDeal();
   const saveComp = useSaveComp();
-  const resetDeals = useMutation({
-    mutationFn: () => repository.resetDeals(),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.deals }),
-  });
+  const resetDeals = useResetDeals();
 
   const [confirming, setConfirming] = useState<Confirming>(null);
   const [busy, setBusy] = useState(false);
@@ -221,28 +216,31 @@ export function DealsPage() {
         </ul>
       ) : null}
 
-      <section aria-labelledby="deals-heading" className="overflow-hidden rounded-xl border border-line bg-surface">
-        <div className="border-b border-line px-5 py-4">
-          <h2 id="deals-heading" className="m-0 text-[17px] font-bold">
-            All deals
-          </h2>
-        </div>
-        {deals.isError ? (
-          <p role="alert" className="m-0 px-5 py-6 text-sm font-medium text-no-go">
-            {`Couldn't load your deals: ${errorMessage(deals.error)}`}
-          </p>
-        ) : list === undefined ? (
-          <p role="status" className="m-0 px-5 py-6 text-sm text-muted">
-            Loading deals…
-          </p>
-        ) : list.deals.length > 0 ? (
-          <DealsTable deals={list.deals} today={todayIso()} onDelete={askToDelete} />
-        ) : list.problems.length === 0 ? (
-          <p className="m-0 px-5 py-8 text-center text-[15px] text-muted">
-            No deals yet — start one, or load the sample deal to look around.
-          </p>
-        ) : null}
-      </section>
+      {/* With nothing readable the problem rows above are the whole story: no empty list under a heading. */}
+      {list && list.deals.length === 0 && list.problems.length > 0 ? null : (
+        <section aria-labelledby="deals-heading" className="overflow-hidden rounded-xl border border-line bg-surface">
+          <div className="border-b border-line px-5 py-4">
+            <h2 id="deals-heading" className="m-0 text-[17px] font-bold">
+              All deals
+            </h2>
+          </div>
+          {deals.isError ? (
+            <p role="alert" className="m-0 px-5 py-6 text-sm font-medium text-no-go">
+              {`Couldn't load your deals: ${errorMessage(deals.error)}`}
+            </p>
+          ) : list === undefined ? (
+            <p role="status" className="m-0 px-5 py-6 text-sm text-muted">
+              Loading deals…
+            </p>
+          ) : list.deals.length > 0 ? (
+            <DealsTable deals={list.deals} today={todayIso()} onDelete={askToDelete} />
+          ) : (
+            <p className="m-0 px-5 py-8 text-center text-[15px] text-muted">
+              No deals yet — start one, or load the sample deal to look around.
+            </p>
+          )}
+        </section>
+      )}
 
       {confirming ? (
         <ConfirmDialog

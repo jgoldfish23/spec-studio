@@ -10,6 +10,8 @@ import type { Repository } from "./types";
 export const queryKeys = {
   deals: ["deals"] as const,
   deal: (id: string) => ["deal", id] as const,
+  /** Every single-deal entry, whichever deal: the prefix of `deal(id)`. */
+  everyDeal: ["deal"] as const,
   /** Every region's comps. */
   allComps: ["comps"] as const,
   comps: (region: string) => ["comps", region] as const,
@@ -51,6 +53,19 @@ export function useDeleteDeal() {
     mutationFn: (id: string) => repository.deleteDeal(id),
     onSuccess: (_result, id) => {
       queryClient.removeQueries({ queryKey: queryKeys.deal(id) });
+      return queryClient.invalidateQueries({ queryKey: queryKeys.deals });
+    },
+  });
+}
+
+/** Removes every deal: the way out of a store that cannot be read. Forgets all single-deal entries, as a delete does for one. */
+export function useResetDeals() {
+  const repository = useRepository();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => repository.resetDeals(),
+    onSuccess: () => {
+      queryClient.removeQueries({ queryKey: queryKeys.everyDeal });
       return queryClient.invalidateQueries({ queryKey: queryKeys.deals });
     },
   });

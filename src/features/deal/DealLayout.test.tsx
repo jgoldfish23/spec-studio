@@ -10,7 +10,6 @@ import { createHarness, seedSampleDeal } from "../../testing/renderApp";
 import type { Harness } from "../../testing/renderApp";
 import { useDealEditorContext } from "./DealEditorContext";
 import { DealRoute } from "./DealRoute";
-import { resetLostSaves } from "./lostSaves";
 
 /** Stands in for a step screen: buttons that change the deal, as the real steps will. */
 function Controls() {
@@ -64,7 +63,6 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
-  resetLostSaves();
 });
 
 async function sampleSetup() {
@@ -251,14 +249,40 @@ describe("DealLayout when ready", () => {
       const user = userEvent.setup();
       const { harness, deal } = await sampleSetup();
       const save = vi.spyOn(harness.repository, "saveDeal");
-      save.mockRejectedValueOnce(new Error("Couldn't save — browser storage is full"));
+      save.mockRejectedValueOnce(new Error("disk is full"));
       renderDeal(harness, deal.id);
       await screen.findByLabelText("Deal name");
 
       await user.click(screen.getByRole("button", { name: "Lower contingency" }));
       const status = await screen.findByText("Couldn't save — retrying", undefined, { timeout: 3000 });
       expect(status).toHaveAttribute("aria-live", "polite");
-      expect(status).toHaveTextContent("Couldn't save — browser storage is full");
+      expect(status).toHaveTextContent("Couldn't save — retrying: disk is full");
+    });
+
+    it("does not say Couldn't save twice when the reason starts that way", async () => {
+      const user = userEvent.setup();
+      const { harness, deal } = await sampleSetup();
+      const save = vi.spyOn(harness.repository, "saveDeal");
+      save.mockRejectedValueOnce(new Error("Couldn't save — browser storage is full or unavailable"));
+      renderDeal(harness, deal.id);
+      await screen.findByLabelText("Deal name");
+
+      await user.click(screen.getByRole("button", { name: "Lower contingency" }));
+      const status = await screen.findByText("Couldn't save — retrying", undefined, { timeout: 3000 });
+      expect(status.textContent).toBe("Couldn't save — retrying: browser storage is full or unavailable");
+    });
+
+    it("shows just the retry notice when the reason is only Couldn't save", async () => {
+      const user = userEvent.setup();
+      const { harness, deal } = await sampleSetup();
+      const save = vi.spyOn(harness.repository, "saveDeal");
+      save.mockRejectedValueOnce(new Error("Couldn't save"));
+      renderDeal(harness, deal.id);
+      await screen.findByLabelText("Deal name");
+
+      await user.click(screen.getByRole("button", { name: "Lower contingency" }));
+      const status = await screen.findByText("Couldn't save — retrying", undefined, { timeout: 3000 });
+      expect(status.textContent).toBe("Couldn't save — retrying");
     });
   });
 });

@@ -1,6 +1,7 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
 import { render } from "@testing-library/react";
+import { afterEach } from "vitest";
 import type { ReactNode } from "react";
 import { App } from "../App";
 import { createLocalRepository } from "../data/local/localRepository";
@@ -9,6 +10,13 @@ import { RepositoryProvider } from "../data/RepositoryProvider";
 import { SAMPLE_DEAL_NAME, sampleComps, sampleDealInputs } from "../data/sample";
 import { MemoryStorage } from "../data/testing/memoryStorage";
 import type { Repository, StoredDeal } from "../data/types";
+import { resetLostSaves } from "../features/deal/lostSaves";
+
+// The lost-saves banner list is a module-level store, so one test's entries would reach the next. A test that uses
+// this harness cannot forget to clear it: it is emptied when a harness is made and after every test.
+afterEach(() => {
+  resetLostSaves();
+});
 
 /** What a screen test runs against: a local repository on in-memory storage and a fresh query client. */
 export interface Harness {
@@ -20,6 +28,7 @@ export interface Harness {
 }
 
 export function createHarness(): Harness {
+  resetLostSaves();
   const storage = new MemoryStorage();
   const repository = createLocalRepository(storage);
   const client = createQueryClient();

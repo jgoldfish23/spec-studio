@@ -13,7 +13,8 @@ const routes: RouteObject[] = [
     path: "/",
     element: <AppShell />,
     children: [
-      { index: true, element: <DealsPage />, handle: DEALS_SECTION },
+      // The list has one address; the root sends people to it.
+      { index: true, element: <Navigate to="/deals" replace /> },
       { path: "deals", element: <DealsPage />, handle: DEALS_SECTION },
       {
         path: "deals/:dealId",

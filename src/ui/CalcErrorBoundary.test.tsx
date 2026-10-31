@@ -4,7 +4,8 @@ import { inputHash } from "../lib/inputHash";
 import { CalcErrorBoundary } from "./CalcErrorBoundary";
 
 let failing = true;
-function Fragile() {
+function Fragile({ onRender }: { onRender?: () => void }) {
+  onRender?.();
   if (failing) throw new Error("the engine fell over");
   return <p>All good</p>;
 }
@@ -66,6 +67,55 @@ describe("CalcErrorBoundary", () => {
       </CalcErrorBoundary>,
     );
     expect(screen.getByText("All good")).toBeVisible();
+  });
+
+  it("tries again when resetOn changes, even though the input did not", () => {
+    const view = render(
+      <CalcErrorBoundary input={{ a: 1 }} resetOn="first">
+        <Fragile />
+      </CalcErrorBoundary>,
+    );
+    expect(screen.getByText("Couldn't calculate")).toBeVisible();
+    failing = false;
+
+    view.rerender(
+      <CalcErrorBoundary input={{ a: 1 }} resetOn="first">
+        <Fragile />
+      </CalcErrorBoundary>,
+    );
+    expect(screen.getByText("Couldn't calculate")).toBeVisible();
+
+    view.rerender(
+      <CalcErrorBoundary input={{ a: 1 }} resetOn="second">
+        <Fragile />
+      </CalcErrorBoundary>,
+    );
+    expect(screen.getByText("All good")).toBeVisible();
+  });
+
+  it("tries a changed input once, and does not loop when that fails too", () => {
+    const rendered = vi.fn();
+    const view = render(
+      <CalcErrorBoundary input={1} resetOn="first">
+        <Fragile onRender={rendered} />
+      </CalcErrorBoundary>,
+    );
+    rendered.mockClear();
+    view.rerender(
+      <CalcErrorBoundary input={2} resetOn="second">
+        <Fragile onRender={rendered} />
+      </CalcErrorBoundary>,
+    );
+    expect(screen.getByText("Couldn't calculate")).toBeVisible();
+    // One retry for the change (React itself renders a failing child twice), then it stays on the message.
+    expect(rendered.mock.calls.length).toBeLessThanOrEqual(2);
+    rendered.mockClear();
+    view.rerender(
+      <CalcErrorBoundary input={2} resetOn="second">
+        <Fragile onRender={rendered} />
+      </CalcErrorBoundary>,
+    );
+    expect(rendered).not.toHaveBeenCalled();
   });
 
   it("does not remount healthy children when the input changes", () => {

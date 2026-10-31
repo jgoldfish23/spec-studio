@@ -3,7 +3,7 @@ import type { KeyboardEvent } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import type { DealEvaluation, DealInputs } from "@engine";
 import { useDeleteDeal } from "../../data/queries";
-import { errorMessage } from "../../lib/errorMessage";
+import { errorMessage, withoutSavePrefix } from "../../lib/errorMessage";
 import { formatDayRange, formatMoney, formatPercent } from "../../lib/format";
 import { CalcErrorBoundary } from "../../ui/CalcErrorBoundary";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
@@ -143,10 +143,12 @@ function SaveStatusText({ status }: { status: SaveStatus }) {
       text = "Couldn't save — retrying";
       break;
   }
+  // The reason usually starts "Couldn't save — ", which the notice already says.
+  const reason = status.kind === "error" ? withoutSavePrefix(status.message) : "";
   return (
     <p aria-live="polite" className={`m-0 text-sm ${status.kind === "error" ? "font-semibold text-no-go" : "text-muted"}`}>
       {text}
-      {status.kind === "error" ? <span className="font-normal"> {status.message}</span> : null}
+      {reason ? <span className="font-normal">{`: ${reason}`}</span> : null}
     </p>
   );
 }
@@ -261,7 +263,7 @@ function ReadyDeal({ dealId, editor, name, inputs, evaluation, today }: ReadyPro
             </Link>
             <DealNameField name={name} rename={editor.rename} />
           </div>
-          <CalcErrorBoundary input={inputs}>
+          <CalcErrorBoundary input={inputs} resetOn={evaluation}>
             <VerdictBlock dealId={dealId} evaluation={evaluation} />
           </CalcErrorBoundary>
         </div>
@@ -276,7 +278,7 @@ function ReadyDeal({ dealId, editor, name, inputs, evaluation, today }: ReadyPro
           <SaveStatusText status={editor.saveStatus} />
         </div>
 
-        <CalcErrorBoundary input={inputs}>
+        <CalcErrorBoundary input={inputs} resetOn={evaluation}>
           <SummaryStrip evaluation={evaluation} />
           <HeadsUp inputs={inputs} evaluation={evaluation} today={today} />
         </CalcErrorBoundary>
@@ -285,7 +287,7 @@ function ReadyDeal({ dealId, editor, name, inputs, evaluation, today }: ReadyPro
       </div>
 
       {/* A step that cannot draw is replaced by the message; the header and the tabs stay, so the owner can move on. */}
-      <CalcErrorBoundary key={pathname} input={inputs}>
+      <CalcErrorBoundary key={pathname} input={inputs} resetOn={evaluation}>
         <Outlet />
       </CalcErrorBoundary>
     </div>

@@ -8,7 +8,6 @@ import { SAMPLE_DEAL_NAME } from "../../data/sample";
 import { createHarness, renderApp, seedSampleDeal } from "../../testing/renderApp";
 import { useDealEditorContext } from "./DealEditorContext";
 import { DealRoute } from "./DealRoute";
-import { resetLostSaves } from "./lostSaves";
 
 // The engine is real except that a test can make it throw for chosen inputs (spec §8: an engine exception is
 // caught at the screen boundary and the data is unaffected).
@@ -19,7 +18,8 @@ vi.mock("@engine", async (importOriginal) => {
     ...actual,
     evaluateDeal: (inputs: DealInputs, context: EngineContext) => {
       if (control.throwWhen?.(inputs)) throw new Error("engine fell over");
-      return actual.evaluateDeal(inputs, context);
+      // Tagged with the city it was made for, so a screen can tell which evaluation it is drawing.
+      return { ...actual.evaluateDeal(inputs, context), tag: inputs.lot.city };
     },
   };
 });
@@ -33,26 +33,52 @@ afterEach(() => {
   control.throwWhen = null;
   vi.restoreAllMocks();
   vi.useRealTimers();
-  resetLostSaves();
 });
 
 describe("the Deals page", () => {
-  it("shows Couldn't calculate for a deal the engine cannot evaluate and keeps the others", async () => {
+  const calcFailures = () =>
+    vi.mocked(console.error).mock.calls.filter(([message]) => typeof message === "string" && message.startsWith("Couldn't"));
+
+  it("shows Couldn't calculate for a deal the engine cannot evaluate, says why, and keeps the others", async () => {
     const harness = createHarness();
     const sample = await seedSampleDeal(harness.repository);
     const boom = structuredClone(sample.inputs);
     boom.lot.city = "Boomtown";
-    await harness.repository.createDeal({ name: "Boom deal", inputs: boom });
+    const bad = await harness.repository.createDeal({ name: "Boom deal", inputs: boom });
     control.throwWhen = (inputs) => inputs.lot.city === "Boomtown";
-    renderApp("#/", harness);
+    renderApp("#/deals", harness);
 
     const goodRow = (await screen.findByRole("link", { name: SAMPLE_DEAL_NAME })).closest("tr") as HTMLElement;
     const badRow = (await screen.findByRole("link", { name: "Boom deal" })).closest("tr") as HTMLElement;
     expect(within(badRow).getByText("Couldn't calculate")).toBeVisible();
+    expect(within(badRow).getByText("engine fell over")).toBeInTheDocument();
     expect(within(badRow).queryByText(/^(Go|Marginal|No-go|Needs info)$/)).not.toBeInTheDocument();
     expect(within(goodRow).getByText(/^(Go|Marginal|No-go)$/)).toBeVisible();
     expect(within(goodRow).queryByText("Couldn't calculate")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "New deal" })).toBeEnabled();
+
+    // The reason is also logged, once for this failure and not again when the list is drawn again.
+    expect(calcFailures()).toEqual([[`Couldn't calculate deal ${bad.id}: engine fell over`]]);
+    await harness.client.invalidateQueries({ queryKey: ["deals"] });
+    await screen.findByRole("link", { name: "Boom deal" });
+    expect(calcFailures()).toHaveLength(1);
+  });
+
+  it("marks every deal of a region Couldn't calculate, with the reason, when that region's prices cannot be read", async () => {
+    const harness = createHarness();
+    await seedSampleDeal(harness.repository);
+    const other = structuredClone((await harness.repository.listDeals()).deals[0]!.inputs);
+    await harness.repository.createDeal({ name: "Second deal", inputs: other });
+    vi.spyOn(harness.repository, "getCostBook").mockRejectedValue(new Error("cost book unreadable"));
+    renderApp("#/deals", harness);
+
+    for (const name of [SAMPLE_DEAL_NAME, "Second deal"]) {
+      const row = (await screen.findByRole("link", { name })).closest("tr") as HTMLElement;
+      await waitFor(() => expect(within(row).getByText("Couldn't calculate")).toBeVisible());
+      expect(within(row).getByText("cost book unreadable")).toBeInTheDocument();
+    }
+    // One message for the region, not one per deal.
+    expect(calcFailures()).toEqual([["Couldn't read the prices and comps for utah-north: cost book unreadable"]]);
   });
 });
 
@@ -72,6 +98,13 @@ function Controls() {
   );
 }
 
+/** A step that cannot draw one particular evaluation: the one tagged with the city Boomtown. */
+function Guard() {
+  const { evaluation } = useDealEditorContext();
+  if ((evaluation as { tag?: string } | undefined)?.tag === "Boomtown") throw new Error("this evaluation cannot be drawn");
+  return <p>Guard is happy</p>;
+}
+
 function Crash(): never {
   throw new Error("the step could not draw");
 }
@@ -85,6 +118,15 @@ function renderDeal(harness: ReturnType<typeof createHarness>, id: string, step:
         children: [
           { path: "lot", element: <Controls /> },
           { path: "house", element: <Crash /> },
+          {
+            path: "market",
+            element: (
+              <>
+                <Controls />
+                <Guard />
+              </>
+            ),
+          },
         ],
       },
     ],
@@ -107,6 +149,23 @@ describe("a deal screen", () => {
 
     await user.click(screen.getByRole("link", { name: "Lot" }));
     expect(await screen.findByRole("button", { name: "Move to Boomtown" })).toBeVisible();
+    expect(screen.queryByText("Couldn't calculate")).not.toBeInTheDocument();
+  });
+
+  it("tries a failing step again when the evaluation catches up with an undo, without changing tabs", async () => {
+    const user = userEvent.setup();
+    const harness = createHarness();
+    const deal = await seedSampleDeal(harness.repository);
+    renderDeal(harness, deal.id, "market");
+
+    // The edit's evaluation arrives 150 ms later, and the step cannot draw it.
+    await user.click(await screen.findByRole("button", { name: "Move to Boomtown" }));
+    expect(await screen.findByText("Couldn't calculate")).toBeVisible();
+
+    // Undo changes the inputs at once, but the step is handed the same evaluation until the new one arrives, and
+    // fails on it again. When that one arrives the step must be tried again, though the inputs have not changed since.
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(await screen.findByText("Guard is happy")).toBeVisible();
     expect(screen.queryByText("Couldn't calculate")).not.toBeInTheDocument();
   });
 

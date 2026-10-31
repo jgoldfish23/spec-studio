@@ -1,5 +1,7 @@
 import { Link, Outlet, useMatches } from "react-router";
+import { withoutSavePrefix } from "../../lib/errorMessage";
 import { dismissLostSave, useLostSaves } from "../deal/lostSaves";
+import type { LostSave } from "../deal/lostSaves";
 
 /** Sections that arrive in later phases: shown so the product's shape is visible, but inert. */
 const LATER_SECTIONS = ["Cost book", "Comps", "Plans", "Builds"] as const;
@@ -12,6 +14,12 @@ export const DEALS_SECTION = { section: "deals" } as const;
 
 const isDealsSection = (handle: unknown): boolean =>
   typeof handle === "object" && handle !== null && "section" in handle && handle.section === DEALS_SECTION.section;
+
+/** The banner's sentence. The reason often starts "Couldn't save — " already, which the sentence says. */
+function lostSaveText({ dealName, message }: LostSave): string {
+  const reason = withoutSavePrefix(message);
+  return `Couldn't save your last changes to ${dealName}${reason ? `: ${reason}` : "."}`;
+}
 
 const focusRing =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-clay";
@@ -46,7 +54,7 @@ export function AppShell() {
       <header className="bg-spruce-dark px-4 text-paper sm:px-8">
         <div className="mx-auto flex min-h-15 max-w-[1320px] flex-wrap items-center gap-x-4 gap-y-1 py-2">
           <Link
-            to="/"
+            to="/deals"
             className={`order-1 flex min-h-11 items-center gap-2.5 rounded-md text-[17px] font-bold tracking-[-0.01em] text-paper no-underline ${focusRing}`}
           >
             <HouseLogo />
@@ -58,7 +66,7 @@ export function AppShell() {
             <ul className="m-0 flex list-none flex-wrap items-center gap-1 p-0">
               <li>
                 <Link
-                  to="/"
+                  to="/deals"
                   aria-current={dealsActive ? "page" : undefined}
                   className={`flex min-h-11 items-center rounded-md px-3 no-underline ${focusRing} ${
                     dealsActive ? "bg-nav-active font-semibold text-white" : "text-nav-text"
@@ -100,7 +108,7 @@ export function AppShell() {
                 role="alert"
                 className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#F2C2BE] bg-no-go-bg px-4 py-2 text-sm font-medium text-no-go"
               >
-                <p className="m-0 min-w-0 flex-1">{`Couldn't save your last changes to ${entry.dealName}: ${entry.message}`}</p>
+                <p className="m-0 min-w-0 flex-1">{lostSaveText(entry)}</p>
                 <button
                   type="button"
                   onClick={() => dismissLostSave(entry.dealId)}

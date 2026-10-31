@@ -1,10 +1,10 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { App } from "../../App";
 import { createHarness, renderApp, seedSampleDeal } from "../../testing/renderApp";
-import { reportLostSave, resetLostSaves } from "../deal/lostSaves";
+import { reportLostSave } from "../deal/lostSaves";
 
 const renderAt = (hash: string) => renderApp(hash);
 
@@ -12,18 +12,15 @@ describe("app shell", () => {
   beforeEach(() => {
     window.location.hash = "";
   });
-  afterEach(() => {
-    resetLostSaves();
-  });
 
   it("shows the brand link, the Deals link and the demo-mode pill", () => {
-    renderAt("#/");
+    renderAt("#/deals");
     const header = screen.getByRole("banner");
     const brand = within(header).getByRole("link", { name: "Spec Studio" });
-    expect(brand).toHaveAttribute("href", "#/");
+    expect(brand).toHaveAttribute("href", "#/deals");
     const nav = within(header).getByRole("navigation", { name: "Main" });
     const deals = within(nav).getByRole("link", { name: "Deals" });
-    expect(deals).toHaveAttribute("href", "#/");
+    expect(deals).toHaveAttribute("href", "#/deals");
     expect(deals).toHaveAttribute("aria-current", "page");
     expect(within(header).getByText("Demo mode · saved in this browser")).toBeVisible();
   });
@@ -31,7 +28,7 @@ describe("app shell", () => {
   it.each(["Cost book", "Comps", "Plans", "Builds"])(
     "shows %s as an inert item with a Later tag, not a link",
     (name) => {
-      renderAt("#/");
+      renderAt("#/deals");
       const nav = screen.getByRole("navigation", { name: "Main" });
       expect(within(nav).queryByRole("link", { name })).not.toBeInTheDocument();
       const item = within(nav).getByText(name);
@@ -40,9 +37,15 @@ describe("app shell", () => {
     },
   );
 
-  it("renders the Deals page at the root route", () => {
-    renderAt("#/");
+  it("renders the Deals page at #/deals", () => {
+    renderAt("#/deals");
     expect(within(screen.getByRole("main")).getByRole("heading", { level: 1, name: "Deals" })).toBeVisible();
+  });
+
+  it("sends the root address to #/deals, so the list has one address", async () => {
+    renderAt("#/");
+    expect(await screen.findByRole("heading", { level: 1, name: "Deals" })).toBeVisible();
+    expect(window.location.hash).toBe("#/deals");
   });
 
   it("shows a not-found page with a link back to Deals for an unknown route", async () => {
@@ -50,13 +53,13 @@ describe("app shell", () => {
     const main = screen.getByRole("main");
     expect(within(main).getByRole("heading", { level: 1, name: "Page not found" })).toBeVisible();
     const back = within(main).getByRole("link", { name: "Back to Deals" });
-    expect(back).toHaveAttribute("href", "#/");
+    expect(back).toHaveAttribute("href", "#/deals");
     expect(screen.getByRole("link", { name: "Spec Studio" })).toBeVisible();
     expect(screen.getByRole("link", { name: "Deals", current: false })).toBeVisible();
 
     await userEvent.click(back);
     expect(await screen.findByRole("heading", { level: 1, name: "Deals" })).toBeVisible();
-    expect(window.location.hash).toBe("#/");
+    expect(window.location.hash).toBe("#/deals");
   });
 
   it("redirects a deal URL without a step to its Lot step", async () => {
@@ -126,13 +129,13 @@ describe("app shell", () => {
 
   describe("edits that could not be saved", () => {
     it("shows nothing when nothing was lost", () => {
-      renderAt("#/");
+      renderAt("#/deals");
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
 
     it("shows a dismissible banner above the page for each deal whose last changes were lost", async () => {
       const user = userEvent.setup();
-      renderAt("#/");
+      renderAt("#/deals");
       act(() => {
         reportLostSave({ dealId: "d1", dealName: "Maple Street", message: "browser storage is full" });
         reportLostSave({ dealId: "d2", dealName: "Oak Hollow", message: "storage is blocked" });
@@ -152,6 +155,16 @@ describe("app shell", () => {
 
       await user.click(screen.getByRole("button", { name: "Dismiss" }));
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("does not say Couldn't save twice when the reason already starts that way", () => {
+      renderAt("#/deals");
+      act(() => {
+        reportLostSave({ dealId: "d1", dealName: "Maple Street", message: "Couldn't save — browser storage is full or unavailable" });
+      });
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        /^Couldn't save your last changes to Maple Street: browser storage is full or unavailable/,
+      );
     });
   });
 });

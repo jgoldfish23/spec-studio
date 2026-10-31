@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEALS_KEY } from "../../data/local/localRepository";
 import { SAMPLE_DEAL_NAME } from "../../data/sample";
 import { createHarness, renderApp, seedSampleDeal } from "../../testing/renderApp";
-import { resetLostSaves } from "../deal/lostSaves";
 
 const EMPTY = "No deals yet — start one, or load the sample deal to look around.";
 
@@ -15,7 +14,6 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
-  resetLostSaves();
 });
 
 const main = () => screen.getByRole("main");
@@ -200,6 +198,21 @@ describe("Deals page", () => {
       await waitFor(() => expect(screen.queryByText(/Couldn't read one saved deal/)).not.toBeInTheDocument());
       expect(screen.getByRole("link", { name: SAMPLE_DEAL_NAME })).toBeVisible();
       expect(Object.keys(JSON.parse(harness.storage.getItem(DEALS_KEY) as string))).toHaveLength(1);
+    });
+
+    it("shows just the problem when no deal can be read, with no empty list under a heading", async () => {
+      const harness = createHarness();
+      const good = await seedSampleDeal(harness.repository);
+      harness.storage.setItem(
+        DEALS_KEY,
+        JSON.stringify({ "bad-1": { ...good, id: "bad-1", inputs: { ...good.inputs, loan: null } } }),
+      );
+      renderApp("#/", harness);
+
+      expect(await screen.findByText(/^Couldn't read one saved deal \(bad-1\): /)).toBeVisible();
+      expect(screen.queryByRole("heading", { name: "All deals" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("table")).not.toBeInTheDocument();
+      expect(screen.queryByText(EMPTY)).not.toBeInTheDocument();
     });
 
     it("shows the error panel at its own address, and Delete this deal removes it after a confirm", async () => {

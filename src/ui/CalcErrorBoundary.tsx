@@ -4,6 +4,7 @@ import { inputHash } from "../lib/inputHash";
 
 interface BoundaryProps {
   hash: string;
+  resetOn?: unknown;
   children: ReactNode;
 }
 
@@ -19,9 +20,10 @@ class Boundary extends Component<BoundaryProps, BoundaryState> {
   }
 
   componentDidUpdate(prevProps: BoundaryProps, prevState: BoundaryState) {
-    // A screen that was already failing gets another try once the input is different. A failure that arrives with
+    // A screen that was already failing gets another try once what it draws is different. A failure that arrives with
     // the change is not retried, or a change that always fails would loop.
-    if (prevState.error !== null && this.state.error !== null && prevProps.hash !== this.props.hash) {
+    const changed = prevProps.hash !== this.props.hash || !Object.is(prevProps.resetOn, this.props.resetOn);
+    if (prevState.error !== null && this.state.error !== null && changed) {
       this.setState({ error: null });
     }
   }
@@ -46,6 +48,13 @@ class Boundary extends Component<BoundaryProps, BoundaryState> {
 export interface CalcErrorBoundaryProps {
   /** What the screen calculates from. Its hash is shown with the error, and a new hash tries the screen again. */
   input: unknown;
+  /**
+   * Something else the screen draws, whose change should also try it again (compared with `Object.is`). A result that
+   * is worked out after the input changes (the deal's evaluation, up to 150 ms behind) belongs here: the input has
+   * already changed by the time the screen is handed the result of the change, so a retry on the input alone would
+   * fail against the old result and never try the new one.
+   */
+  resetOn?: unknown;
   children: ReactNode;
 }
 
@@ -53,7 +62,11 @@ export interface CalcErrorBoundaryProps {
  * Catches an exception thrown while drawing a screen that depends on the engine (spec §8), so the app around it keeps
  * working and nothing stored is changed. It says "Couldn't calculate", with the message and a hash of the input.
  */
-export function CalcErrorBoundary({ input, children }: CalcErrorBoundaryProps) {
+export function CalcErrorBoundary({ input, resetOn, children }: CalcErrorBoundaryProps) {
   const hash = useMemo(() => inputHash(input), [input]);
-  return <Boundary hash={hash}>{children}</Boundary>;
+  return (
+    <Boundary hash={hash} resetOn={resetOn}>
+      {children}
+    </Boundary>
+  );
 }
