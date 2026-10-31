@@ -9,6 +9,7 @@ import {
   MonthField,
   NumberField,
   OptionalMoneyField,
+  OptionalNumberField,
   PercentField,
   TextField,
   Toggle,
@@ -231,6 +232,63 @@ describe("OptionalMoneyField", () => {
     const { rerender } = render(<OptionalMoneyField label="List price" valueCents={135_000_000} onChange={() => {}} />);
     rerender(<OptionalMoneyField label="List price" valueCents={undefined} onChange={() => {}} />);
     expect(screen.getByLabelText("List price")).toHaveValue("");
+  });
+});
+
+describe("OptionalNumberField", () => {
+  it("calls onChange(undefined) when the text is cleared, and shows no message", async () => {
+    const onChange = vi.fn();
+    render(<OptionalNumberField label="Frontage" value={95} onChange={onChange} />);
+    const input = screen.getByLabelText("Frontage");
+    expect(input).toHaveValue("95");
+    await userEvent.clear(input);
+    expect(onChange).toHaveBeenLastCalledWith(undefined);
+    expect(screen.queryByText("Enter a number")).not.toBeInTheDocument();
+  });
+
+  it("treats whitespace as empty", async () => {
+    const onChange = vi.fn();
+    render(<OptionalNumberField label="Frontage" value={undefined} onChange={onChange} />);
+    await userEvent.type(screen.getByLabelText("Frontage"), "  ");
+    expect(onChange).toHaveBeenLastCalledWith(undefined);
+  });
+
+  it("follows the number rules for any other text", async () => {
+    const onChange = vi.fn();
+    render(<OptionalNumberField label="Frontage" value={undefined} onChange={onChange} unit="ft" min={0} />);
+    const input = screen.getByLabelText("Frontage");
+    expect(input).toHaveValue("");
+    await userEvent.type(input, "abc");
+    expect(screen.getByText("Enter a number")).toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+    await userEvent.clear(input);
+    await userEvent.type(input, "-4");
+    expect(screen.getByText("Must be at least 0 ft")).toBeInTheDocument();
+    expect(onChange).toHaveBeenLastCalledWith(undefined);
+    await userEvent.clear(input);
+    await userEvent.type(input, "95.5");
+    expect(onChange).toHaveBeenLastCalledWith(95.5);
+  });
+
+  it("refuses a fraction when it takes whole numbers, and keeps to its range", async () => {
+    const onChange = vi.fn();
+    render(<OptionalNumberField label="Base days" value={undefined} onChange={onChange} integer min={0} max={1095} />);
+    const input = screen.getByLabelText("Base days");
+    await userEvent.type(input, "2.5");
+    expect(screen.getByText("Enter a number")).toBeInTheDocument();
+    await userEvent.clear(input);
+    await userEvent.type(input, "2000");
+    expect(screen.getByText("Must be between 0 and 1,095")).toBeInTheDocument();
+    expect(onChange.mock.calls.every(([v]) => v === undefined || (Number.isInteger(v) && v <= 1095))).toBe(true);
+    await userEvent.clear(input);
+    await userEvent.type(input, "120");
+    expect(onChange).toHaveBeenLastCalledWith(120);
+  });
+
+  it("shows an empty box when the value goes back to undefined from outside", () => {
+    const { rerender } = render(<OptionalNumberField label="Frontage" value={95} onChange={() => {}} />);
+    rerender(<OptionalNumberField label="Frontage" value={undefined} onChange={() => {}} />);
+    expect(screen.getByLabelText("Frontage")).toHaveValue("");
   });
 });
 

@@ -71,8 +71,17 @@ describe("app shell", () => {
     expect(screen.getByRole("link", { name: "Deals" })).toHaveAttribute("aria-current", "page");
   });
 
+  it("has a route for the lot step, with its screen", async () => {
+    const harness = createHarness();
+    const deal = await seedSampleDeal(harness.repository);
+    renderApp(`#/deals/${deal.id}/lot`, harness);
+    const main = screen.getByRole("main");
+    expect(await within(main).findByRole("heading", { level: 1, name: "Lot" })).toBeInTheDocument();
+    expect(await within(main).findByLabelText("City")).toHaveValue("Kaysville");
+    expect(within(main).queryByText("This step is being built.")).not.toBeInTheDocument();
+  });
+
   it.each([
-    ["lot", "Lot"],
     ["house", "House"],
     ["estimate", "Estimate"],
     ["market", "Market"],

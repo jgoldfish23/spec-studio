@@ -334,6 +334,46 @@ export function NumberField({ label, value, onChange, unit, integer = false, min
   );
 }
 
+export interface OptionalNumberFieldProps extends FieldProps {
+  value: number | undefined;
+  onChange: (n: number | undefined) => void;
+  /** Shown beside the box and in range messages, e.g. `ft`. */
+  unit?: string;
+  /** Refuses a fraction. */
+  integer?: boolean;
+  min?: number;
+  max?: number;
+}
+
+/** Like `NumberField`, but an empty box is a valid answer: it means "no value" and calls `onChange(undefined)`. */
+export function OptionalNumberField({
+  label,
+  value,
+  onChange,
+  unit,
+  integer = false,
+  min,
+  max,
+  hint,
+  error,
+}: OptionalNumberFieldProps) {
+  const show = (bound: number) => (unit ? `${formatNumberInput(bound)} ${unit}` : formatNumberInput(bound));
+  return (
+    <ParsedInput<number | undefined>
+      label={label}
+      hint={hint}
+      error={error}
+      value={value}
+      onChange={onChange}
+      parse={(text) => (text.trim() === "" ? { value: undefined } : found(parseNumber(text, { integer })))}
+      format={(n) => (n === undefined ? "" : formatNumberInput(n))}
+      invalidMessage="Enter a number"
+      rangeMessage={(n) => (n === undefined ? null : rangeMessage(n, min, max, show))}
+      suffix={unit}
+    />
+  );
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Month and date: native pickers
 

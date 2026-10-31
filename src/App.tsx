@@ -1,12 +1,18 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { createHashRouter, Navigate, type RouteObject } from "react-router";
 import { RouterProvider } from "react-router/dom";
 import { AppShell, DEALS_SECTION } from "./features/app/AppShell";
 import { NotFound } from "./features/app/NotFound";
 import { DealRoute } from "./features/deal/DealRoute";
 import { StepPlaceholder } from "./features/deal/StepPlaceholder";
-import { STEPS } from "./features/deal/steps";
+import { STEPS, type StepId } from "./features/deal/steps";
 import { DealsPage } from "./features/deals/DealsPage";
+import { LotPage } from "./features/lot/LotPage";
+
+/** The screen of each step that has one built; the others show a placeholder. */
+const STEP_SCREENS: Partial<Record<StepId, ReactNode>> = {
+  lot: <LotPage />,
+};
 
 const routes: RouteObject[] = [
   {
@@ -22,10 +28,10 @@ const routes: RouteObject[] = [
         children: [
           { index: true, element: <Navigate to="lot" replace /> },
           {
-            // One editor for the deal, shared by the frame and whichever step is open. Each later task replaces one
-            // step's element below with its screen.
+            // One editor for the deal, shared by the frame and whichever step is open. Each later task adds its step's
+            // screen to STEP_SCREENS.
             element: <DealRoute />,
-            children: STEPS.map(({ path, title }) => ({ path, element: <StepPlaceholder title={title} /> })),
+            children: STEPS.map(({ path, title }) => ({ path, element: STEP_SCREENS[path] ?? <StepPlaceholder title={title} /> })),
           },
         ],
       },
