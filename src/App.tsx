@@ -1,19 +1,27 @@
-import { useState, type ReactNode } from "react";
+import { lazy, Suspense, useState, type ReactNode } from "react";
 import { createHashRouter, Navigate, type RouteObject } from "react-router";
 import { RouterProvider } from "react-router/dom";
 import { AppShell, DEALS_SECTION } from "./features/app/AppShell";
 import { NotFound } from "./features/app/NotFound";
 import { DealRoute } from "./features/deal/DealRoute";
 import { StepPlaceholder } from "./features/deal/StepPlaceholder";
+import { StepSkeleton } from "./features/deal/StepSkeleton";
 import { STEPS, type StepId } from "./features/deal/steps";
 import { DealsPage } from "./features/deals/DealsPage";
-import { EstimatePage } from "./features/estimate/EstimatePage";
-import { HousePage } from "./features/house/HousePage";
-import { LotPage } from "./features/lot/LotPage";
-import { MarketPage } from "./features/market/MarketPage";
-import { ProFormaPage } from "./features/proforma/ProFormaPage";
 
-/** The screen of each step that has one built; the others show a placeholder. */
+// Each step's screen is its own chunk, fetched when the step is first opened, so the first load is the frame, the
+// Deals page and the engine, not all five screens.
+const LotPage = lazy(() => import("./features/lot/LotPage").then(({ LotPage }) => ({ default: LotPage })));
+const HousePage = lazy(() => import("./features/house/HousePage").then(({ HousePage }) => ({ default: HousePage })));
+const EstimatePage = lazy(() =>
+  import("./features/estimate/EstimatePage").then(({ EstimatePage }) => ({ default: EstimatePage })),
+);
+const MarketPage = lazy(() => import("./features/market/MarketPage").then(({ MarketPage }) => ({ default: MarketPage })));
+const ProFormaPage = lazy(() =>
+  import("./features/proforma/ProFormaPage").then(({ ProFormaPage }) => ({ default: ProFormaPage })),
+);
+
+/** The screen of each step that has one built; the others show a placeholder. A screen shows a skeleton while it loads. */
 const STEP_SCREENS: Partial<Record<StepId, ReactNode>> = {
   lot: <LotPage />,
   house: <HousePage />,
@@ -39,7 +47,10 @@ const routes: RouteObject[] = [
             // One editor for the deal, shared by the frame and whichever step is open. Each later task adds its step's
             // screen to STEP_SCREENS.
             element: <DealRoute />,
-            children: STEPS.map(({ path, title }) => ({ path, element: STEP_SCREENS[path] ?? <StepPlaceholder title={title} /> })),
+            children: STEPS.map(({ path, title }) => ({
+              path,
+              element: <Suspense fallback={<StepSkeleton />}>{STEP_SCREENS[path] ?? <StepPlaceholder title={title} />}</Suspense>,
+            })),
           },
         ],
       },
