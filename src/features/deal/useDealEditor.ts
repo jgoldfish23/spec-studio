@@ -101,6 +101,8 @@ export function useDealEditor(dealId: string): DealEditor {
   /** The inputs the current evaluation is of. */
   const [evaluated, setEvaluated] = useState<DealInputs | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>(SAVED);
+  /** A save failed and none has worked since: edits made, saving or waiting in the meantime are still at risk. */
+  const [saveFailedSinceSaved, setSaveFailedSinceSaved] = useState(false);
 
   // Seed once per deal id, from the first settled read. A later read of the same deal (a refetch, a cache update
   // after a save) must never replace what the owner has changed since.
@@ -109,6 +111,7 @@ export function useDealEditor(dealId: string): DealEditor {
     dispatch({ type: "reset", inputs: stored.inputs });
     setEvaluated(stored.inputs);
     setSaveStatus(SAVED);
+    setSaveFailedSinceSaved(false);
   }
 
   const seeded = seed?.dealId === dealId && editor !== null;
@@ -160,7 +163,11 @@ export function useDealEditor(dealId: string): DealEditor {
         void queryClient.invalidateQueries({ queryKey: queryKeys.deals });
         return saved;
       },
-      onStatus: setSaveStatus,
+      onStatus: (status) => {
+        setSaveStatus(status);
+        if (status.kind === "error") setSaveFailedSinceSaved(true);
+        else if (status.kind === "saved") setSaveFailedSinceSaved(false);
+      },
       // The last save on the way out failed and nothing will retry it: the owner must be told, not left with "saved".
       onAbandoned: (deal, message) => {
         console.error(`Couldn't save deal ${deal.id}:`, message);
@@ -187,9 +194,10 @@ export function useDealEditor(dealId: string): DealEditor {
     };
   }, [dealId, repository, queryClient]);
 
-  // While saves keep failing, closing the page would lose what is not saved: the browser asks first. Once a save
-  // works, it no longer asks.
-  const savesFailing = saveStatus.kind === "error";
+  // While saves keep failing, closing the page would lose what is not saved: the browser asks first. That holds through
+  // the edits, waits and retries in between failures (the status is then pending or saving, not error), until a save
+  // works.
+  const savesFailing = saveFailedSinceSaved;
   useEffect(() => {
     if (!savesFailing) return;
     const askFirst = (event: BeforeUnloadEvent) => {

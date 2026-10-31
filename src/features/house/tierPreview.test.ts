@@ -90,6 +90,22 @@ describe("tierPreview", () => {
     }
   });
 
+  it("gives no figures for a tier the engine throws on, and still prices the others", async () => {
+    const inputs = withTier(sampleDealInputs(), "upgraded");
+    const ctx = await contextFor();
+    const current = { tier: "upgraded" as const, evaluation: evaluateDeal(inputs, ctx) };
+    evaluateCalls.mockImplementationOnce(() => {
+      throw new Error("engine fell over");
+    });
+
+    const preview = tierPreview(inputs, ctx, current);
+
+    // Tiers are evaluated in schema order, so the throw lands on the first one that is not the current tier.
+    const [thrown, ...others] = FinishTierSchema.options.filter((tier) => tier !== "upgraded");
+    expect(preview[thrown!]).toEqual({ costPerFinishedSfCents: null, totalCents: null });
+    for (const tier of [...others, "upgraded" as const]) expect(preview[tier].totalCents).toEqual(expect.any(Number));
+  });
+
   it("prices all three tiers for a deal whose stored tier the engine does not know", async () => {
     const inputs = sampleDealInputs();
     const ctx = await contextFor();

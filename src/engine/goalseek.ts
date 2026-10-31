@@ -33,6 +33,14 @@ const MIN_BUILD_FACTOR = 0.5;
  */
 const MAX_GRID_POINTS = 100_000;
 
+/** A lever's search range is too wide, or unbounded, to lay out as a grid: that lever is reported not reachable. */
+class GridTooWideError extends RangeError {
+  constructor(message: string) {
+    super(message);
+    this.name = "GridTooWideError";
+  }
+}
+
 /**
  * The search grid over [lo, hi]: `lo + k * step` for k = 0.. while it stays within `hi`, then `hi` itself when it
  * is not already a grid point. Returns the point count and a way to read the i-th point. Throws a `RangeError` for a
@@ -40,11 +48,11 @@ const MAX_GRID_POINTS = 100_000;
  */
 function gridOf(lo: number, hi: number, step: number): { count: number; at: (i: number) => number } {
   if (!(step > 0) || !Number.isFinite(step)) throw new RangeError(`step must be a positive number, got ${step}`);
-  if (!Number.isFinite(lo) || !Number.isFinite(hi)) throw new RangeError(`the ends must be finite numbers, got ${lo} and ${hi}`);
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) throw new GridTooWideError(`the ends must be finite numbers, got ${lo} and ${hi}`);
   if (!(lo <= hi)) return { count: 0, at: () => NaN };
   // Points: every whole step from `lo`, plus `hi` when it is off the grid.
   if (Math.ceil((hi - lo) / step) + 1 > MAX_GRID_POINTS) {
-    throw new RangeError(`the grid from ${lo} to ${hi} in steps of ${step} has more than ${MAX_GRID_POINTS} points`);
+    throw new GridTooWideError(`the grid from ${lo} to ${hi} in steps of ${step} has more than ${MAX_GRID_POINTS} points`);
   }
   // Floor, then correct for float error in the division so that exactly the points <= hi are on the grid.
   let last = Math.floor((hi - lo) / step);
@@ -105,12 +113,15 @@ function reached(lever: LeverResult["lever"], x: Cents | null, current: Cents): 
   };
 }
 
-/** The search's answer, or null (not reachable) when its range is too wide or unbounded to search (see `gridOf`). */
+/**
+ * The search's answer, or null (not reachable) when its range is too wide or unbounded to search (see `gridOf`). Any
+ * other error, a `RangeError` from a bad date included, is a real failure and goes on up.
+ */
 function searched(search: () => number | null): number | null {
   try {
     return search();
   } catch (error) {
-    if (error instanceof RangeError) return null;
+    if (error instanceof GridTooWideError) return null;
     throw error;
   }
 }

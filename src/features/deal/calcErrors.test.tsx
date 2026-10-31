@@ -254,6 +254,25 @@ describe("a deal screen", () => {
   });
 });
 
+describe("every step stays usable while the engine cannot evaluate the deal", () => {
+  it.each([
+    ["house", "Bedrooms"],
+    ["estimate", "Contingency"],
+    ["market", "Base sale price"],
+    ["proforma", "Rate %"],
+  ])("keeps the %s step's fields, with Couldn't calculate shown once", async (step, label) => {
+    const harness = createHarness();
+    const deal = await seedSampleDeal(harness.repository);
+    control.throwWhen = () => true;
+    renderApp(`#/deals/${deal.id}/${step}`, harness);
+
+    expect(await screen.findByText("Couldn't calculate — details")).toBeVisible();
+    expect(await screen.findByLabelText(label)).toBeVisible();
+    // Only the deal's own panel speaks: no step-level boundary has taken the step's place.
+    expect(screen.queryByText(/Change an input and it will try again/)).toBeNull();
+  });
+});
+
 describe("a deal screen that cannot be drawn at all", () => {
   it("says something went wrong showing the deal, that the saved changes are kept, and links back to Deals", async () => {
     const router = createMemoryRouter(

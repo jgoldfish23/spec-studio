@@ -243,6 +243,14 @@ describe("goalSeek", () => {
     expect(lever(results, "buildCost")).toMatchObject({ reachable: true });
   });
 
+  it("lets any other error from the rule check go on up, a RangeError included", () => {
+    expect(() =>
+      goalSeek(CURRENT, () => {
+        throw new RangeError("Invalid time value");
+      }),
+    ).toThrow("Invalid time value");
+  });
+
   it("reports only the levers that can get there within bounds", () => {
     // Needs a 60% higher price (out of the +50% bound) or a lot at $0; build cost never helps.
     const results = goalSeek(CURRENT, (a) => (a.salePriceFactor ?? 1) >= 1.6 || (a.lotPriceCents ?? 1) <= 0);

@@ -38,8 +38,20 @@ export function tierPreview(
 ): Record<FinishTier, TierCost> {
   const costs = {} as Record<FinishTier, TierCost>;
   for (const tier of FinishTierSchema.options) {
-    const evaluation = current?.tier === tier ? current.evaluation : evaluateDeal(atTier(inputs, tier), ctx);
-    costs[tier] = costOf(evaluation);
+    costs[tier] = current?.tier === tier ? costOf(current.evaluation) : previewAt(atTier(inputs, tier), ctx);
   }
   return costs;
+}
+
+/**
+ * One tier's cost, or no figures when the engine cannot work it out. A preview never takes the House step down with
+ * it: the deal's own evaluation reports an engine failure (the editor logs it and the deal layout shows the details),
+ * and the owner must still be able to reach the house fields to change what caused it.
+ */
+function previewAt(inputs: DealInputs, ctx: EngineContext): TierCost {
+  try {
+    return costOf(evaluateDeal(inputs, ctx));
+  } catch {
+    return { costPerFinishedSfCents: null, totalCents: null };
+  }
 }

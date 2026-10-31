@@ -716,6 +716,30 @@ describe("useDealEditor autosave", () => {
     expect(asks()).toBe(false);
   });
 
+  it("keeps asking through edits and retries between failures, until a save works", async () => {
+    const s = await setup();
+    s.saveDeal.mockRejectedValueOnce(new Error("disk is full")).mockRejectedValueOnce(new Error("disk is full"));
+    const view = await ready(s);
+    const asks = () => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    await advance(1000);
+    expect(view.result.current.saveStatus.kind).toBe("error");
+    // A new edit while saves are failing: waiting to be saved again, but the last save failed.
+    act(() => view.result.current.edit(setPrice(NEW_PRICE + 100)));
+    expect(view.result.current.saveStatus.kind).toBe("pending");
+    expect(asks()).toBe(true);
+    await advance(1000);
+    expect(view.result.current.saveStatus.kind).toBe("error");
+    expect(asks()).toBe(true);
+    await advance(5000);
+    expect(view.result.current.saveStatus).toEqual({ kind: "saved" });
+    expect(asks()).toBe(false);
+  });
+
   it("stops asking when the editor goes away", async () => {
     const s = await setup();
     s.saveDeal.mockRejectedValue(new Error("disk is full"));
