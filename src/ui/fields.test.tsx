@@ -1,5 +1,7 @@
+import type { Cents } from "@engine";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
   DateField,
@@ -282,6 +284,33 @@ describe("PercentField", () => {
     expect(screen.getByText("Must be between 0.25% and 20%")).toBeInTheDocument();
   });
 
+  it("keeps the typed text on blur when tidying would change the value that was sent", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<PercentField label="Contingency" value={0} onChange={onChange} />);
+    const input = screen.getByLabelText("Contingency");
+    await user.clear(input);
+    await user.type(input, "7.125");
+    expect(onChange).toHaveBeenLastCalledWith(0.07125);
+    await user.tab();
+    // Two digits would show 7.13, which is 0.0713, not the 0.07125 the deal now holds.
+    expect(input).toHaveValue("7.125");
+    expect(onChange).toHaveBeenLastCalledWith(0.07125);
+  });
+
+  it("still tidies text on blur when that changes nothing but the look", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<PercentField label="Contingency" value={0} onChange={onChange} />);
+    const input = screen.getByLabelText("Contingency");
+    await user.clear(input);
+    await user.type(input, "9.5");
+    expect(onChange).toHaveBeenLastCalledWith(0.095);
+    await user.tab();
+    expect(input).toHaveValue("9.50");
+    expect(onChange).toHaveBeenLastCalledWith(0.095);
+  });
+
   it("replaces the text when the value changes from outside", () => {
     const { rerender } = render(<PercentField label="Contingency" value={0.05} onChange={() => {}} />);
     rerender(<PercentField label="Contingency" value={0.1} onChange={() => {}} />);
@@ -300,6 +329,25 @@ describe("NumberField", () => {
     expect(onChange).toHaveBeenLastCalledWith(3800);
     await user.tab();
     expect(input).toHaveValue("3,800");
+  });
+
+  it("keeps the typed text on blur when tidying would change the value that was sent", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<NumberField label="Ratio" value={0} onChange={onChange} />);
+    const input = screen.getByLabelText("Ratio");
+    // Seven decimals: the tidied text keeps six, which is a different number.
+    await user.clear(input);
+    await user.type(input, "1.2345678");
+    expect(onChange).toHaveBeenLastCalledWith(1.2345678);
+    await user.tab();
+    expect(input).toHaveValue("1.2345678");
+    // Within six decimals the tidied text is the same number, so it is tidied.
+    await user.clear(input);
+    await user.type(input, "1234.5");
+    await user.tab();
+    expect(input).toHaveValue("1,234.5");
+    expect(onChange).toHaveBeenLastCalledWith(1234.5);
   });
 
   it("shows the unit next to the box", () => {
@@ -409,6 +457,21 @@ describe("MonthField and DateField", () => {
     fireEvent.change(screen.getByLabelText("Received"), { target: { value: "" } });
     expect(onMonth).not.toHaveBeenCalled();
     expect(onDate).not.toHaveBeenCalled();
+    // The box looks empty while the deal keeps its old value, so the field says so.
+    expect(screen.getByText("Enter a month")).toBeInTheDocument();
+    expect(screen.getByText("Enter a date")).toBeInTheDocument();
+    expect(screen.getByLabelText("Land closes")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Received")).toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("clear the message once a well-formed value comes back", () => {
+    const onMonth = vi.fn();
+    render(<MonthField label="Land closes" value="2027-06" onChange={onMonth} />);
+    fireEvent.change(screen.getByLabelText("Land closes"), { target: { value: "" } });
+    expect(screen.getByText("Enter a month")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Land closes"), { target: { value: "2027-09" } });
+    expect(screen.queryByText("Enter a month")).not.toBeInTheDocument();
+    expect(onMonth).toHaveBeenCalledExactlyOnceWith("2027-09");
   });
 
   it("follow a new value from outside", () => {
@@ -441,5 +504,104 @@ describe("Toggle", () => {
     expect(box).toBeChecked();
     await userEvent.click(box);
     expect(onChange).toHaveBeenCalledWith(false);
+  });
+});
+
+describe("a field inside a parent that holds the state", () => {
+  /** The pattern every screen uses: the parent owns the value, the field reports into it. */
+  function MoneyParent({ initial, onChange }: { initial: Cents; onChange: (cents: Cents) => void }) {
+    const [cents, setCents] = useState(initial);
+    return (
+      <>
+        <MoneyField
+          label="Lot price"
+          valueCents={cents}
+          onChange={(next) => {
+            onChange(next);
+            setCents(next);
+          }}
+        />
+        <output data-testid="state">{cents}</output>
+        <button type="button" onClick={() => setCents(initial)}>
+          Undo
+        </button>
+      </>
+    );
+  }
+
+  function PercentParent({ initial, onChange }: { initial: number; onChange: (decimal: number) => void }) {
+    const [decimal, setDecimal] = useState(initial);
+    return (
+      <>
+        <PercentField
+          label="Contingency"
+          value={decimal}
+          onChange={(next) => {
+            onChange(next);
+            setDecimal(next);
+          }}
+        />
+        <output data-testid="state">{decimal}</output>
+        <button type="button" onClick={() => setDecimal(initial)}>
+          Undo
+        </button>
+      </>
+    );
+  }
+
+  it("MoneyField: the text and the parent agree after typing and tabbing away, and an undo shows through", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<MoneyParent initial={29_500_000} onChange={onChange} />);
+    const input = screen.getByLabelText("Lot price");
+    expect(input).toHaveValue("295,000");
+
+    await user.clear(input);
+    await user.type(input, "1350000");
+    expect(input).toHaveValue("1350000");
+    expect(screen.getByTestId("state")).toHaveTextContent("135000000");
+
+    await user.tab();
+    expect(input).toHaveValue("1,350,000");
+    expect(screen.getByTestId("state")).toHaveTextContent("135000000");
+    expect(screen.queryByText("Enter a dollar amount")).not.toBeInTheDocument();
+
+    // One report per keystroke that made a valid amount, and nothing echoed back by the blur or the re-render.
+    expect(onChange).toHaveBeenCalledTimes(7);
+
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(screen.getByTestId("state")).toHaveTextContent("29500000");
+    expect(input).toHaveValue("295,000");
+    expect(input).not.toHaveAttribute("aria-invalid");
+    expect(onChange).toHaveBeenCalledTimes(7);
+  });
+
+  it("PercentField: the text and the parent agree after typing and tabbing away, and an undo shows through", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<PercentParent initial={0.05} onChange={onChange} />);
+    const input = screen.getByLabelText("Contingency");
+    expect(input).toHaveValue("5.00");
+
+    await user.clear(input);
+    await user.type(input, "9.5");
+    expect(screen.getByTestId("state")).toHaveTextContent("0.095");
+    await user.tab();
+    expect(input).toHaveValue("9.50");
+    expect(screen.getByTestId("state")).toHaveTextContent("0.095");
+
+    // More digits than the box tidies to: the text stays as typed, so what is shown is what the parent holds.
+    await user.clear(input);
+    await user.type(input, "7.125");
+    await user.tab();
+    expect(input).toHaveValue("7.125");
+    expect(screen.getByTestId("state")).toHaveTextContent("0.07125");
+
+    const calls = onChange.mock.calls.length;
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(screen.getByTestId("state")).toHaveTextContent("0.05");
+    expect(input).toHaveValue("5.00");
+    expect(input).not.toHaveAttribute("aria-invalid");
+    expect(onChange).toHaveBeenCalledTimes(calls);
   });
 });

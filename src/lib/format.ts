@@ -1,4 +1,4 @@
-import type { Cents } from "@engine";
+import { formatUsd, type Cents } from "@engine";
 
 /** Shown wherever a figure is missing, so a blank never reads as zero. */
 const MISSING = "—";
@@ -49,11 +49,15 @@ function moneyDigits(cents: Cents, showCents: boolean): { negative: boolean; dig
   return { negative: cents < 0 && dollars !== 0, digits: WHOLE_NUMBER.format(dollars) };
 }
 
-/** `$1,350,000` (whole dollars, halves away from zero), or `$1,350,000.50` with `{ cents: true }`. "—" if missing. */
+/**
+ * `$1,350,000` (whole dollars, halves away from zero), or `$1,350,000.50` with `{ cents: true }`. "—" if missing.
+ * Negatives use the engine's minus sign (U+2212), as `formatUsd` does, so a figure reads the same everywhere.
+ */
 export function formatMoney(cents: Cents | null | undefined, opts: { cents?: boolean } = {}): string {
   if (isMissing(cents)) return MISSING;
-  const { negative, digits } = moneyDigits(cents, opts.cents === true);
-  return `${negative ? "-" : ""}$${digits}`;
+  if (opts.cents !== true) return formatUsd(cents);
+  const { negative, digits } = moneyDigits(cents, true);
+  return `${negative ? "\u2212" : ""}$${digits}`;
 }
 
 /** `12.5%` from `0.1253`. "—" if missing. */

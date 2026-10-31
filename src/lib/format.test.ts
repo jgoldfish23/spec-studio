@@ -1,3 +1,4 @@
+import { formatUsd } from "@engine";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
@@ -63,6 +64,9 @@ describe("parseDollars", () => {
     "-5",
     "-$5",
     "$-5",
+    "\u22125",
+    "\u2212$5",
+    "$\u22125",
     "1e3",
     "abc",
     "1.2.3",
@@ -232,9 +236,21 @@ describe("formatMoney", () => {
     expect(formatMoney(Number.NaN)).toBe("—");
   });
 
-  it("writes negatives with an ASCII hyphen", () => {
-    expect(formatMoney(-1_250_000)).toBe("-$12,500");
-    expect(formatMoney(-1_250_000, { cents: true })).toBe("-$12,500.00");
+  it("writes negatives with the engine's minus sign (U+2212), not a hyphen", () => {
+    expect(formatMoney(-1_250_000)).toBe("\u2212$12,500");
+    expect(formatMoney(-1_250_000)).toBe("−$12,500");
+    expect(formatMoney(-1_250_000, { cents: true })).toBe("\u2212$12,500.00");
+    expect(formatMoney(-5, { cents: true })).toBe("\u2212$0.05");
+    expect(formatMoney(-1_250_000)).not.toContain("-");
+    expect(formatMoney(-1_250_000, { cents: true })).not.toContain("-");
+  });
+
+  it("is formatUsd from the engine for whole dollars, for any amount", () => {
+    fc.assert(
+      fc.property(fc.integer({ min: -100_000_000_000_000, max: 100_000_000_000_000 }), (cents) => {
+        return formatMoney(cents) === formatUsd(cents);
+      }),
+    );
   });
 
   it("rounds half away from zero to whole dollars", () => {
@@ -242,13 +258,14 @@ describe("formatMoney", () => {
     expect(formatMoney(149)).toBe("$1");
     expect(formatMoney(50)).toBe("$1");
     expect(formatMoney(49)).toBe("$0");
-    expect(formatMoney(-50)).toBe("-$1");
-    expect(formatMoney(-150)).toBe("-$2");
+    expect(formatMoney(-50)).toBe("\u2212$1");
+    expect(formatMoney(-150)).toBe("\u2212$2");
   });
 
   it("never writes a negative zero", () => {
     expect(formatMoney(-49)).toBe("$0");
     expect(formatMoney(-0)).toBe("$0");
+    expect(formatMoney(-0, { cents: true })).toBe("$0.00");
   });
 
   it("writes two decimals when asked", () => {

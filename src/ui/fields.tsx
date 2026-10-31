@@ -180,8 +180,13 @@ function ParsedInput<V>({
 
   function handleBlur() {
     const parsed = parse(text);
-    // Tidy valid text. Invalid text stays as it is, with its message.
-    if (parsed !== null && checkRange(parsed.value) === null) setText(format(parsed.value));
+    // Invalid text stays as it is, with its message.
+    if (parsed === null || checkRange(parsed.value) !== null) return;
+    // Tidy valid text, but only when the tidy text means exactly the value that was sent. If tidying would round it
+    // (7.125 shown as 7.13), the box would show a number the deal does not hold, so the typed text stays.
+    const tidy = format(parsed.value);
+    const tidied = parse(tidy);
+    if (tidied !== null && Object.is(tidied.value, parsed.value)) setText(tidy);
   }
 
   // What is in the box right now outranks what the engine said about the stored value.
