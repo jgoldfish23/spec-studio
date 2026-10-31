@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { CompSchema, DEFAULT_MARKET_SETTINGS, DEFAULT_RULES } from "@engine";
+import { DEFAULT_MARKET_SETTINGS, DEFAULT_RULES } from "@engine";
 import type { Comp, CostBookView, DealInputs, DefaultPrice, MarketSettings } from "@engine";
-import { DataError, StoredDealSchema } from "../types";
+import { assertCompReadsBack, assertDealReadsBack } from "../readBack";
+import { DataError } from "../types";
 import type { CompanySettings, DealListResult, Repository, StoredDeal } from "../types";
 import type { DefaultPriceRow } from "./mappers";
 import {
@@ -12,7 +13,6 @@ import {
   dealToRow,
   DEAL_SCHEMA_VERSION,
   defaultPriceFromRow,
-  firstProblem,
   marketSettingsFromRow,
   priceBookEntryFromRow,
 } from "./mappers";
@@ -23,25 +23,6 @@ const PENDING = { id: "pending", stamp: "1970-01-01T00:00:00.000Z" } as const;
 /** Anything Supabase reports (a rejected row, a policy, a lost connection) is a `DataError` carrying its message. */
 function failed(error: { message: string }, recordId?: string): DataError {
   return new DataError(error.message || "The request to the database failed", { recordId, cause: error });
-}
-
-/**
- * Refuses a deal that would not read back. The deal is checked as it will be stored, after a trip through JSON: that
- * is where `NaN` and `Infinity` become `null`, and `undefined` fields vanish. Without this, one bad autosave (a blank
- * name, a number gone wrong) would replace a good deal with one that lists as a problem.
- */
-function assertDealReadsBack(deal: StoredDeal, recordId: string | undefined): void {
-  const parsed = StoredDealSchema.safeParse(JSON.parse(JSON.stringify(deal)));
-  if (parsed.success) return;
-  const problem = firstProblem(parsed.error);
-  throw new DataError(`Couldn't save — ${problem.message}`, { recordId, path: problem.path });
-}
-
-function assertCompReadsBack(comp: Comp): void {
-  const parsed = CompSchema.safeParse(JSON.parse(JSON.stringify(comp)));
-  if (parsed.success) return;
-  const problem = firstProblem(parsed.error);
-  throw new DataError(`Couldn't save — ${problem.message}`, { recordId: comp.id, path: problem.path });
 }
 
 /** A filter value for PostgREST's `or`, quoted so that a comma or parenthesis in it cannot change the filter. */
@@ -105,7 +86,7 @@ export function createSupabaseRepository(client: SupabaseClient, companyId: stri
           createdAt: PENDING.stamp,
           updatedAt: PENDING.stamp,
         },
-        undefined,
+        null,
       );
       // The database assigns the id and both timestamps.
       const { data, error } = await client
@@ -124,7 +105,7 @@ export function createSupabaseRepository(client: SupabaseClient, companyId: stri
     },
 
     async saveDeal(deal: StoredDeal): Promise<StoredDeal> {
-      assertDealReadsBack(deal, deal.id);
+      assertDealReadsBack(deal);
       const row = dealToRow(deal, companyId);
       // Only the columns the owner can change. The database stamps `updated_at` on every update, so what comes back
       // has a fresh one, and `created_at` stays as it was.
@@ -169,7 +150,9 @@ export function createSupabaseRepository(client: SupabaseClient, companyId: stri
       if (error) throw failed(error);
       const comps: Comp[] = [];
       for (const row of data ?? []) {
-        // Like the demo store, a comp that cannot be read is left out rather than failing the whole list.
+        // Like the demo store, a comp that cannot be read is left out rather than failing the whole list. Trade-off: a
+        // dropped comp shifts the comp-based price; surfacing comp problems is a Plan 3 follow-up (the interface has
+        // no problems channel for comps).
         try {
           comps.push(compFromRow(row));
         } catch (cause) {
@@ -197,12 +180,26 @@ export function createSupabaseRepository(client: SupabaseClient, companyId: stri
 
     async getCostBook(region: string): Promise<CostBookView> {
       const [defaults, priceBook] = await Promise.all([
+        // Ordered by the whole key (the table's unique key, less the region), so the same data always comes back in
+        // the same order.
         client
           .from("default_prices")
           .select("*")
           .eq("region", region)
-          .or(`company_id.is.null,company_id.eq.${quoted(companyId)}`),
-        client.from("price_book_entries").select("*").eq("company_id", companyId),
+          .or(`company_id.is.null,company_id.eq.${quoted(companyId)}`)
+          .order("code")
+          .order("variant")
+          .order("tier")
+          .order("company_id"),
+        // A price book may repeat a key, so the id breaks the tie.
+        client
+          .from("price_book_entries")
+          .select("*")
+          .eq("company_id", companyId)
+          .order("code")
+          .order("variant")
+          .order("tier")
+          .order("id"),
       ]);
       if (defaults.error) throw failed(defaults.error);
       if (priceBook.error) throw failed(priceBook.error);

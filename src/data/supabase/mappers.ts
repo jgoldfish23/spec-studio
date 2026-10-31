@@ -1,14 +1,9 @@
-import { z } from "zod";
-import {
-  CompSchema,
-  DealInputsSchema,
-  DefaultPriceSchema,
-  MarketSettingsSchema,
-  PriceBookEntrySchema,
-  RulesSchema,
-} from "@engine";
+import type { z } from "zod";
+import { CompSchema, DefaultPriceSchema, MarketSettingsSchema, PriceBookEntrySchema } from "@engine";
 import type { Comp, DefaultPrice, MarketSettings, PriceBookEntry } from "@engine";
-import { DataError, StoredDealSchema } from "../types";
+import { CompanySettingsSchema, firstProblem, readDeal } from "../readBack";
+import type { Problem } from "../readBack";
+import { DataError } from "../types";
 import type { CompanySettings, StoredDeal } from "../types";
 
 /**
@@ -88,18 +83,6 @@ export interface MarketSettingsRow {
   settings: unknown;
 }
 
-type Problem = { path: string; message: string };
-
-/** Zod phrases every type error as "Invalid input: expected number, received string"; the prefix says nothing. */
-const plain = (message: string): string => message.replace(/^Invalid input: /, "");
-
-/** The first thing wrong with a record is enough to find it: its dotted path, and a message that starts with it. */
-export function firstProblem(error: z.ZodError): Problem {
-  const issue = error.issues[0];
-  const path = (issue?.path ?? []).map(String).join(".");
-  return { path, message: `${path === "" ? "record" : path}: ${plain(issue?.message ?? "unreadable")}` };
-}
-
 function unreadable(kind: string, id: string, problem: Problem): DataError {
   return new DataError(`${kind} ${id} is unreadable: ${problem.message}`, { recordId: id, path: problem.path });
 }
@@ -164,7 +147,7 @@ export function dealFromRow(row: DealRow): StoredDeal {
       { recordId: row.id, path: "schema_version" },
     );
   }
-  const parsed = StoredDealSchema.safeParse({
+  const read = readDeal({
     id: row.id,
     name: row.name,
     status: row.status,
@@ -172,12 +155,8 @@ export function dealFromRow(row: DealRow): StoredDeal {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   });
-  if (!parsed.success) {
-    // A bad field inside `inputs` arrives from the schema's structural check with its full path (`inputs.lot.priceCents`).
-    const problem = firstProblem(parsed.error);
-    throw new DataError(problem.message, { recordId: row.id, path: problem.path });
-  }
-  return parsed.data;
+  if (!read.ok) throw new DataError(read.message, { recordId: row.id, path: read.path });
+  return read.deal;
 }
 
 // ---------------------------------------------------------------------------
@@ -242,11 +221,6 @@ export function priceBookEntryFromRow(row: PriceBookEntryRow): PriceBookEntry {
 // ---------------------------------------------------------------------------
 // Settings
 // ---------------------------------------------------------------------------
-
-const CompanySettingsSchema = z.object({
-  rules: RulesSchema,
-  contingencyPct: DealInputsSchema.shape.contingencyPct,
-});
 
 export function companySettingsFromRow(row: CompanySettingsRow): CompanySettings {
   return read(

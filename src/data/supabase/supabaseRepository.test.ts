@@ -30,7 +30,7 @@ function json(body: unknown, status = 200): Response {
  * A repository on a real Supabase client whose `fetch` is fake: every request is recorded, and `respond` (an empty
  * list unless the test says otherwise) decides what comes back. Nothing touches the network.
  */
-function setup(respond: (request: Recorded) => Response = () => json([])) {
+function setup(respond: (request: Recorded) => Response = () => json([]), companyId = CO) {
   const requests: Recorded[] = [];
   const fakeFetch: typeof fetch = async (input, init) => {
     const request = new Request(input, init);
@@ -48,7 +48,7 @@ function setup(respond: (request: Recorded) => Response = () => json([])) {
     auth: { persistSession: false, autoRefreshToken: false },
     global: { fetch: fakeFetch },
   });
-  return { repo: createSupabaseRepository(client, CO), requests };
+  return { repo: createSupabaseRepository(client, companyId), requests };
 }
 
 const params = (request: Recorded): Record<string, string> => Object.fromEntries(request.url.searchParams);
@@ -215,6 +215,7 @@ describe("createDeal", () => {
   it("refuses a blank name without making a request", async () => {
     const { repo, requests } = setup();
     const caught = await error(repo.createDeal({ name: "", inputs: sampleDealInputs() }));
+    expect(caught.recordId).toBeUndefined();
     expect(caught.path).toBe("name");
     expect(caught.message).toMatch(/^Couldn't save — name: /);
     expect(requests).toHaveLength(0);
@@ -512,6 +513,27 @@ describe("getCostBook", () => {
     expect(params(book)).toMatchObject({ select: "*", company_id: `eq.${CO}` });
   });
 
+  it("asks for both lists in a fixed order, so the same data always comes back the same way", async () => {
+    const { repo, requests } = setupBook([], []);
+    await repo.getCostBook("utah-north");
+    const defaults = requests.find((r) => r.url.pathname === "/rest/v1/default_prices") as Recorded;
+    const book = requests.find((r) => r.url.pathname === "/rest/v1/price_book_entries") as Recorded;
+    expect(params(defaults).order).toBe("code.asc,variant.asc,tier.asc,company_id.asc");
+    expect(params(book).order).toBe("code.asc,variant.asc,tier.asc,id.asc");
+  });
+
+  it("quotes the company id in the filter, so a quote, backslash, comma or parenthesis in it cannot change the filter", async () => {
+    const awkward = String.raw`a"b\c,d)`;
+    const { repo, requests } = setup(() => json([]), awkward);
+    await repo.getCostBook("utah-north");
+    const defaults = requests.find((r) => r.url.pathname === "/rest/v1/default_prices") as Recorded;
+    const book = requests.find((r) => r.url.pathname === "/rest/v1/price_book_entries") as Recorded;
+    // Inside the quotes, `"` becomes `\"` and `\` becomes `\\`.
+    expect(params(defaults).or).toBe(String.raw`(company_id.is.null,company_id.eq."a\"b\\c,d)")`);
+    // A plain filter carries the value as it is; the URL encoding keeps it in one piece.
+    expect(params(book).company_id).toBe(`eq.${awkward}`);
+  });
+
   it("maps the rows to the engine's cost book", async () => {
     const { repo } = setupBook([price()], [entry()]);
     expect(await repo.getCostBook("utah-north")).toEqual({
@@ -574,6 +596,14 @@ describe("getCostBook", () => {
     const caught = await error(repo.getCostBook("utah-north"));
     expect(caught.recordId).toBe("p1");
     expect(caught.path).toBe("unitPriceCents");
+  });
+
+  it("throws a DataError rather than skip a price book entry it cannot read", async () => {
+    const { repo } = setupBook([price()], [entry({ id: "e1" }), entry({ id: "bad", unit_price_cents: "24.5" })]);
+    const caught = await error(repo.getCostBook("utah-north"));
+    expect(caught.recordId).toBe("bad");
+    expect(caught.path).toBe("unitPriceCents");
+    expect(caught.message).toMatch(/^Price book entry bad is unreadable: /);
   });
 
   it("turns a server error into a DataError", async () => {

@@ -1,8 +1,8 @@
-import { z } from "zod";
-import { CompSchema, DEFAULT_MARKET_SETTINGS, DEFAULT_RULES, DealInputsSchema, RulesSchema } from "@engine";
+import { CompSchema, DEFAULT_MARKET_SETTINGS, DEFAULT_RULES } from "@engine";
 import type { Comp, CostBookView, DealInputs, MarketSettings } from "@engine";
+import { assertCompReadsBack, assertDealReadsBack, CompanySettingsSchema, readDeal } from "../readBack";
 import { STARTER_COST_BOOK } from "../starterCostBook";
-import { DataError, StoredDealSchema } from "../types";
+import { DataError } from "../types";
 import type { CompanySettings, DealListResult, Repository, StoredDeal } from "../types";
 
 /** Each key holds one JSON value: deals and comps are an object keyed by id, the settings are one object. */
@@ -11,11 +11,6 @@ export const COMPS_KEY = "spec-studio:v1:comps";
 export const SETTINGS_KEY = "spec-studio:v1:settings";
 
 const SAVE_FAILED = "Couldn't save — browser storage is full or unavailable";
-
-const CompanySettingsSchema = z.object({
-  rules: RulesSchema,
-  contingencyPct: DealInputsSchema.shape.contingencyPct,
-});
 
 const defaultCompanySettings = (): CompanySettings => ({
   rules: structuredClone(DEFAULT_RULES),
@@ -57,42 +52,6 @@ const unreadableDeals = (reason: string): string => `The saved deal data ${reaso
 /** The records without `id`. `fromEntries` defines own properties, so an id like `__proto__` is just a key. */
 function without(records: Record<string, unknown>, id: string): Record<string, unknown> {
   return Object.fromEntries(Object.entries(records).filter(([key]) => key !== id));
-}
-
-type Problem = { path: string; message: string };
-type DealRead = { ok: true; deal: StoredDeal } | ({ ok: false } & Problem);
-
-/** Zod phrases every type error as "Invalid input: expected number, received string"; the prefix says nothing. */
-const plain = (message: string): string => message.replace(/^Invalid input: /, "");
-
-/** The first thing wrong with a record is enough to find it: its dotted path, and a message that starts with it. */
-function firstProblem(error: z.ZodError): Problem {
-  const issue = error.issues[0];
-  const path = (issue?.path ?? []).map(String).join(".");
-  return { path, message: `${path === "" ? "record" : path}: ${plain(issue?.message ?? "unreadable")}` };
-}
-
-function readDeal(raw: unknown): DealRead {
-  const parsed = StoredDealSchema.safeParse(raw);
-  // A bad field inside `inputs` arrives from the schema's structural check with its full path (`inputs.lot.priceCents`).
-  return parsed.success ? { ok: true, deal: parsed.data } : { ok: false, ...firstProblem(parsed.error) };
-}
-
-/**
- * Refuses a record that would not read back. The record is checked as it will be stored, after a trip through JSON:
- * that is where `NaN` and `Infinity` become `null`, and `undefined` fields vanish. Without this, one bad autosave
- * (a blank name, a number gone wrong) would replace a good deal with one that lists as a problem.
- */
-function assertDealReadsBack(deal: StoredDeal): void {
-  const read = readDeal(JSON.parse(JSON.stringify(deal)));
-  if (!read.ok) throw new DataError(`Couldn't save — ${read.message}`, { recordId: deal.id, path: read.path });
-}
-
-function assertCompReadsBack(comp: Comp): void {
-  const parsed = CompSchema.safeParse(JSON.parse(JSON.stringify(comp)));
-  if (parsed.success) return;
-  const problem = firstProblem(parsed.error);
-  throw new DataError(`Couldn't save — ${problem.message}`, { recordId: comp.id, path: problem.path });
 }
 
 /**
