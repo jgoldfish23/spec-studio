@@ -111,13 +111,14 @@ describe("app shell", () => {
     expect(within(main).queryByText("This step is being built.")).not.toBeInTheDocument();
   });
 
-  it.each([["proforma", "Pro forma"]])("has a route for the %s step", async (step, title) => {
+  it("has a route for the pro forma step, with its screen", async () => {
     const harness = createHarness();
     const deal = await seedSampleDeal(harness.repository);
-    renderApp(`#/deals/${deal.id}/${step}`, harness);
+    renderApp(`#/deals/${deal.id}/proforma`, harness);
     const main = screen.getByRole("main");
-    expect(await within(main).findByRole("heading", { level: 1, name: new RegExp(title) })).toBeVisible();
-    expect(within(main).getByText("This step is being built.")).toBeVisible();
+    expect(await within(main).findByRole("heading", { level: 1, name: "Pro forma" })).toBeInTheDocument();
+    expect(await within(main).findByRole("table", { name: "Profit waterfall" })).toBeInTheDocument();
+    expect(within(main).queryByText("This step is being built.")).not.toBeInTheDocument();
   });
 
   it("mounts under StrictMode, as main.tsx does", () => {

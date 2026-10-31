@@ -60,10 +60,23 @@ export function formatMoney(cents: Cents | null | undefined, opts: { cents?: boo
   return `${negative ? "\u2212" : ""}$${digits}`;
 }
 
-/** `12.5%` from `0.1253`. "—" if missing. */
-export function formatPercent(decimal: number | null | undefined, digits = 1): string {
+/** A formatted percent that is zero at the digits shown: "0%", "0.0%". */
+const ZERO_PERCENT = /^0(?:\.0+)?%$/;
+
+/**
+ * `12.5%` from `0.1253`. "—" if missing. Negatives use the minus sign (U+2212), as `formatMoney` does, so a figure
+ * reads the same everywhere. With `{ signed: true }` a positive value gets a leading "+" (`+4.0%`); zero, and a value
+ * that rounds to zero, gets no sign.
+ */
+export function formatPercent(
+  decimal: number | null | undefined,
+  digits = 1,
+  opts: { signed?: boolean } = {},
+): string {
   if (isMissing(decimal)) return MISSING;
-  return withoutNegativeZero(percentFormat(digits, digits).format(decimal));
+  const text = withoutNegativeZero(percentFormat(digits, digits).format(decimal));
+  if (text.startsWith("-")) return `\u2212${text.slice(1)}`;
+  return opts.signed === true && !ZERO_PERCENT.test(text) ? `+${text}` : text;
 }
 
 /** Like `formatPercent` with up to `maxDigits` digits and no trailing zeros: `0.1` is "10%", `0.125` is "12.5%". */

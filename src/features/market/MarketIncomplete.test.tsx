@@ -47,7 +47,8 @@ describe("a new deal with no comps in its region", () => {
 
     await user.click(stepLink("Pro forma"));
     expect(await screen.findByRole("heading", { level: 1, name: /Pro forma/ })).toBeVisible();
-    expect(screen.getByText("Needs info")).toBeVisible();
+    // The pro forma step draws its own verdict as well as the frame's, so ask the step's.
+    expect(within(screen.getByRole("region", { name: "Verdict" })).getByText("Needs info")).toBeVisible();
   });
 
   it("shows no low, mid or high and no days range while it waits", async () => {

@@ -284,18 +284,43 @@ describe("formatPercent", () => {
     expect(formatPercent(0)).toBe("0.0%");
   });
 
-  it("writes a negative with an ASCII hyphen", () => {
-    expect(formatPercent(-0.05)).toBe("-5.0%");
+  it("writes a negative with the minus sign (U+2212), as money does, not a hyphen", () => {
+    expect(formatPercent(-0.05)).toBe("\u22125.0%");
+    expect(formatPercent(-0.05)).toBe("−5.0%");
+    expect(formatPercent(-0.05)).not.toContain("-");
+    expect(formatPercent(-0.1253, 2)).toBe("\u221212.53%");
   });
 
   it("never writes a negative zero", () => {
     expect(formatPercent(-0.00001)).toBe("0.0%");
+    expect(formatPercent(-0.00001, 1, { signed: true })).toBe("0.0%");
+  });
+
+  it("puts a plus before a positive value when asked for a signed percent", () => {
+    expect(formatPercent(0.04, 1, { signed: true })).toBe("+4.0%");
+    expect(formatPercent(0.0394, 1, { signed: true })).toBe("+3.9%");
+    expect(formatPercent(0.1253, 0, { signed: true })).toBe("+13%");
+  });
+
+  it("keeps the minus sign on a negative value in a signed percent, and gives zero no sign", () => {
+    expect(formatPercent(-0.056, 1, { signed: true })).toBe("\u22125.6%");
+    expect(formatPercent(0, 1, { signed: true })).toBe("0.0%");
+    // A value that rounds to zero at the digits shown is zero.
+    expect(formatPercent(0.00001, 1, { signed: true })).toBe("0.0%");
+  });
+
+  it("writes no plus for a positive value unless asked", () => {
+    expect(formatPercent(0.04)).toBe("4.0%");
+    expect(formatPercent(0.04, 1, {})).toBe("4.0%");
+    expect(formatPercent(0.04, 1, { signed: false })).toBe("4.0%");
   });
 
   it("writes an em dash for a missing value", () => {
     expect(formatPercent(null)).toBe("—");
     expect(formatPercent(undefined)).toBe("—");
     expect(formatPercent(Number.NaN)).toBe("—");
+    expect(formatPercent(null, 1, { signed: true })).toBe("—");
+    expect(formatPercent(Number.POSITIVE_INFINITY, 1, { signed: true })).toBe("—");
   });
 
   it("does not group digits, so the text reads back with parsePercent", () => {
