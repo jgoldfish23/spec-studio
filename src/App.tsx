@@ -1,9 +1,10 @@
-import { lazy, Suspense, useState, type ReactNode } from "react";
+import { Suspense, useState, type ReactNode } from "react";
 import { createHashRouter, Navigate, type RouteObject } from "react-router";
 import { RouterProvider } from "react-router/dom";
 import { AppShell, DEALS_SECTION } from "./features/app/AppShell";
 import { NotFound } from "./features/app/NotFound";
 import { DealRoute } from "./features/deal/DealRoute";
+import { lazyStep } from "./features/deal/lazyStep";
 import { StepPlaceholder } from "./features/deal/StepPlaceholder";
 import { StepSkeleton } from "./features/deal/StepSkeleton";
 import { STEPS, type StepId } from "./features/deal/steps";
@@ -11,13 +12,13 @@ import { DealsPage } from "./features/deals/DealsPage";
 
 // Each step's screen is its own chunk, fetched when the step is first opened, so the first load is the frame, the
 // Deals page and the engine, not all five screens.
-const LotPage = lazy(() => import("./features/lot/LotPage").then(({ LotPage }) => ({ default: LotPage })));
-const HousePage = lazy(() => import("./features/house/HousePage").then(({ HousePage }) => ({ default: HousePage })));
-const EstimatePage = lazy(() =>
+const LotPage = lazyStep(() => import("./features/lot/LotPage").then(({ LotPage }) => ({ default: LotPage })));
+const HousePage = lazyStep(() => import("./features/house/HousePage").then(({ HousePage }) => ({ default: HousePage })));
+const EstimatePage = lazyStep(() =>
   import("./features/estimate/EstimatePage").then(({ EstimatePage }) => ({ default: EstimatePage })),
 );
-const MarketPage = lazy(() => import("./features/market/MarketPage").then(({ MarketPage }) => ({ default: MarketPage })));
-const ProFormaPage = lazy(() =>
+const MarketPage = lazyStep(() => import("./features/market/MarketPage").then(({ MarketPage }) => ({ default: MarketPage })));
+const ProFormaPage = lazyStep(() =>
   import("./features/proforma/ProFormaPage").then(({ ProFormaPage }) => ({ default: ProFormaPage })),
 );
 

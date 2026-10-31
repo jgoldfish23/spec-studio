@@ -66,3 +66,20 @@ test("a deal is started from the sample, edited on three steps, saved and found 
   await expect(rows).toHaveCount(1);
   await expect(rows.first().getByText(VERDICT)).toBeVisible();
 });
+
+test("an edit is kept when the page is reloaded straight after it, without waiting for Saved", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Load sample deal" }).click();
+  await openStep(page, "House");
+  const luxury = page.getByRole("group", { name: "Finishes" }).getByRole("button", { name: /^Luxury/ });
+  await expect(luxury).toHaveAttribute("aria-pressed", "false");
+  await luxury.click();
+  await expect(luxury).toHaveAttribute("aria-pressed", "true");
+
+  // The autosave is a second away. Leaving the page must save what is waiting, not lose it.
+  await page.reload();
+  await expect(page.getByRole("group", { name: "Finishes" }).getByRole("button", { name: /^Luxury/ })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+});

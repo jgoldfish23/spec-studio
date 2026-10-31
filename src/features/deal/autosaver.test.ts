@@ -249,6 +249,31 @@ describe("createAutosaver", () => {
     expect(t.calls).toEqual([4]);
   });
 
+  it("flush starts the save before it returns, so a page that is closing still writes", () => {
+    const t = setup();
+    t.saver.schedule(5);
+    void t.saver.flush();
+    // No await, no timer: the store already has the value.
+    expect(t.calls).toEqual([5]);
+    expect(t.stored()).toBe(5);
+  });
+
+  it("flush while a save is running starts no second save at once; the newest value follows the running one", async () => {
+    const t = setup();
+    const first = deferred();
+    t.gates.push(first);
+    t.saver.schedule(1);
+    await advance(1000);
+    t.saver.schedule(2);
+
+    void t.saver.flush();
+    expect(t.calls).toEqual([1]);
+    first.resolve();
+    await advance(0);
+    expect(t.calls).toEqual([1, 2]);
+    expect(t.maxRunning()).toBe(1);
+  });
+
   it("flush with nothing pending saves nothing", async () => {
     const t = setup();
     await t.saver.flush();

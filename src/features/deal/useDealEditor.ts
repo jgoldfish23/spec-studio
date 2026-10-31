@@ -59,7 +59,7 @@ function toDataError(error: Error): DataError {
 /**
  * The editor behind every step screen of one deal. It loads the deal once, keeps the owner's edits with an undo
  * history, evaluates the deal 150 ms after the last change, and saves 1 s after it (and again every 5 s while a
- * save keeps failing). Leaving the page saves what is waiting.
+ * save keeps failing). Leaving the deal, or hiding or closing the page, saves what is waiting.
  */
 export function useDealEditor(dealId: string): DealEditor {
   const repository = useRepository();
@@ -122,7 +122,19 @@ export function useDealEditor(dealId: string): DealEditor {
       },
     });
     autosaver.current = instance;
+    // A page that is closed, reloaded or hidden may never run another timer, so whatever is waiting is saved now. The
+    // autosaver starts the save inside this call (the repository's `saveDeal` runs before `flush` returns), which is
+    // all a closing page is given. If a save is already running, that one and then the newest value are what can be
+    // done. `beforeunload` is not used: it exists to prompt, and nothing here needs to ask.
+    const saveNow = () => void instance.flush();
+    const saveWhenHidden = () => {
+      if (document.visibilityState === "hidden") saveNow();
+    };
+    window.addEventListener("pagehide", saveNow);
+    document.addEventListener("visibilitychange", saveWhenHidden);
     return () => {
+      window.removeEventListener("pagehide", saveNow);
+      document.removeEventListener("visibilitychange", saveWhenHidden);
       autosaver.current = null;
       void instance.flush();
       instance.dispose();

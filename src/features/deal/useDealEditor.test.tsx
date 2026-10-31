@@ -740,6 +740,150 @@ describe("useDealEditor autosave", () => {
   });
 });
 
+/** Makes `document.visibilityState` read `state` until the returned function is called. */
+function setVisibility(state: DocumentVisibilityState): () => void {
+  Object.defineProperty(document, "visibilityState", { configurable: true, get: () => state });
+  return () => {
+    delete (document as { visibilityState?: unknown }).visibilityState;
+  };
+}
+
+describe("useDealEditor when the page is hidden or closed", () => {
+  /** What the storage holds for the deal right now, read straight from it with no await in between. */
+  const storedPrice = (s: Setup): number | undefined => {
+    const records = JSON.parse(s.storage.getItem(DEALS_KEY) ?? "{}") as Record<string, StoredDeal>;
+    return records[s.first.id]?.inputs.lot.priceCents;
+  };
+
+  it("saves the pending edit on pagehide, before any timer runs and before the event handler returns", async () => {
+    const s = await setup();
+    const view = await ready(s);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    expect(storedPrice(s)).toBe(ORIGINAL_PRICE);
+
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+      // Still inside the event: a closing page gets no later turn, so the write must already be in the storage.
+      expect(s.saveDeal).toHaveBeenCalledTimes(1);
+      expect(storedPrice(s)).toBe(NEW_PRICE);
+    });
+    expect((await s.storedDeal(s.first.id))?.inputs.lot.priceCents).toBe(NEW_PRICE);
+    // The delay timer was cancelled, so the edit is not saved again when it would have run out.
+    await advance(30_000);
+    expect(s.saveDeal).toHaveBeenCalledTimes(1);
+  });
+
+  it("saves a pending rename on pagehide", async () => {
+    const s = await setup();
+    const view = await ready(s);
+    act(() => {
+      view.result.current.rename("Closing soon");
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect((await s.storedDeal(s.first.id))?.name).toBe("Closing soon");
+  });
+
+  it("saves the pending edit when the page becomes hidden", async () => {
+    const s = await setup();
+    const view = await ready(s);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    const restore = setVisibility("hidden");
+    try {
+      act(() => {
+        document.dispatchEvent(new Event("visibilitychange"));
+        expect(s.saveDeal).toHaveBeenCalledTimes(1);
+        expect(storedPrice(s)).toBe(NEW_PRICE);
+      });
+    } finally {
+      restore();
+    }
+    expect((await s.storedDeal(s.first.id))?.inputs.lot.priceCents).toBe(NEW_PRICE);
+  });
+
+  it("does not save when the page becomes visible again", async () => {
+    const s = await setup();
+    const view = await ready(s);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    const restore = setVisibility("visible");
+    try {
+      act(() => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+    } finally {
+      restore();
+    }
+    expect(s.saveDeal).not.toHaveBeenCalled();
+    // The normal delay still applies.
+    await advance(1000);
+    expect(s.saveDeal).toHaveBeenCalledTimes(1);
+  });
+
+  it("saves nothing when nothing is waiting", async () => {
+    const s = await setup();
+    await ready(s);
+    const restore = setVisibility("hidden");
+    try {
+      act(() => {
+        window.dispatchEvent(new Event("pagehide"));
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+    } finally {
+      restore();
+    }
+    await advance(30_000);
+    expect(s.saveDeal).not.toHaveBeenCalled();
+  });
+
+  it("keeps working after a flush: the next edit is saved after its own delay", async () => {
+    const s = await setup();
+    const view = await ready(s);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    await advance(0);
+    expect(view.result.current.saveStatus).toEqual({ kind: "saved" });
+
+    act(() => view.result.current.edit(setPrice(NEW_PRICE + 100_000)));
+    await advance(999);
+    expect(s.saveDeal).toHaveBeenCalledTimes(1);
+    await advance(1);
+    expect(s.saveDeal).toHaveBeenCalledTimes(2);
+    expect((await s.storedDeal(s.first.id))?.inputs.lot.priceCents).toBe(NEW_PRICE + 100_000);
+  });
+
+  it("stops listening when the editor goes away or moves to another deal", async () => {
+    const s = await setup();
+    const view = await ready(s);
+    const onWindow = { add: vi.spyOn(window, "addEventListener"), remove: vi.spyOn(window, "removeEventListener") };
+    const onDocument = { add: vi.spyOn(document, "addEventListener"), remove: vi.spyOn(document, "removeEventListener") };
+    const handlers = (spy: { mock: { calls: unknown[][] } }, type: string) =>
+      spy.mock.calls.filter(([name]) => name === type).map(([, handler]) => handler);
+
+    // Moving to another deal replaces the autosaver, and with it the listeners.
+    view.rerender({ dealId: "deal-elsewhere" });
+    expect(handlers(onWindow.add, "pagehide")).toHaveLength(1);
+    expect(handlers(onWindow.remove, "pagehide")).toHaveLength(1);
+    expect(handlers(onDocument.add, "visibilitychange")).toHaveLength(1);
+    expect(handlers(onDocument.remove, "visibilitychange")).toHaveLength(1);
+
+    view.unmount();
+    for (const [add, remove, type] of [
+      [onWindow.add, onWindow.remove, "pagehide"],
+      [onDocument.add, onDocument.remove, "visibilitychange"],
+    ] as const) {
+      // The first autosaver's handler was added before the spies (removed on the move), the second's is added and then
+      // removed on unmount: nothing stays registered.
+      expect(handlers(add, type)).toHaveLength(1);
+      expect(handlers(remove, type)).toHaveLength(2);
+      expect(handlers(remove, type)).toContain(handlers(add, type)[0]);
+    }
+    vi.restoreAllMocks();
+  });
+});
+
 describe("useDealEditor with another deal", () => {
   it("saves the old deal's pending edit and loads the new deal without showing the old one", async () => {
     const s = await setup();
