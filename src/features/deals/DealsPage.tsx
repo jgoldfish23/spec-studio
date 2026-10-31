@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { DEFAULT_MARKET_SETTINGS } from "@engine";
 import type { Comp } from "@engine";
@@ -36,7 +36,26 @@ const WHOLE_STORE = "*";
  * What the owner is being asked to confirm. Deleting the last sample deal also deletes the sample's comps that are in
  * the library (`sampleCompIds`), so sample data does not outlive the sample.
  */
-type Confirming = { kind: "delete"; id: string; name: string; sampleCompIds: string[] } | { kind: "reset" } | null;
+type Confirming =
+  | { kind: "delete"; id: string; name: string; sampleCompIds: string[] }
+  | { kind: "removeProblem"; id: string }
+  | { kind: "reset" }
+  | null;
+
+/** The question and the answer that goes ahead, for what the owner is being asked to confirm. */
+function dialogFor(confirming: Exclude<Confirming, null>): { message: string; confirmLabel: string } {
+  switch (confirming.kind) {
+    case "delete":
+      return { message: deleteQuestion(confirming), confirmLabel: "Delete" };
+    case "removeProblem":
+      return { message: `Remove this unreadable deal (${confirming.id})? Its saved data is discarded.`, confirmLabel: "Remove" };
+    case "reset":
+      return { message: "Remove all saved deals? This can't be undone.", confirmLabel: "Remove all" };
+  }
+}
+
+/** What a problem row is known by among the rows focus can land on. A deal's row is known by the deal's id. */
+const problemKey = (id: string) => `problem:${id}`;
 
 /** "Delete Sample — Kaysville lot? This can't be undone. Its 8 sample comps are removed too." */
 function deleteQuestion({ name, sampleCompIds }: { name: string; sampleCompIds: readonly string[] }): string {
@@ -116,18 +135,48 @@ export function DealsPage() {
   const [confirming, setConfirming] = useState<Confirming>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const newDealRef = useRef<HTMLButtonElement>(null);
+  /** Where focus goes once a removed row is gone: the row known by `key`, or New deal when `key` is null. */
+  const [refocus, setRefocus] = useState<{ key: string | null } | null>(null);
+
+  // The row the owner removed took focus with it. Focus lands on the row that took its place (or the one before it),
+  // or on New deal when no row is left, once the list without the row is drawn.
+  useEffect(() => {
+    if (refocus === null) return;
+    const rows = Array.from(pageRef.current?.querySelectorAll<HTMLElement>("[data-row-focus]") ?? []);
+    const target = refocus.key === null ? undefined : rows.find((row) => row.dataset.rowFocus === refocus.key);
+    (target ?? newDealRef.current)?.focus();
+  }, [refocus]);
 
   /** Runs one action. One at a time, so a double click cannot start a deal twice; a failure is shown, not thrown. */
-  async function perform(failureText: string, action: () => Promise<void>) {
+  async function perform(failureText: string, action: () => Promise<void>): Promise<boolean> {
     setBusy(true);
     setFailure(null);
     try {
       await action();
+      return true;
     } catch (error) {
       setFailure(`${failureText}: ${errorMessage(error)}`);
+      return false;
     } finally {
       setBusy(false);
     }
+  }
+
+  /** The row after the one known by `key`, else the one before it, in the order the page shows them; null for none. */
+  function neighbourOf(key: string): string | null {
+    const keys = Array.from(pageRef.current?.querySelectorAll<HTMLElement>("[data-row-focus]") ?? []).map(
+      (row) => row.dataset.rowFocus ?? "",
+    );
+    const at = keys.indexOf(key);
+    return at === -1 ? null : (keys[at + 1] ?? keys[at - 1] ?? null);
+  }
+
+  /** Removes a row with `action`, and once it is gone moves focus on from it. */
+  async function removeRow(key: string, failureText: string, action: () => Promise<void>) {
+    const neighbour = neighbourOf(key);
+    if (await perform(failureText, action)) setRefocus({ key: neighbour });
   }
 
   const startDeal = () =>
@@ -150,17 +199,20 @@ export function DealsPage() {
       void navigate(`/deals/${deal.id}/proforma`);
     });
 
-  const removeDeal = (id: string, sampleCompIds: readonly string[] = []) =>
-    perform("Couldn't delete the deal", async () => {
+  const removeDeal = (id: string, sampleCompIds: readonly string[]) =>
+    removeRow(id, "Couldn't delete the deal", async () => {
       await deleteDeal.mutateAsync(id);
       for (const compId of sampleCompIds) await deleteComp.mutateAsync(compId);
     });
+  const removeProblem = (id: string) =>
+    removeRow(problemKey(id), "Couldn't delete the deal", () => deleteDeal.mutateAsync(id));
   const removeEverything = () => perform("Couldn't remove the saved deals", () => resetDeals.mutateAsync());
 
   const confirm = (): void => {
     const pending = confirming;
     setConfirming(null);
     if (pending?.kind === "delete") void removeDeal(pending.id, pending.sampleCompIds);
+    else if (pending?.kind === "removeProblem") void removeProblem(pending.id);
     else if (pending?.kind === "reset") void removeEverything();
   };
 
@@ -175,7 +227,7 @@ export function DealsPage() {
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div ref={pageRef} className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-col gap-1.5">
           <h1 className="m-0 text-[30px] font-bold tracking-[-0.02em]">Deals</h1>
@@ -193,6 +245,7 @@ export function DealsPage() {
             </button>
           ) : null}
           <button
+            ref={newDealRef}
             type="button"
             onClick={() => void startDeal()}
             disabled={busy}
@@ -238,8 +291,9 @@ export function DealsPage() {
                 <button
                   type="button"
                   aria-label={whole ? undefined : `Remove ${problem.id}`}
+                  data-row-focus={whole ? undefined : problemKey(problem.id)}
                   disabled={busy}
-                  onClick={() => (whole ? setConfirming({ kind: "reset" }) : void removeDeal(problem.id))}
+                  onClick={() => setConfirming(whole ? { kind: "reset" } : { kind: "removeProblem", id: problem.id })}
                   className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-no-go px-3.5 text-sm font-semibold text-no-go hover:bg-surface disabled:opacity-60 ${focusRing}`}
                 >
                   Remove
@@ -276,14 +330,7 @@ export function DealsPage() {
         </section>
       )}
 
-      {confirming ? (
-        <ConfirmDialog
-          message={confirming.kind === "delete" ? deleteQuestion(confirming) : "Remove all saved deals? This can't be undone."}
-          confirmLabel={confirming.kind === "delete" ? "Delete" : "Remove all"}
-          onConfirm={confirm}
-          onCancel={() => setConfirming(null)}
-        />
-      ) : null}
+      {confirming ? <ConfirmDialog {...dialogFor(confirming)} onConfirm={confirm} onCancel={() => setConfirming(null)} /> : null}
     </div>
   );
 }

@@ -74,7 +74,11 @@ function DealRow({
   return (
     <tr className="grid grid-cols-2 gap-x-4 gap-y-2 border-t border-line px-4 py-4 md:table-row md:p-0 md:align-top">
       <td className="col-span-2 min-w-0 break-words md:table-cell md:px-5 md:py-4">
-        <Link to={`/deals/${deal.id}/lot`} className={`text-[15px] font-semibold text-spruce underline-offset-2 hover:underline ${focusRing}`}>
+        <Link
+          to={`/deals/${deal.id}/lot`}
+          data-row-focus={deal.id}
+          className={`text-[15px] font-semibold text-spruce underline-offset-2 hover:underline ${focusRing}`}
+        >
           {deal.name}
         </Link>
         <div className="mt-1 text-[13px] text-muted">{houseLine(deal.inputs.house)}</div>

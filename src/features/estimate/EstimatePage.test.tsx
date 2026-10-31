@@ -34,6 +34,21 @@ describe("Estimate page layout", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Estimate" })).toBeInTheDocument();
   });
 
+  it("warns at the top that starter defaults are unverified while any line is priced from one (spec §5.4)", async () => {
+    const { harness, deal } = await sampleSetup();
+    await openEstimate(harness, deal);
+    const banner = screen.getByText("Starter defaults are unverified estimates — replace them with your bids or your own prices.");
+    expect(banner).toBeVisible();
+    // Above the cards, so it is the first thing read.
+    expect(banner.compareDocumentPosition(region("Build estimate")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("has no banner once every line rests on a bid", async () => {
+    const { harness, deal } = await setupEveryLineBid();
+    await openEstimate(harness, deal);
+    expect(screen.queryByText(/Starter defaults are unverified/)).not.toBeInTheDocument();
+  });
+
   it("links on to the market step", async () => {
     const { harness, deal } = await sampleSetup();
     await openEstimate(harness, deal);

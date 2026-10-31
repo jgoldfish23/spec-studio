@@ -288,7 +288,10 @@ describe("deleting a comp", () => {
     const user = newUser();
 
     await user.click(within(compRow(TARGET)).getByRole("button", { name: "Delete" }));
-    const dialog = screen.getByRole("alertdialog", { name: `Delete ${TARGET}? This can't be undone.` });
+    // The comps are shared by every deal in the region, so the question says so.
+    const dialog = screen.getByRole("alertdialog", {
+      name: `Delete ${TARGET}? It's removed from every deal in Northern Utah. This can't be undone.`,
+    });
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
 
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();

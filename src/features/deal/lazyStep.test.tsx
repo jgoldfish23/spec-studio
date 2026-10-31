@@ -1,7 +1,8 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Suspense } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { CalcErrorBoundary } from "../../ui/CalcErrorBoundary";
 import { lazyStep } from "./lazyStep";
 import { StepLoadFailed } from "./StepLoadFailed";
 
@@ -11,6 +12,10 @@ afterEach(() => {
 
 function Loaded() {
   return <p>The screen</p>;
+}
+
+function ThrowsWhileDrawing(): never {
+  throw new Error("a bug in drawing");
 }
 
 function renderStep(Step: ReturnType<typeof lazyStep>) {
@@ -51,12 +56,25 @@ describe("lazyStep", () => {
     render(
       <>
         <nav aria-label="Tabs">Tabs stay</nav>
-        <Suspense fallback={null}>
-          <Step />
-        </Suspense>
+        <section aria-label="Failed fetch">
+          <CalcErrorBoundary input="step">
+            <Suspense fallback={null}>
+              <Step />
+            </Suspense>
+          </CalcErrorBoundary>
+        </section>
+        {/* The same boundary does catch a screen that throws while drawing, so it is a real one. */}
+        <section aria-label="Drawing bug">
+          <CalcErrorBoundary input="crash">
+            <ThrowsWhileDrawing />
+          </CalcErrorBoundary>
+        </section>
       </>,
     );
-    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    const failed = screen.getByRole("region", { name: "Failed fetch" });
+    expect(await within(failed).findByRole("alert")).toHaveTextContent("Couldn't load this screen — reload the page");
+    expect(within(failed).queryByText("Couldn't calculate")).not.toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Drawing bug" })).getByText("Couldn't calculate")).toBeVisible();
     expect(screen.getByRole("navigation", { name: "Tabs" })).toBeInTheDocument();
   });
 });

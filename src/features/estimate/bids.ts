@@ -26,9 +26,6 @@ export function removeBid(bids: readonly Bid[], code: string): Bid[] {
   return bids.filter((bid) => bid.code !== code);
 }
 
-/** The most a bid may be: $100 million, the same ceiling the engine puts on a sale price (it has none of its own for a bid). */
-export const MAX_BID_CENTS = 10_000_000_000;
-
 /** What a bid form holds before it is a `Bid`: the amount is empty until one is typed. */
 export interface BidDraft {
   vendor: string;

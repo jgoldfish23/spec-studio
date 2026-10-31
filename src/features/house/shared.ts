@@ -11,13 +11,6 @@ export interface HouseCardProps {
   edit: Edit;
 }
 
-/** The most an area may be: the engine's cap, 50,000 sf (or ft). */
-export const MAX_AREA = 50_000;
-/** The most garage bays the engine takes. */
-export const MAX_BAYS = 10;
-/** The most bedrooms, baths or fireplaces the engine takes. */
-export const MAX_ROOMS = 20;
-
 /** Boxes in a row, wrapping to fewer columns on a phone. */
 export const FIELD_GRID = "grid grid-cols-[repeat(auto-fit,minmax(min(100%,170px),1fr))] gap-4";
 /** Narrow boxes, such as percents, two to a row on a phone. */

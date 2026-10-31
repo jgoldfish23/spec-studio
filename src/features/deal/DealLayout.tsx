@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
+import { flushSync } from "react-dom";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import type { DealEvaluation, DealInputs } from "@engine";
 import { useDeleteDeal } from "../../data/queries";
@@ -102,7 +103,13 @@ function DealUnreadable({ dealId, message }: { dealId: string; message: string }
 // ---------------------------------------------------------------------------------------------------------------
 // The header of a ready deal
 
-function DealNameField({ name, rename }: { name: string; rename: (name: string) => boolean }) {
+interface DealNameFieldProps {
+  name: string;
+  rename: (name: string) => boolean;
+  saveNow: () => void;
+}
+
+function DealNameField({ name, rename, saveNow }: DealNameFieldProps) {
   const [text, setText] = useState(name);
   const [seenName, setSeenName] = useState(name);
   // The name changed from outside this box (a rename that was trimmed, a deal that was reloaded).
@@ -110,6 +117,25 @@ function DealNameField({ name, rename }: { name: string; rename: (name: string) 
     setSeenName(name);
     setText(name);
   }
+
+  // A name still being typed when the page is closed is kept, as a blur would keep it. The editor takes it at once
+  // (`flushSync`, so its save is waiting before the handler goes on), and it is saved before the page goes.
+  const typed = useRef({ text, name });
+  useEffect(() => {
+    typed.current = { text, name };
+  }, [text, name]);
+  useEffect(() => {
+    const keepOnClose = () => {
+      const trimmed = typed.current.text.trim();
+      if (trimmed === "" || trimmed === typed.current.name) return;
+      flushSync(() => {
+        rename(trimmed);
+      });
+      saveNow();
+    };
+    window.addEventListener("pagehide", keepOnClose);
+    return () => window.removeEventListener("pagehide", keepOnClose);
+  }, [rename, saveNow]);
 
   function commit() {
     // A blank name is refused, and the box goes back to the name the deal has.
@@ -128,27 +154,25 @@ function DealNameField({ name, rename }: { name: string; rename: (name: string) 
   );
 }
 
+const ROUTINE_STATUS = { saved: "Saved", pending: "Unsaved changes", saving: "Saving…" } as const;
+
+/**
+ * Where the deal's saving stands. The routine states are read where they are and never announced, since they change
+ * with every keystroke; a failure is the one the owner must hear about, so it comes as an alert of its own.
+ */
 function SaveStatusText({ status }: { status: SaveStatus }) {
-  let text: string;
-  switch (status.kind) {
-    case "saved":
-      text = "Saved";
-      break;
-    case "pending":
-      text = "Unsaved changes";
-      break;
-    case "saving":
-      text = "Saving…";
-      break;
-    case "error":
-      text = "Couldn't save — retrying";
-      break;
+  if (status.kind !== "error") {
+    return (
+      <p key="status" className="m-0 text-sm text-muted">
+        {ROUTINE_STATUS[status.kind]}
+      </p>
+    );
   }
   // The reason usually starts "Couldn't save — ", which the notice already says.
-  const reason = status.kind === "error" ? withoutSavePrefix(status.message) : "";
+  const reason = withoutSavePrefix(status.message);
   return (
-    <p aria-live="polite" className={`m-0 text-sm ${status.kind === "error" ? "font-semibold text-no-go" : "text-muted"}`}>
-      {text}
+    <p key="failure" role="alert" className="m-0 text-sm font-semibold text-no-go">
+      Couldn't save — retrying
       {reason ? <span className="font-normal">{`: ${reason}`}</span> : null}
     </p>
   );
@@ -279,7 +303,7 @@ function ReadyDeal({ dealId, editor, name, inputs, evaluation, today }: ReadyPro
             <Link to="/deals" className={`inline-flex min-h-11 items-center self-start text-sm no-underline ${LINK}`}>
               ← Deals
             </Link>
-            <DealNameField name={name} rename={editor.rename} />
+            <DealNameField name={name} rename={editor.rename} saveNow={editor.saveNow} />
           </div>
           <CalcErrorBoundary input={inputs} resetOn={evaluation}>
             <VerdictBlock dealId={dealId} evaluation={evaluation} />

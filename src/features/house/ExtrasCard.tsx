@@ -1,8 +1,9 @@
+import { LIMITS } from "@engine";
 import { Card } from "../../ui/Card";
 import { NumberField, OptionalNumberField, Toggle } from "../../ui/fields";
 import { fieldError } from "../deal/fieldErrors";
 import { SegmentedField } from "../deal/SegmentedField";
-import { CHOICE_GRID, FIELD_GRID, MAX_AREA, TIER_OPTIONS } from "./shared";
+import { CHOICE_GRID, FIELD_GRID, TIER_OPTIONS } from "./shared";
 import type { HouseCardProps } from "./shared";
 
 const ADU_KINDS = [
@@ -44,7 +45,7 @@ export function ExtrasCard({ house, evaluation, edit }: HouseCardProps) {
                 label="Finished sf"
                 unit="sf"
                 min={0}
-                max={MAX_AREA}
+                max={LIMITS.areaSf}
                 value={adu.finishedSf}
                 onChange={(sf) =>
                   edit((draft) => {
@@ -85,7 +86,7 @@ export function ExtrasCard({ house, evaluation, edit }: HouseCardProps) {
           label="Covered patio sf"
           unit="sf"
           min={0}
-          max={MAX_AREA}
+          max={LIMITS.areaSf}
           value={outside.coveredPatioSf}
           onChange={(sf) => edit((draft) => void (draft.house.outside.coveredPatioSf = sf))}
           error={error("house.outside.coveredPatioSf")}
@@ -94,7 +95,7 @@ export function ExtrasCard({ house, evaluation, edit }: HouseCardProps) {
           label="Driveway & flatwork sf"
           unit="sf"
           min={0}
-          max={MAX_AREA}
+          max={LIMITS.areaSf}
           value={outside.flatworkSf}
           onChange={(sf) => edit((draft) => void (draft.house.outside.flatworkSf = sf))}
           error={error("house.outside.flatworkSf")}
@@ -103,7 +104,7 @@ export function ExtrasCard({ house, evaluation, edit }: HouseCardProps) {
           label="Fencing lf"
           unit="lf"
           min={0}
-          max={MAX_AREA}
+          max={LIMITS.fenceLf}
           value={outside.fenceLf}
           onChange={(lf) => edit((draft) => void (draft.house.outside.fenceLf = lf))}
           error={error("house.outside.fenceLf")}

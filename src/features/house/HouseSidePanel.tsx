@@ -36,15 +36,14 @@ function BuildEstimate({
   const changed = changeText(change);
   const { salePriceCents } = summarize(evaluation);
   return (
-    <section
-      aria-labelledby={titleId}
-      aria-live="polite"
-      className="flex flex-col gap-3 rounded-xl bg-spruce-dark p-5 text-paper"
-    >
+    <section aria-labelledby={titleId} className="flex flex-col gap-3 rounded-xl bg-spruce-dark p-5 text-paper">
       <h2 id={titleId} className="m-0 text-sm font-semibold text-nav-text">
         Build estimate
       </h2>
-      <div className="text-[32px] font-bold tracking-[-0.02em]">{formatMoney(total)}</div>
+      {/* Only the total is announced when an edit moves it; the lines under it are read where they are. */}
+      <div aria-live="polite" className="text-[32px] font-bold tracking-[-0.02em]">
+        {formatMoney(total)}
+      </div>
       <div className="text-sm text-nav-text">{`${formatMoney(perSf)} per finished sf${tier ? ` · ${tier} finishes` : ""}`}</div>
       {changed ? <div className="border-t border-[#2E433B] pt-3 text-sm text-[#E9D9C8]">{changed}</div> : null}
       {salePriceCents !== null ? (

@@ -155,9 +155,12 @@ const AREA_BOUNDS: HouseBound[] = [
   { path: "adu.finishedSf", max: 50_000, set: (h, v) => void (h.adu = { type: "detached", finishedSf: v }) },
   { path: "outside.coveredPatioSf", max: 50_000, set: (h, v) => void (h.outside.coveredPatioSf = v) },
   { path: "outside.flatworkSf", max: 50_000, set: (h, v) => void (h.outside.flatworkSf = v) },
-  { path: "outside.fenceLf", max: 50_000, set: (h, v) => void (h.outside.fenceLf = v) },
+  { path: "outside.fenceLf", max: 10_000, set: (h, v) => void (h.outside.fenceLf = v) },
   { path: "footprint.widthFt", max: 50_000, set: (h, v) => void (h.footprint.widthFt = v) },
   { path: "footprint.depthFt", max: 50_000, set: (h, v) => void (h.footprint.depthFt = v) },
+  { path: "levels.main.ceilingFt", max: 30, set: (h, v) => void (h.levels.main.ceilingFt = v) },
+  { path: "levels.upper.ceilingFt", max: 30, set: (h, v) => void (h.levels.upper = { ...UPPER, ceilingFt: v }) },
+  { path: "roof.pitchPer12", max: 24, set: (h, v) => void (h.roof.pitchPer12 = v) },
 ];
 
 const COUNT_BOUNDS: HouseBound[] = [
@@ -223,11 +226,14 @@ describe("house upper bounds", () => {
     ]);
   });
 
-  it("does not cap ceiling height or roof pitch", () => {
+  it("caps ceiling height at 30 ft and roof pitch at 24/12, so a typing slip is a message, not a house", () => {
     const h = clone();
     h.levels.main.ceilingFt = 60;
     h.roof.pitchPer12 = 30;
-    expect(validateHouse(h)).toEqual([]);
+    expect(validateHouse(h)).toEqual([
+      { path: "levels.main.ceilingFt", message: "Must be 30 or less" },
+      { path: "roof.pitchPer12", message: "Must be 24 or less" },
+    ]);
   });
 });
 

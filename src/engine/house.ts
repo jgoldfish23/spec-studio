@@ -1,14 +1,14 @@
 import { z } from "zod";
+import { LIMITS, withCommas } from "./limits";
 import type { ValidationIssue } from "./result";
 
-const nonNegative = z.number().min(0, "Must be 0 or more");
 // Upper bounds sit in the same single-range schema as the minimum, so a value raises one issue, not two.
 // A figure past these is a typing slip (an extra zero), not a house.
-const MAX_AREA = 50_000;
-const area = z.number().min(0, "Must be 0 or more").max(MAX_AREA, "Must be 50,000 or less");
+const upTo = (max: number) => z.number().min(0, "Must be 0 or more").max(max, `Must be ${withCommas(max)} or less`);
+const area = upTo(LIMITS.areaSf);
 const countUpTo = (max: number) =>
   z.number().int("Must be a whole number").min(0, "Must be 0 or more").max(max, `Must be ${max} or less`);
-const percent = z.number().min(0, "Must be 0 or more").max(100, "Must be 100 or less");
+const percent = upTo(LIMITS.exteriorPct);
 
 export const FinishTierSchema = z.enum(["standard", "upgraded", "luxury"]);
 export type FinishTier = z.infer<typeof FinishTierSchema>;
@@ -16,7 +16,7 @@ export type FinishTier = z.infer<typeof FinishTierSchema>;
 const LevelSchema = z.object({
   finishedSf: area,
   unfinishedSf: area,
-  ceilingFt: nonNegative,
+  ceilingFt: upTo(LIMITS.ceilingFt),
 });
 
 /**
@@ -40,13 +40,13 @@ export const HouseModelSchema = z.object({
     depthFt: area,
     complexity: z.enum(["simple", "moderate", "complex"]),
   }),
-  garage: z.object({ bays: countUpTo(10), tandem: z.boolean(), rvBay: z.boolean() }),
-  roof: z.object({ style: z.enum(["gable", "hip", "mixed"]), pitchPer12: nonNegative }),
+  garage: z.object({ bays: countUpTo(LIMITS.garageBays), tandem: z.boolean(), rvBay: z.boolean() }),
+  roof: z.object({ style: z.enum(["gable", "hip", "mixed"]), pitchPer12: upTo(LIMITS.roofPitchPer12) }),
   rooms: z.object({
-    bedrooms: countUpTo(20),
-    fullBaths: countUpTo(20),
-    halfBaths: countUpTo(20),
-    fireplaces: countUpTo(20),
+    bedrooms: countUpTo(LIMITS.rooms),
+    fullBaths: countUpTo(LIMITS.rooms),
+    halfBaths: countUpTo(LIMITS.rooms),
+    fireplaces: countUpTo(LIMITS.rooms),
   }),
   exterior: z.object({
     stonePct: percent,
@@ -74,7 +74,7 @@ export const HouseModelSchema = z.object({
   outside: z.object({
     coveredPatioSf: area,
     flatworkSf: area,
-    fenceLf: area,
+    fenceLf: upTo(LIMITS.fenceLf),
     landscapingTier: FinishTierSchema,
   }),
 });

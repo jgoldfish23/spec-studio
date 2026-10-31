@@ -1,15 +1,12 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import { loadSampleDeal, openStep } from "./helpers";
 
-const VERDICT = /^(Go|Marginal|No-go|Needs info)$/;
+/** The sample deal is complete, so it always has a real verdict, never "Needs info". */
+const VERDICT = /^(Go|Marginal|No-go)$/;
 
 /** The big figure of the build estimate on the House step's side panel. */
 const buildEstimateFigure = (page: Page) => page.getByRole("region", { name: "Build estimate" }).locator("div").first();
-
-/** Opens a step from the deal's tabs (the "Next:" links on the pages are not the tabs). */
-async function openStep(page: Page, title: "Lot" | "House" | "Estimate" | "Market" | "Pro forma") {
-  await page.getByRole("navigation", { name: "Deal steps" }).getByRole("link", { name: title, exact: true }).click();
-}
 
 /** The header's save status says "Saved" once the editor has written what was waiting. */
 async function expectSaved(page: Page) {
@@ -17,13 +14,8 @@ async function expectSaved(page: Page) {
 }
 
 test("a deal is started from the sample, edited on three steps, saved and found again after a reload", async ({ page }) => {
-  // 1. A fresh browser has no deals.
-  await page.goto("/");
-  await expect(page.getByText("No deals yet")).toBeVisible();
-
-  // 2. The sample deal opens on the Pro forma step with a verdict.
-  await page.getByRole("button", { name: "Load sample deal" }).click();
-  await expect(page.getByRole("heading", { name: "Pro forma" })).toBeAttached();
+  // 1–2. A fresh browser has no deals; the sample deal opens on the Pro forma step with a verdict.
+  await loadSampleDeal(page);
   await expect(page.getByText(VERDICT).first()).toBeVisible();
 
   // 3. Luxury finishes change the build estimate.
@@ -38,7 +30,8 @@ test("a deal is started from the sample, edited on three steps, saved and found 
   await openStep(page, "Market");
   const comps = page.getByRole("table", { name: /^Comps/ });
   const firstComp = comps.getByRole("row").nth(1);
-  const address = (await firstComp.getByRole("rowheader").locator("div").first().innerText()).trim();
+  // The address is the header cell's first line (a "Sample" tag may follow it).
+  const address = (await firstComp.getByRole("rowheader").locator("span").first().innerText()).trim();
   await firstComp.getByRole("button", { name: "Included" }).click();
   await expect(firstComp.getByText("Excluded")).toBeVisible();
 
@@ -68,8 +61,7 @@ test("a deal is started from the sample, edited on three steps, saved and found 
 });
 
 test("an edit is kept when the page is reloaded straight after it, without waiting for Saved", async ({ page }) => {
-  await page.goto("/");
-  await page.getByRole("button", { name: "Load sample deal" }).click();
+  await loadSampleDeal(page);
   await openStep(page, "House");
   const luxury = page.getByRole("group", { name: "Finishes" }).getByRole("button", { name: /^Luxury/ });
   await expect(luxury).toHaveAttribute("aria-pressed", "false");

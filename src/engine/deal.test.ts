@@ -294,6 +294,44 @@ const BOUNDS: Bound[] = [
     set: (d, v) => void (d.plannedListPriceCents = v),
   },
   { path: "lot.priceCents", min: 0, max: 10_000_000_000, set: (d, v) => void (d.lot.priceCents = v) },
+  // Every other number a field can reach has a ceiling too, so an absurd figure is a message, not work for the engine.
+  { path: "lot.acres", min: 0, max: 1_000, set: (d, v) => void (d.lot.acres = v) },
+  { path: "lot.frontageFt", min: 0, max: 10_000, set: (d, v) => void (d.lot.frontageFt = v) },
+  { path: "lot.closingCents", min: 0, max: 10_000_000_000, set: (d, v) => void (d.lot.closingCents = v) },
+  { path: "lot.hoaMonthlyCents", min: 0, max: 10_000_000_000, set: (d, v) => void (d.lot.hoaMonthlyCents = v) },
+  { path: "loan.drawFeeCents", min: 0, max: 10_000_000_000, set: (d, v) => void (d.loan.drawFeeCents = v) },
+  {
+    path: "carry.utilitiesBuildMonthlyCents",
+    min: 0,
+    max: 10_000_000_000,
+    set: (d, v) => void (d.carry.utilitiesBuildMonthlyCents = v),
+  },
+  {
+    path: "carry.utilitiesAfterMonthlyCents",
+    min: 0,
+    max: 10_000_000_000,
+    set: (d, v) => void (d.carry.utilitiesAfterMonthlyCents = v),
+  },
+  { path: "carry.stagingMonthlyCents", min: 0, max: 10_000_000_000, set: (d, v) => void (d.carry.stagingMonthlyCents = v) },
+  { path: "carry.upkeepMonthlyCents", min: 0, max: 10_000_000_000, set: (d, v) => void (d.carry.upkeepMonthlyCents = v) },
+  { path: "selling.concessionsCents", min: 0, max: 10_000_000_000, set: (d, v) => void (d.selling.concessionsCents = v) },
+  {
+    path: "rules.minDownsideProfitCents",
+    min: 0,
+    max: 10_000_000_000,
+    set: (d, v) => void (d.rules.minDownsideProfitCents = v),
+  },
+  {
+    path: "bids.0.amountCents",
+    min: 0,
+    max: 10_000_000_000,
+    set: (d, v) => void (d.bids = [{ code: "framing", amountCents: v, vendor: "Wasatch Framing", receivedOn: "2026-10-12" }]),
+  },
+  { path: "house.levels.main.ceilingFt", min: 0, max: 30, set: (d, v) => void (d.house.levels.main.ceilingFt = v) },
+  { path: "house.roof.pitchPer12", min: 0, max: 24, set: (d, v) => void (d.house.roof.pitchPer12 = v) },
+  { path: "house.outside.coveredPatioSf", min: 0, max: 50_000, set: (d, v) => void (d.house.outside.coveredPatioSf = v) },
+  { path: "house.outside.flatworkSf", min: 0, max: 50_000, set: (d, v) => void (d.house.outside.flatworkSf = v) },
+  { path: "house.outside.fenceLf", min: 0, max: 10_000, set: (d, v) => void (d.house.outside.fenceLf = v) },
 ];
 
 describe("input bounds", () => {
@@ -339,6 +377,21 @@ describe("input bounds", () => {
     const d = validDeal();
     d.loan.termMonths = 61;
     expect(validateDeal(d)).toEqual([{ path: "loan.termMonths", message: "Must be 60 or less" }]);
+  });
+
+  const LIMIT_MESSAGES: { path: string; set: (d: DealInputs) => void; message: string }[] = [
+    { path: "lot.closingCents", set: (d) => void (d.lot.closingCents = 10_000_000_001), message: "Must be $100,000,000 or less" },
+    { path: "lot.acres", set: (d) => void (d.lot.acres = 1_001), message: "Must be 1,000 or less" },
+    { path: "lot.frontageFt", set: (d) => void (d.lot.frontageFt = 10_001), message: "Must be 10,000 or less" },
+    { path: "house.levels.main.ceilingFt", set: (d) => void (d.house.levels.main.ceilingFt = 31), message: "Must be 30 or less" },
+    { path: "house.roof.pitchPer12", set: (d) => void (d.house.roof.pitchPer12 = 25), message: "Must be 24 or less" },
+    { path: "house.outside.fenceLf", set: (d) => void (d.house.outside.fenceLf = 10_001), message: "Must be 10,000 or less" },
+  ];
+
+  it.each(LIMIT_MESSAGES)("names the limit of $path in its message", ({ path, set, message }) => {
+    const d = validDeal();
+    set(d);
+    expect(validateDeal(d)).toEqual([{ path, message }]);
   });
 
   it("accepts a land close in December 2100 and rejects January 2101 as a single issue", () => {

@@ -31,7 +31,11 @@ function MarketScreen({ dealId, inputs, evaluatedInputs, evaluation, context, ed
       <h1 className="sr-only">Market</h1>
       <OverridesCard inputs={inputs} evaluation={evaluation} edit={edit} />
       <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,380px),1fr))] gap-4">
-        <PriceCard price={evaluation.price} />
+        <PriceCard
+          price={evaluation.price}
+          basePriceCents={evaluatedInputs.overrides.basePriceCents}
+          onUseMarket={() => edit((draft) => void delete draft.overrides.basePriceCents)}
+        />
         <DomCard dom={evaluation.dom} listMonth={listMonth} />
       </div>
       <p className="m-0 text-sm text-muted">

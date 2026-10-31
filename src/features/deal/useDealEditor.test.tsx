@@ -91,6 +91,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
   resetLostSaves();
 });
 
@@ -491,6 +492,21 @@ describe("useDealEditor discardChanges", () => {
     expect(stored?.name).toBe(SAMPLE_DEAL_NAME);
   });
 
+  it("leaves nothing for pagehide to save", async () => {
+    const s = await setup();
+    const view = await ready(s);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    act(() => view.result.current.rename("Doomed"));
+    act(() => view.result.current.discardChanges());
+
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    await advance(30_000);
+    expect(s.saveDeal).not.toHaveBeenCalled();
+    expect((await s.storedDeal(s.first.id))?.name).toBe(SAMPLE_DEAL_NAME);
+  });
+
   it("can be called again and again, and edits after it are saved as usual", async () => {
     const s = await setup();
     const view = await ready(s);
@@ -673,6 +689,46 @@ describe("useDealEditor autosave", () => {
     expect(s.saveDeal).toHaveBeenCalledTimes(2);
     expect(view.result.current.saveStatus).toEqual({ kind: "saved" });
     expect((await s.storedDeal(s.first.id))?.inputs.lot.priceCents).toBe(NEW_PRICE);
+  });
+
+  it("asks before the page closes while saves are failing, and stops asking once a save works", async () => {
+    const s = await setup();
+    s.saveDeal.mockRejectedValueOnce(new Error("disk is full"));
+    const view = await ready(s);
+    /** Whether closing the page now would make the browser ask first. */
+    const asks = () => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    expect(asks()).toBe(false);
+
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    // Waiting to be saved is not failing: the way out saves it.
+    expect(asks()).toBe(false);
+    await advance(1000);
+    expect(view.result.current.saveStatus.kind).toBe("error");
+    expect(asks()).toBe(true);
+    expect(asks()).toBe(true);
+
+    await advance(5000);
+    expect(view.result.current.saveStatus).toEqual({ kind: "saved" });
+    expect(asks()).toBe(false);
+  });
+
+  it("stops asking when the editor goes away", async () => {
+    const s = await setup();
+    s.saveDeal.mockRejectedValue(new Error("disk is full"));
+    const view = await ready(s);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    await advance(1000);
+    expect(view.result.current.saveStatus.kind).toBe("error");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    view.unmount();
+    await advance(0);
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
   });
 
   it("shows the repository's own refusal when it will not store the deal", async () => {
@@ -880,7 +936,6 @@ describe("useDealEditor when the page is hidden or closed", () => {
       expect(handlers(remove, type)).toHaveLength(2);
       expect(handlers(remove, type)).toContain(handlers(add, type)[0]);
     }
-    vi.restoreAllMocks();
   });
 });
 

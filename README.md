@@ -43,12 +43,20 @@ Each test file works in a database of its own and drops it when done.
 
 ### End-to-end tests
 
-`npm run e2e` builds the app, serves it on port 4173 and drives it in Chromium: the deal flow from an empty browser to a
-saved, reloaded deal, and a check that no screen scrolls sideways at 390 px wide.
+`npm run e2e` builds the app, serves it on port 4173 and drives it in Chromium. The specs in `tests/e2e` (shared steps
+in `helpers.ts`) check four things:
+
+- `deal-flow.spec.ts`: the sample deal is loaded into an empty browser, edited on House, Market and Estimate, saved, and
+  found again with both changes after a reload and on the Deals list.
+- `deal-flow.spec.ts`: an edit is kept when the page is reloaded straight after it, before the autosave's second is up.
+- `layout.spec.ts`: the Deals list and every step fit a 390 px screen without scrolling sideways, with no console errors.
+- `chunk-failure.spec.ts`: a step whose code cannot be fetched says so, keeps the deal's tabs, and recovers on Reload.
+
+Notes:
 
 - Install the browser once with `npx playwright install --with-deps chromium`.
 - If Chromium is already installed somewhere else, set `PW_CHROMIUM_PATH` to its executable and skip the install.
-- After a failure, `npx playwright show-report` opens the report.
+- Every run writes an HTML report to `playwright-report/`; after a failure, `npx playwright show-report` opens it.
 
 ## Static build
 

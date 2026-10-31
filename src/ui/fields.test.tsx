@@ -497,7 +497,35 @@ describe("TextField", () => {
   });
 });
 
+describe("text size on a phone", () => {
+  it("is 16 px below the sm breakpoint, so iOS does not zoom into a box, and 15 px from it", () => {
+    render(
+      <>
+        <MoneyField label="Price" valueCents={0} onChange={() => {}} />
+        <TextField label="City" value="" onChange={() => {}} />
+        <MonthField label="Land closes" value="2027-06" onChange={() => {}} />
+      </>,
+    );
+    for (const label of ["Price", "City", "Land closes"]) {
+      const input = screen.getByLabelText(label);
+      expect(input).toHaveClass("text-base", "sm:text-[15px]");
+      expect(input).not.toHaveClass("text-[15px]");
+    }
+  });
+});
+
 describe("MonthField and DateField", () => {
+  it("shows the month's format in the box, for a browser that has no month picker", () => {
+    render(<MonthField label="Land closes" value="" onChange={() => {}} />);
+    expect(screen.getByLabelText("Land closes")).toHaveAttribute("placeholder", "YYYY-MM");
+  });
+
+  it("keeps a hint given to a month field", () => {
+    render(<MonthField label="Land closes" hint="When the lot is bought" value="2027-06" onChange={() => {}} />);
+    expect(screen.getByLabelText("Land closes")).toHaveAccessibleDescription("When the lot is bought");
+    expect(screen.getByLabelText("Land closes")).toHaveAttribute("placeholder", "YYYY-MM");
+  });
+
   it("are native month and date inputs showing their value", () => {
     render(
       <>

@@ -46,6 +46,8 @@ describe("Lot page layout", () => {
     expect(within(card("The lot")).getByText("Change the name at the top of the page")).toBeVisible();
     // The header's own box is still the only editable "Deal name".
     expect(screen.getByLabelText("Deal name")).not.toHaveAttribute("readonly");
+    // 16 px on a phone like every other box, so focusing it does not zoom the page on iOS.
+    expect(name).toHaveClass("text-base", "sm:text-[15px]");
   });
 
   it("shows the sample lot in the fields", async () => {
@@ -400,7 +402,10 @@ describe("Lot page edits", () => {
     await pasteOver(user, "Build months", "40");
     expect(within(card("Timeline")).getByText("Must be between 1 and 36")).toBeVisible();
     await pasteOver(user, "Acres", "-1");
-    expect(screen.getByText("Must be at least 0 ac")).toBeVisible();
+    expect(screen.getByText("Must be between 0 ac and 1,000 ac")).toBeVisible();
+    // The field and the engine agree on the most a lot can be.
+    await pasteOver(user, "Acres", "1001");
+    expect(screen.getByText("Must be between 0 ac and 1,000 ac")).toBeVisible();
     await pasteOver(user, "Property tax rate %", "150");
     expect(screen.getByText("Must be between 0% and 100%")).toBeVisible();
 
@@ -615,6 +620,7 @@ describe("messages under the choice controls", () => {
       undo: vi.fn(),
       redo: vi.fn(),
       discardChanges: vi.fn(),
+      saveNow: vi.fn(),
       canUndo: false,
       canRedo: false,
       saveStatus: { kind: "saved" },

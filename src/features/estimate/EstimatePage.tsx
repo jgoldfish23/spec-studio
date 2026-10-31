@@ -21,9 +21,16 @@ function EstimateScreen({ dealId, inputs, evaluation, edit }: EstimateScreenProp
   // are missing.
   const blocker = estimateBlocker(evaluation);
   const blocked = blocker ? <BlockedNote dealId={dealId} item={blocker} /> : undefined;
+  // Starter defaults are unverified (spec §5.4, §11): while any line rests on one, the page says so first.
+  const onDefaults = estimate?.lines.some((line) => line.source === "default") ?? false;
   return (
     <div className="flex flex-col gap-6">
       <h1 className="sr-only">Estimate</h1>
+      {onDefaults ? (
+        <p className="m-0 rounded-lg border border-[#F0D9A8] bg-marginal-bg px-4 py-3 text-sm font-medium text-marginal">
+          Starter defaults are unverified estimates — replace them with your bids or your own prices.
+        </p>
+      ) : null}
       <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,300px),1fr))] gap-4">
         <BuildEstimateCard
           estimate={estimate}

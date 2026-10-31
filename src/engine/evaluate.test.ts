@@ -362,6 +362,22 @@ describe("evaluateDeal on an invalid deal", () => {
     for (const item of ev.verdict.missing ?? []) expect(item.message.startsWith(`${item.ref}: `)).toBe(true);
   });
 
+  it("reports a 16-digit roof pitch or ceiling as a validation issue, and returns promptly", () => {
+    const cases = [
+      ["house.roof.pitchPer12", "Must be 24 or less", (d: DealInputs) => void (d.house.roof.pitchPer12 = 1_234_567_890_123_456)],
+      ["house.levels.main.ceilingFt", "Must be 30 or less", (d: DealInputs) => void (d.house.levels.main.ceilingFt = 1_234_567_890_123_456)],
+    ] as const;
+    for (const [path, message, set] of cases) {
+      const deal = structuredClone(GOLDEN_DEAL);
+      set(deal);
+      const started = performance.now();
+      const ev = evaluateDeal(deal, CTX);
+      expect(performance.now() - started).toBeLessThan(1_000);
+      expect(ev.validation).toEqual([{ path, message }]);
+      expect(ev.verdict.kind).toBe("incomplete");
+    }
+  });
+
   it("reports a bid dated before 1900 (a two-digit year typed into a date field) instead of throwing", () => {
     for (const receivedOn of ["0026-10-12", "0000-01-01"]) {
       const bids = GOLDEN_DEAL.bids.map((b, i) => (i === 0 ? { ...b, receivedOn } : b));
@@ -610,6 +626,7 @@ describe("public API (index.ts)", () => {
       [
         "evaluateDeal",
         "failedEvaluation",
+        "LIMITS",
         "validateDeal",
         "listYearMonth",
         "DEFAULT_RULES",

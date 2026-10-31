@@ -64,6 +64,8 @@ export interface DealEditor {
    * finishes. Edits made after the call are saved as usual.
    */
   discardChanges(): void;
+  /** Starts saving what is waiting now, without waiting for the autosave's second: for a page that is closing. */
+  saveNow(): void;
   canUndo: boolean;
   canRedo: boolean;
   saveStatus: SaveStatus;
@@ -169,7 +171,7 @@ export function useDealEditor(dealId: string): DealEditor {
     // A page that is closed, reloaded or hidden may never run another timer, so whatever is waiting is saved now. The
     // autosaver starts the save inside this call (the repository's `saveDeal` runs before `flush` returns), which is
     // all a closing page is given. If a save is already running, that one and then the newest value are what can be
-    // done. `beforeunload` is not used: it exists to prompt, and nothing here needs to ask.
+    // done. (`beforeunload` is only for asking, below, while saves are failing.)
     const saveNow = () => void instance.flush();
     const saveWhenHidden = () => {
       if (document.visibilityState === "hidden") saveNow();
@@ -184,6 +186,20 @@ export function useDealEditor(dealId: string): DealEditor {
       instance.dispose();
     };
   }, [dealId, repository, queryClient]);
+
+  // While saves keep failing, closing the page would lose what is not saved: the browser asks first. Once a save
+  // works, it no longer asks.
+  const savesFailing = saveStatus.kind === "error";
+  useEffect(() => {
+    if (!savesFailing) return;
+    const askFirst = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      // Older browsers ask only when this is set.
+      event.returnValue = true;
+    };
+    window.addEventListener("beforeunload", askFirst);
+    return () => window.removeEventListener("beforeunload", askFirst);
+  }, [savesFailing]);
 
   const deal = useMemo<StoredDeal | undefined>(
     () => (stored !== undefined && present !== undefined && name !== undefined ? { ...stored, name, inputs: present } : undefined),
@@ -213,6 +229,7 @@ export function useDealEditor(dealId: string): DealEditor {
   const undo = useCallback(() => dispatch({ type: "undo" }), []);
   const redo = useCallback(() => dispatch({ type: "redo" }), []);
   const discardChanges = useCallback(() => autosaver.current?.discard(), []);
+  const saveNow = useCallback(() => void autosaver.current?.flush(), []);
   const rename = useCallback(
     (newName: string): boolean => {
       const trimmed = newName.trim();
@@ -259,6 +276,7 @@ export function useDealEditor(dealId: string): DealEditor {
       undo,
       redo,
       discardChanges,
+      saveNow,
       canUndo: live && editor.past.length > 0,
       canRedo: live && editor.future.length > 0,
       saveStatus,
@@ -278,6 +296,7 @@ export function useDealEditor(dealId: string): DealEditor {
       undo,
       redo,
       discardChanges,
+      saveNow,
       live,
       editor,
       saveStatus,

@@ -11,6 +11,7 @@ const editor: DealEditor = {
   undo: () => undefined,
   redo: () => undefined,
   discardChanges: () => undefined,
+  saveNow: () => undefined,
   canUndo: false,
   canRedo: false,
   saveStatus: { kind: "saved" },

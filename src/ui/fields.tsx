@@ -67,8 +67,9 @@ function FieldFrame({
   );
 }
 
+// 16 px below the `sm` breakpoint: iOS zooms the page into any box whose text is smaller than that.
 const INPUT_CLASS =
-  "min-w-0 flex-1 border-0 bg-transparent py-2.5 font-[inherit] text-[15px] text-ink outline-hidden";
+  "min-w-0 flex-1 border-0 bg-transparent py-2.5 font-[inherit] text-base text-ink outline-hidden sm:text-[15px]";
 
 /** The bordered box around an input, with an optional symbol or unit on either side. */
 function InputBox({
@@ -84,9 +85,9 @@ function InputBox({
 }) {
   return (
     <div
-      className={`flex min-h-11 items-center gap-1.5 rounded-lg border bg-surface px-3 text-[15px] focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-spruce ${
+      className={`flex min-h-11 items-center gap-1.5 rounded-lg border bg-surface px-3 text-base focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-spruce ${
         invalid ? "border-no-go inset-ring-1 inset-ring-no-go" : "border-[#C9CEC8]"
-      }`}
+      } sm:text-[15px]`}
     >
       {prefix ? <span className="text-muted">{prefix}</span> : null}
       {children}
@@ -131,6 +132,8 @@ interface ParsedInputProps<V> extends FieldProps {
   prefix?: string;
   suffix?: string;
   type?: "text" | "month" | "date";
+  /** Shown in an empty box; a browser that draws its own picker for `type` ignores it. */
+  placeholder?: string;
 }
 
 /**
@@ -151,6 +154,7 @@ function ParsedInput<V>({
   prefix,
   suffix,
   type = "text",
+  placeholder,
 }: ParsedInputProps<V>) {
   const [text, setText] = useState(() => format(value));
   const [inlineError, setInlineError] = useState<string | null>(null);
@@ -198,6 +202,7 @@ function ParsedInput<V>({
             {...control}
             type={type}
             inputMode={type === "text" ? "decimal" : undefined}
+            placeholder={placeholder}
             value={text}
             onChange={(event) => handleChange(event.target.value)}
             onBlur={handleBlur}
@@ -385,7 +390,10 @@ export interface MonthFieldProps extends FieldProps {
   onChange: (month: YearMonth) => void;
 }
 
-/** A month, with the browser's own month picker. `onChange` hears only a well-formed `YYYY-MM`. */
+/**
+ * A month, with the browser's own month picker. A browser without one shows a plain box, with "YYYY-MM" in it until
+ * something is typed. `onChange` hears only a well-formed `YYYY-MM`.
+ */
 export function MonthField({ label, value, onChange, hint, error }: MonthFieldProps) {
   return (
     <ParsedInput<YearMonth>
@@ -399,6 +407,7 @@ export function MonthField({ label, value, onChange, hint, error }: MonthFieldPr
       invalidMessage="Enter a month"
       rangeMessage={() => null}
       type="month"
+      placeholder="YYYY-MM"
     />
   );
 }

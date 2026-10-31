@@ -1,3 +1,4 @@
+import { LIMITS } from "@engine";
 import type { DealEvaluation, DealInputs } from "@engine";
 import { Card } from "../../ui/Card";
 import { MoneyField, PercentField } from "../../ui/fields";
@@ -24,7 +25,7 @@ export function SellingCard({ inputs, evaluation, edit }: CardProps) {
         <PercentField
           label="Listing agent %"
           min={0}
-          max={1}
+          max={LIMITS.rate}
           value={selling.listingPct}
           onChange={(pct) => edit((draft) => void (draft.selling.listingPct = pct))}
           error={error("selling.listingPct")}
@@ -32,7 +33,7 @@ export function SellingCard({ inputs, evaluation, edit }: CardProps) {
         <PercentField
           label="Buyer's agent %"
           min={0}
-          max={1}
+          max={LIMITS.rate}
           value={selling.buyerPct}
           onChange={(pct) => edit((draft) => void (draft.selling.buyerPct = pct))}
           error={error("selling.buyerPct")}
@@ -40,7 +41,7 @@ export function SellingCard({ inputs, evaluation, edit }: CardProps) {
         <PercentField
           label="Closing & title %"
           min={0}
-          max={1}
+          max={LIMITS.rate}
           value={selling.closingPct}
           onChange={(pct) => edit((draft) => void (draft.selling.closingPct = pct))}
           error={error("selling.closingPct")}
@@ -48,6 +49,7 @@ export function SellingCard({ inputs, evaluation, edit }: CardProps) {
         <MoneyField
           label="Rate buydown / concessions $"
           min={0}
+          max={LIMITS.moneyCents}
           valueCents={selling.concessionsCents}
           onChange={(cents) => edit((draft) => void (draft.selling.concessionsCents = cents))}
           error={error("selling.concessionsCents")}

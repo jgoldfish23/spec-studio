@@ -1,10 +1,12 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import { loadSampleDeal, openStep } from "./helpers";
+import type { StepTitle } from "./helpers";
 
 // A phone: every screen must fit its width, with wide tables scrolling inside their own boxes.
 test.use({ viewport: { width: 390, height: 844 } });
 
-const STEPS = ["Lot", "House", "Estimate", "Market", "Pro forma"] as const;
+const STEPS: readonly StepTitle[] = ["Lot", "House", "Estimate", "Market", "Pro forma"];
 
 /** True when the page is no wider than the window, so it does not scroll sideways. */
 async function fitsWidth(page: Page): Promise<boolean> {
@@ -18,14 +20,11 @@ test("the deals list and every step fit a 390 px screen, with no errors in the c
   });
   page.on("pageerror", (error) => problems.push(`page error: ${error.message}`));
 
-  await page.goto("/");
-  await expect(page.getByText("No deals yet")).toBeVisible();
-  await page.getByRole("button", { name: "Load sample deal" }).click();
-  await expect(page.getByRole("heading", { name: "Pro forma" })).toBeAttached();
+  await loadSampleDeal(page);
 
   // The deal's own screens, each once it has drawn.
   for (const title of STEPS) {
-    await page.getByRole("navigation", { name: "Deal steps" }).getByRole("link", { name: title, exact: true }).click();
+    await openStep(page, title);
     await expect(page.getByRole("heading", { level: 1, name: title })).toBeAttached();
     expect(await fitsWidth(page), `${title} scrolls sideways at 390 px`).toBe(true);
   }

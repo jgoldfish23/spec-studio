@@ -1,8 +1,9 @@
+import { LIMITS } from "@engine";
 import { Card } from "../../ui/Card";
 import { NumberField, Toggle } from "../../ui/fields";
 import { fieldError } from "../deal/fieldErrors";
 import { SegmentedField } from "../deal/SegmentedField";
-import { CHOICE_GRID, FIELD_GRID, MAX_AREA, MAX_BAYS, MAX_ROOMS, SIX_GRID, issueAt } from "./shared";
+import { CHOICE_GRID, FIELD_GRID, SIX_GRID, issueAt } from "./shared";
 import type { HouseCardProps } from "./shared";
 
 const COMPLEXITIES = [
@@ -30,7 +31,7 @@ export function FootprintCard({ house, evaluation, edit }: HouseCardProps) {
           label="Width ft"
           unit="ft"
           min={0}
-          max={MAX_AREA}
+          max={LIMITS.areaSf}
           value={footprint.widthFt}
           onChange={(ft) => edit((draft) => void (draft.house.footprint.widthFt = ft))}
           error={error("house.footprint.widthFt")}
@@ -39,7 +40,7 @@ export function FootprintCard({ house, evaluation, edit }: HouseCardProps) {
           label="Depth ft"
           unit="ft"
           min={0}
-          max={MAX_AREA}
+          max={LIMITS.areaSf}
           value={footprint.depthFt}
           onChange={(ft) => edit((draft) => void (draft.house.footprint.depthFt = ft))}
           error={error("house.footprint.depthFt")}
@@ -69,6 +70,7 @@ export function FootprintCard({ house, evaluation, edit }: HouseCardProps) {
           label="Pitch (/12)"
           unit="/12"
           min={0}
+          max={LIMITS.roofPitchPer12}
           value={roof.pitchPer12}
           onChange={(pitch) => edit((draft) => void (draft.house.roof.pitchPer12 = pitch))}
           error={error("house.roof.pitchPer12")}
@@ -77,7 +79,7 @@ export function FootprintCard({ house, evaluation, edit }: HouseCardProps) {
           label="Garage bays"
           integer
           min={0}
-          max={MAX_BAYS}
+          max={LIMITS.garageBays}
           value={garage.bays}
           onChange={(bays) => edit((draft) => void (draft.house.garage.bays = bays))}
           error={error("house.garage.bays")}
@@ -86,7 +88,7 @@ export function FootprintCard({ house, evaluation, edit }: HouseCardProps) {
           label="Bedrooms"
           integer
           min={0}
-          max={MAX_ROOMS}
+          max={LIMITS.rooms}
           value={rooms.bedrooms}
           onChange={(count) => edit((draft) => void (draft.house.rooms.bedrooms = count))}
           error={error("house.rooms.bedrooms")}
@@ -95,7 +97,7 @@ export function FootprintCard({ house, evaluation, edit }: HouseCardProps) {
           label="Full baths"
           integer
           min={0}
-          max={MAX_ROOMS}
+          max={LIMITS.rooms}
           value={rooms.fullBaths}
           onChange={(count) => edit((draft) => void (draft.house.rooms.fullBaths = count))}
           error={error("house.rooms.fullBaths")}
@@ -104,7 +106,7 @@ export function FootprintCard({ house, evaluation, edit }: HouseCardProps) {
           label="Half baths"
           integer
           min={0}
-          max={MAX_ROOMS}
+          max={LIMITS.rooms}
           value={rooms.halfBaths}
           onChange={(count) => edit((draft) => void (draft.house.rooms.halfBaths = count))}
           error={error("house.rooms.halfBaths")}
@@ -113,7 +115,7 @@ export function FootprintCard({ house, evaluation, edit }: HouseCardProps) {
           label="Fireplaces"
           integer
           min={0}
-          max={MAX_ROOMS}
+          max={LIMITS.rooms}
           value={rooms.fireplaces}
           onChange={(count) => edit((draft) => void (draft.house.rooms.fireplaces = count))}
           error={error("house.rooms.fireplaces")}

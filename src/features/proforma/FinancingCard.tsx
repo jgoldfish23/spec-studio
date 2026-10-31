@@ -1,3 +1,4 @@
+import { LIMITS } from "@engine";
 import type { DealEvaluation, DealInputs } from "@engine";
 import { Card } from "../../ui/Card";
 import { MoneyField, NumberField, PercentField } from "../../ui/fields";
@@ -24,7 +25,7 @@ export function FinancingCard({ inputs, evaluation, edit }: CardProps) {
         <PercentField
           label="Loan-to-cost %"
           min={0}
-          max={0.95}
+          max={LIMITS.loanToCost}
           value={loan.ltc}
           onChange={(ltc) => edit((draft) => void (draft.loan.ltc = ltc))}
           error={error("loan.ltc")}
@@ -32,7 +33,7 @@ export function FinancingCard({ inputs, evaluation, edit }: CardProps) {
         <PercentField
           label="Rate %"
           min={0}
-          max={1}
+          max={LIMITS.rate}
           value={loan.rate}
           onChange={(rate) => edit((draft) => void (draft.loan.rate = rate))}
           error={error("loan.rate")}
@@ -40,7 +41,7 @@ export function FinancingCard({ inputs, evaluation, edit }: CardProps) {
         <PercentField
           label="Points %"
           min={0}
-          max={1}
+          max={LIMITS.rate}
           value={loan.points}
           onChange={(points) => edit((draft) => void (draft.loan.points = points))}
           error={error("loan.points")}
@@ -48,6 +49,7 @@ export function FinancingCard({ inputs, evaluation, edit }: CardProps) {
         <MoneyField
           label="Draw fee $"
           min={0}
+          max={LIMITS.moneyCents}
           valueCents={loan.drawFeeCents}
           onChange={(cents) => edit((draft) => void (draft.loan.drawFeeCents = cents))}
           error={error("loan.drawFeeCents")}
@@ -56,7 +58,7 @@ export function FinancingCard({ inputs, evaluation, edit }: CardProps) {
           label="Term months"
           integer
           min={1}
-          max={60}
+          max={LIMITS.loanTermMonths}
           hint="Whole months"
           value={loan.termMonths}
           onChange={(months) => edit((draft) => void (draft.loan.termMonths = months))}
@@ -65,7 +67,7 @@ export function FinancingCard({ inputs, evaluation, edit }: CardProps) {
         <PercentField
           label="Extension fee %"
           min={0}
-          max={1}
+          max={LIMITS.rate}
           value={loan.extensionPct}
           onChange={(pct) => edit((draft) => void (draft.loan.extensionPct = pct))}
           error={error("loan.extensionPct")}
@@ -74,7 +76,7 @@ export function FinancingCard({ inputs, evaluation, edit }: CardProps) {
           label="Extension length months"
           integer
           min={1}
-          max={12}
+          max={LIMITS.extensionMonths}
           hint="Whole months"
           value={loan.extensionMonths}
           onChange={(months) => edit((draft) => void (draft.loan.extensionMonths = months))}

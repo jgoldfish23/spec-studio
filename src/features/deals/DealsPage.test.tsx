@@ -272,6 +272,50 @@ describe("Deals page", () => {
     });
   });
 
+  describe("focus after a delete", () => {
+    /** Three deals as the list shows them, top to bottom. */
+    async function threeDeals() {
+      const harness = createHarness();
+      for (const name of ["Deal A", "Deal B", "Deal C"]) await harness.repository.createDeal({ name, inputs: sampleDealInputs() });
+      renderApp("#/", harness);
+      await screen.findByRole("link", { name: "Deal C" });
+      const names = screen.getAllByRole("link", { name: /^Deal [ABC]$/ }).map((link) => link.textContent ?? "");
+      return { harness, names };
+    }
+
+    async function deleteDeal(user: ReturnType<typeof userEvent.setup>, name: string) {
+      await user.click(screen.getByRole("button", { name: `Delete ${name}` }));
+      await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete" }));
+      await waitFor(() => expect(screen.queryByRole("link", { name })).not.toBeInTheDocument());
+    }
+
+    it("moves to the next deal's name", async () => {
+      const user = userEvent.setup();
+      const { names } = await threeDeals();
+      const [, middle, last] = names as [string, string, string];
+      await deleteDeal(user, middle);
+      await waitFor(() => expect(screen.getByRole("link", { name: last })).toHaveFocus());
+    });
+
+    it("moves to the previous deal's name when the last one goes", async () => {
+      const user = userEvent.setup();
+      const { names } = await threeDeals();
+      const [, middle, last] = names as [string, string, string];
+      await deleteDeal(user, last);
+      await waitFor(() => expect(screen.getByRole("link", { name: middle })).toHaveFocus());
+    });
+
+    it("moves to New deal when no deal is left", async () => {
+      const user = userEvent.setup();
+      const harness = createHarness();
+      await harness.repository.createDeal({ name: "Deal A", inputs: sampleDealInputs() });
+      renderApp("#/", harness);
+      await screen.findByRole("link", { name: "Deal A" });
+      await deleteDeal(user, "Deal A");
+      await waitFor(() => expect(screen.getByRole("button", { name: "New deal" })).toHaveFocus());
+    });
+  });
+
   describe("a deal that cannot be read", () => {
     async function withBrokenDeal() {
       const harness = createHarness();
@@ -282,7 +326,7 @@ describe("Deals page", () => {
       return { harness, good };
     }
 
-    it("is listed as a problem next to the deals that can be read, and Remove deletes just it", async () => {
+    it("is listed as a problem next to the deals that can be read, and Remove deletes just it, after a confirm", async () => {
       const user = userEvent.setup();
       const { harness } = await withBrokenDeal();
       renderApp("#/", harness);
@@ -291,10 +335,19 @@ describe("Deals page", () => {
       expect(problem).toHaveTextContent("priceCents");
       expect(screen.getByRole("link", { name: SAMPLE_DEAL_NAME })).toBeVisible();
 
+      const question = "Remove this unreadable deal (bad-1)? Its saved data is discarded.";
       await user.click(screen.getByRole("button", { name: "Remove bad-1" }));
+      await user.click(within(screen.getByRole("alertdialog", { name: question })).getByRole("button", { name: "Cancel" }));
+      expect(screen.getByText(/^Couldn't read one saved deal \(bad-1\): /)).toBeVisible();
+      expect(Object.keys(JSON.parse(harness.storage.getItem(DEALS_KEY) as string))).toHaveLength(2);
+
+      await user.click(screen.getByRole("button", { name: "Remove bad-1" }));
+      await user.click(within(screen.getByRole("alertdialog", { name: question })).getByRole("button", { name: "Remove" }));
       await waitFor(() => expect(screen.queryByText(/Couldn't read one saved deal/)).not.toBeInTheDocument());
       expect(screen.getByRole("link", { name: SAMPLE_DEAL_NAME })).toBeVisible();
       expect(Object.keys(JSON.parse(harness.storage.getItem(DEALS_KEY) as string))).toHaveLength(1);
+      // The row is gone, and focus with it: it moves on to the next row.
+      await waitFor(() => expect(screen.getByRole("link", { name: SAMPLE_DEAL_NAME })).toHaveFocus());
     });
 
     it("shows just the problem when no deal can be read, with no empty list under a heading", async () => {

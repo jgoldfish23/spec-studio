@@ -686,6 +686,19 @@ describe("Extras & outside", () => {
   });
 });
 
+describe("what the side panel announces", () => {
+  it("announces only the build estimate's total, not the whole panel", async () => {
+    const { harness, deal } = await sampleSetup();
+    await openHouse(harness, deal);
+    const panel = screen.getByRole("complementary", { name: "About this house" });
+    const live = panel.querySelectorAll("[aria-live]");
+    expect(live).toHaveLength(1);
+    expect(live[0]).toHaveAttribute("aria-live", "polite");
+    expect(live[0]?.textContent).toBe(buildTotal());
+    expect(card("Build estimate")).not.toHaveAttribute("aria-live");
+  });
+});
+
 describe("Live takeoff", () => {
   it("lists every quantity with its label, value and unit, and the foundation in LF", async () => {
     const { harness, deal } = await sampleSetup();
@@ -889,6 +902,7 @@ describe("messages under the choice controls, and figures from unusable numbers"
       undo: vi.fn(),
       redo: vi.fn(),
       discardChanges: vi.fn(),
+      saveNow: vi.fn(),
       canUndo: false,
       canRedo: false,
       saveStatus: { kind: "saved" },

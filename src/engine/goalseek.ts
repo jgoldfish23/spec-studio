@@ -26,14 +26,26 @@ const STEP_CENTS: Cents = 10_000;
 const MAX_PRICE_FACTOR = 1.5;
 /** The build cost may fall by at most 50%. */
 const MIN_BUILD_FACTOR = 0.5;
+/**
+ * The most points a search grid may have: $10 million in $100 steps, far past any lever of a spec home. Bisection
+ * would take only 17 probes, but laying out a grid much bigger than this (or one with an endless end) is where float
+ * error makes the walk to its last point never finish, so such a grid is refused instead.
+ */
+const MAX_GRID_POINTS = 100_000;
 
 /**
  * The search grid over [lo, hi]: `lo + k * step` for k = 0.. while it stays within `hi`, then `hi` itself when it
- * is not already a grid point. Returns the point count and a way to read the i-th point.
+ * is not already a grid point. Returns the point count and a way to read the i-th point. Throws a `RangeError` for a
+ * step that is not a positive number, an end that is not finite, or more than `MAX_GRID_POINTS` points.
  */
 function gridOf(lo: number, hi: number, step: number): { count: number; at: (i: number) => number } {
   if (!(step > 0) || !Number.isFinite(step)) throw new RangeError(`step must be a positive number, got ${step}`);
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) throw new RangeError(`the ends must be finite numbers, got ${lo} and ${hi}`);
   if (!(lo <= hi)) return { count: 0, at: () => NaN };
+  // Points: every whole step from `lo`, plus `hi` when it is off the grid.
+  if (Math.ceil((hi - lo) / step) + 1 > MAX_GRID_POINTS) {
+    throw new RangeError(`the grid from ${lo} to ${hi} in steps of ${step} has more than ${MAX_GRID_POINTS} points`);
+  }
   // Floor, then correct for float error in the division so that exactly the points <= hi are on the grid.
   let last = Math.floor((hi - lo) / step);
   while (lo + (last + 1) * step <= hi) last += 1;
@@ -93,10 +105,21 @@ function reached(lever: LeverResult["lever"], x: Cents | null, current: Cents): 
   };
 }
 
+/** The search's answer, or null (not reachable) when its range is too wide or unbounded to search (see `gridOf`). */
+function searched(search: () => number | null): number | null {
+  try {
+    return search();
+  } catch (error) {
+    if (error instanceof RangeError) return null;
+    throw error;
+  }
+}
+
 /**
  * For each lever alone (lot price, base sale price, build cost), the value nearest the current one where
  * `isGo` says the deal passes every rule, within bounds: lot at least $0, price at most +50%, build at least
- * -50%. Results come in that order; a lever that cannot get there is `{ reachable: false }`.
+ * -50%. Results come in that order; a lever that cannot get there is `{ reachable: false }`, and so is a lever whose
+ * range is too wide to search (more than 100,000 steps of $100).
  */
 export function goalSeek(
   current: { lotPriceCents: Cents; basePriceCents: Cents; buildTotalCents: Cents },
@@ -104,18 +127,22 @@ export function goalSeek(
 ): LeverResult[] {
   const { lotPriceCents, basePriceCents, buildTotalCents } = current;
 
-  const lot = seekMax((x) => isGo({ lotPriceCents: x }), 0, lotPriceCents, STEP_CENTS);
-  const sale = seekMin(
-    (x) => isGo({ salePriceFactor: factorOf(x, basePriceCents) }),
-    basePriceCents,
-    roundCents(basePriceCents * MAX_PRICE_FACTOR),
-    STEP_CENTS,
+  const lot = searched(() => seekMax((x) => isGo({ lotPriceCents: x }), 0, lotPriceCents, STEP_CENTS));
+  const sale = searched(() =>
+    seekMin(
+      (x) => isGo({ salePriceFactor: factorOf(x, basePriceCents) }),
+      basePriceCents,
+      roundCents(basePriceCents * MAX_PRICE_FACTOR),
+      STEP_CENTS,
+    ),
   );
-  const build = seekMax(
-    (x) => isGo({ buildCostFactor: factorOf(x, buildTotalCents) }),
-    roundCents(buildTotalCents * MIN_BUILD_FACTOR),
-    buildTotalCents,
-    STEP_CENTS,
+  const build = searched(() =>
+    seekMax(
+      (x) => isGo({ buildCostFactor: factorOf(x, buildTotalCents) }),
+      roundCents(buildTotalCents * MIN_BUILD_FACTOR),
+      buildTotalCents,
+      STEP_CENTS,
+    ),
   );
 
   return [

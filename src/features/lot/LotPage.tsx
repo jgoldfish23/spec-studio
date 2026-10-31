@@ -1,5 +1,5 @@
 import { useId } from "react";
-import { UtilitySchema, UtilityStatusSchema } from "@engine";
+import { LIMITS, UtilitySchema, UtilityStatusSchema } from "@engine";
 import type { DealEvaluation, DealInputs, Utility, UtilityStatus } from "@engine";
 import { Card } from "../../ui/Card";
 import {
@@ -15,9 +15,6 @@ import { fieldError } from "../deal/fieldErrors";
 import { SegmentedField } from "../deal/SegmentedField";
 import type { DealEditor } from "../deal/useDealEditor";
 import { LotSidePanel } from "./LotSidePanel";
-
-/** The most a lot price may be: the engine's cap, $100 million. */
-const MAX_PRICE_CENTS = 10_000_000_000;
 
 /** What "Land loan" starts as. */
 const DEFAULT_LAND_LOAN = { kind: "loan", ltv: 0.7, rate: 0.1, points: 0.01 } as const;
@@ -59,7 +56,7 @@ function NameDisplay({ name }: { name: string }) {
         readOnly
         value={name}
         aria-describedby={hintId}
-        className="min-h-11 min-w-0 rounded-lg border border-[#C9CEC8] bg-[#F7F8F6] px-3 py-2.5 font-[inherit] text-[15px] text-ink"
+        className="min-h-11 min-w-0 rounded-lg border border-[#C9CEC8] bg-[#F7F8F6] px-3 py-2.5 font-[inherit] text-base text-ink sm:text-[15px]"
       />
       <p id={hintId} className="m-0 text-xs text-muted">
         Change the name at the top of the page
@@ -104,6 +101,7 @@ function LotCard({ inputs, evaluation, edit, name }: SectionProps & { name: stri
           label="Acres"
           unit="ac"
           min={0}
+          max={LIMITS.acres}
           value={lot.acres}
           onChange={(acres) => edit((draft) => void (draft.lot.acres = acres))}
           error={error("lot.acres")}
@@ -112,6 +110,7 @@ function LotCard({ inputs, evaluation, edit, name }: SectionProps & { name: stri
           label="Frontage"
           unit="ft"
           min={0}
+          max={LIMITS.frontageFt}
           value={lot.frontageFt}
           onChange={(feet) =>
             edit((draft) => {
@@ -167,7 +166,7 @@ function PriceCard({ inputs, evaluation, edit }: SectionProps) {
         <MoneyField
           label="Lot price"
           min={0}
-          max={MAX_PRICE_CENTS}
+          max={LIMITS.moneyCents}
           valueCents={inputs.lot.priceCents}
           onChange={(cents) => edit((draft) => void (draft.lot.priceCents = cents))}
           error={error("lot.priceCents")}
@@ -175,6 +174,7 @@ function PriceCard({ inputs, evaluation, edit }: SectionProps) {
         <MoneyField
           label="Closing costs"
           min={0}
+          max={LIMITS.moneyCents}
           valueCents={inputs.lot.closingCents}
           onChange={(cents) => edit((draft) => void (draft.lot.closingCents = cents))}
           error={error("lot.closingCents")}
@@ -196,7 +196,7 @@ function PriceCard({ inputs, evaluation, edit }: SectionProps) {
           <PercentField
             label="LTV %"
             min={0}
-            max={1}
+            max={LIMITS.rate}
             value={financing.ltv}
             onChange={(value) => setTerm("ltv", value)}
             error={error("lot.financing.ltv")}
@@ -204,7 +204,7 @@ function PriceCard({ inputs, evaluation, edit }: SectionProps) {
           <PercentField
             label="Rate %"
             min={0}
-            max={1}
+            max={LIMITS.rate}
             value={financing.rate}
             onChange={(value) => setTerm("rate", value)}
             error={error("lot.financing.rate")}
@@ -212,7 +212,7 @@ function PriceCard({ inputs, evaluation, edit }: SectionProps) {
           <PercentField
             label="Points %"
             min={0}
-            max={1}
+            max={LIMITS.rate}
             value={financing.points}
             onChange={(value) => setTerm("points", value)}
             error={error("lot.financing.points")}
@@ -232,7 +232,7 @@ function CarryingCard({ inputs, evaluation, edit }: SectionProps) {
           label="Property tax rate %"
           hint="Default for Northern Utah · verify with the county"
           min={0}
-          max={1}
+          max={LIMITS.rate}
           value={inputs.lot.propertyTaxRate}
           onChange={(rate) => edit((draft) => void (draft.lot.propertyTaxRate = rate))}
           error={error("lot.propertyTaxRate")}
@@ -240,6 +240,7 @@ function CarryingCard({ inputs, evaluation, edit }: SectionProps) {
         <MoneyField
           label="HOA $/month"
           min={0}
+          max={LIMITS.moneyCents}
           valueCents={inputs.lot.hoaMonthlyCents}
           onChange={(cents) => edit((draft) => void (draft.lot.hoaMonthlyCents = cents))}
           error={error("lot.hoaMonthlyCents")}
@@ -279,7 +280,7 @@ function TimelineCard({ inputs, evaluation, edit }: SectionProps) {
           hint="Whole months"
           integer
           min={0}
-          max={36}
+          max={LIMITS.preConMonths}
           value={timeline.preConMonths}
           onChange={(months) => edit((draft) => void (draft.timeline.preConMonths = months))}
           error={error("timeline.preConMonths")}
@@ -289,7 +290,7 @@ function TimelineCard({ inputs, evaluation, edit }: SectionProps) {
           hint="Whole months"
           integer
           min={1}
-          max={36}
+          max={LIMITS.buildMonths}
           value={timeline.buildMonths}
           onChange={(months) => edit((draft) => void (draft.timeline.buildMonths = months))}
           error={error("timeline.buildMonths")}
@@ -299,7 +300,7 @@ function TimelineCard({ inputs, evaluation, edit }: SectionProps) {
           hint="Whole days"
           integer
           min={0}
-          max={180}
+          max={LIMITS.closingDays}
           value={timeline.closingDays}
           onChange={(days) => edit((draft) => void (draft.timeline.closingDays = days))}
           error={error("timeline.closingDays")}

@@ -1,9 +1,10 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
+import { LIMITS } from "@engine";
 import type { Bid, Cents, ISODate } from "@engine";
 import { todayIso } from "../../lib/today";
 import { DateField, OptionalMoneyField, TextField } from "../../ui/fields";
-import { bidProblems, MAX_BID_CENTS } from "./bids";
+import { bidProblems } from "./bids";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "../deal/stepShared";
 
 export interface BidFormProps {
@@ -88,7 +89,7 @@ export function BidForm({ code, codeName, bid, onSave, onCancel }: BidFormProps)
         <OptionalMoneyField
           label="Amount"
           allowCents
-          max={MAX_BID_CENTS}
+          max={LIMITS.moneyCents}
           valueCents={amountCents}
           onChange={setAmountCents}
           error={shown.amount}

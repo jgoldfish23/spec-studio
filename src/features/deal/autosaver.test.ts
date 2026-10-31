@@ -236,26 +236,19 @@ describe("createAutosaver", () => {
     expect(t.calls).toEqual([1, 2]);
   });
 
-  it("flush saves a pending value immediately", async () => {
+  it("flush saves a pending value immediately, starting the save before it returns (a closing page still writes)", async () => {
     const t = setup();
     t.saver.schedule(4);
-    await t.saver.flush();
+    const flushed = t.saver.flush();
+    // No await, no timer: the store already has the value.
     expect(t.calls).toEqual([4]);
     expect(t.stored()).toBe(4);
+    await flushed;
     expect(t.statuses.at(-1)).toEqual({ kind: "saved" });
 
     // The delay timer was cancelled, so the value is not saved a second time.
     await advance(60_000);
     expect(t.calls).toEqual([4]);
-  });
-
-  it("flush starts the save before it returns, so a page that is closing still writes", () => {
-    const t = setup();
-    t.saver.schedule(5);
-    void t.saver.flush();
-    // No await, no timer: the store already has the value.
-    expect(t.calls).toEqual([5]);
-    expect(t.stored()).toBe(5);
   });
 
   it("flush while a save is running starts no second save at once; the newest value follows the running one", async () => {

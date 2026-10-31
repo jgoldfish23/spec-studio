@@ -11,7 +11,8 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
-  reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
+  // The HTML report is written on every run, so `npx playwright show-report` works after a local failure as in CI.
+  reporter: [["list"], ["html", { open: "never" }]],
   use: {
     baseURL: BASE_URL,
     trace: "retain-on-failure",

@@ -77,8 +77,11 @@ describe("DealLayout when ready", () => {
     expect(screen.queryByText("Needs:")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Redo" })).toBeDisabled();
+    // A routine status is read where it is, not announced.
     const status = screen.getByText("Saved");
-    expect(status).toHaveAttribute("aria-live", "polite");
+    expect(status).not.toHaveAttribute("aria-live");
+    expect(status.closest("[aria-live]")).toBeNull();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("shows the five summary figures from the base scenario, and the days on market as a range", async () => {
@@ -191,6 +194,41 @@ describe("DealLayout when ready", () => {
       expect(screen.getByText("Saved")).toBeVisible();
     });
 
+    it("keeps a name still being typed when the page is closed, and saves it before the page goes", async () => {
+      const user = userEvent.setup();
+      const { harness, deal } = await sampleSetup();
+      renderDeal(harness, deal.id);
+      const name = await screen.findByLabelText("Deal name");
+
+      await user.clear(name);
+      await user.type(name, "  Birch Court ");
+      expect(name).toHaveFocus();
+      act(() => {
+        window.dispatchEvent(new Event("pagehide"));
+      });
+      // Written while the page was still there: no timer has had a chance to run.
+      const stored = JSON.parse(harness.storage.getItem(DEALS_KEY) as string) as Record<string, StoredDeal>;
+      expect(stored[deal.id]?.name).toBe("Birch Court");
+    });
+
+    it("leaves the name alone on pagehide when the box is blank or unchanged", async () => {
+      const user = userEvent.setup();
+      const { harness, deal } = await sampleSetup();
+      const save = vi.spyOn(harness.repository, "saveDeal");
+      renderDeal(harness, deal.id);
+      const name = await screen.findByLabelText("Deal name");
+
+      act(() => {
+        window.dispatchEvent(new Event("pagehide"));
+      });
+      await user.clear(name);
+      act(() => {
+        window.dispatchEvent(new Event("pagehide"));
+      });
+      expect(save).not.toHaveBeenCalled();
+      expect((await harness.repository.getDeal(deal.id))?.name).toBe(SAMPLE_DEAL_NAME);
+    });
+
     it("commits on Enter", async () => {
       const user = userEvent.setup();
       const { harness, deal } = await sampleSetup();
@@ -235,8 +273,9 @@ describe("DealLayout when ready", () => {
       await screen.findByLabelText("Deal name");
 
       await user.click(screen.getByRole("button", { name: "Lower contingency" }));
-      expect(screen.getByText("Unsaved changes")).toHaveAttribute("aria-live", "polite");
+      expect(screen.getByText("Unsaved changes").closest("[aria-live]")).toBeNull();
       await screen.findByText("Saved", undefined, { timeout: 3000 });
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
       expect((await harness.repository.getDeal(deal.id))?.inputs.contingencyPct).toBe(0.02);
     });
 
@@ -249,10 +288,14 @@ describe("DealLayout when ready", () => {
       await screen.findByLabelText("Deal name");
 
       await user.click(screen.getByRole("button", { name: "Lower contingency" }));
-      const status = await screen.findByText("Couldn't save — retrying", undefined, { timeout: 3000 });
-      expect(status).toHaveAttribute("aria-live", "polite");
-      expect(status).toHaveTextContent("Couldn't save — retrying: disk is full");
-    });
+      // Announced: a failure is the one save status the owner must hear about.
+      const alert = await screen.findByRole("alert", undefined, { timeout: 3000 });
+      expect(alert).toHaveTextContent("Couldn't save — retrying: disk is full");
+      expect(alert.closest("[aria-live]")).toBeNull();
+      // Once the retry works, the alert is gone and the status is quiet again.
+      expect(await screen.findByText("Saved", undefined, { timeout: 7000 })).toBeVisible();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    }, 10_000);
 
     it("does not say Couldn't save twice when the reason starts that way", async () => {
       const user = userEvent.setup();

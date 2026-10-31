@@ -201,7 +201,7 @@ export function CompsCard({ inputs, evaluation, context, edit }: CompsCardProps)
       </div>
       {toDelete !== null ? (
         <ConfirmDialog
-          message={`Delete ${toDelete.address}? This can't be undone.`}
+          message={`Delete ${toDelete.address}? It's removed from every deal in Northern Utah. This can't be undone.`}
           confirmLabel="Delete"
           onConfirm={() => void remove(toDelete)}
           onCancel={() => setToDelete(null)}

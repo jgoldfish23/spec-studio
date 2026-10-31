@@ -50,6 +50,8 @@ export type {
 } from "./deal";
 
 export { FinishTierSchema, HouseModelSchema } from "./house";
+
+export { LIMITS } from "./limits";
 export type { FinishTier, HouseModel, TierArea } from "./house";
 
 export { DEFAULT_MARKET_SETTINGS } from "./market";

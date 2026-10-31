@@ -1,15 +1,23 @@
 import { z } from "zod";
 import { addMonths, type YearMonth } from "./dates";
 import { HouseModelSchema, validateHouse, zodIssues } from "./house";
+import { LIMITS, withCommas } from "./limits";
 import type { ValidationIssue } from "./result";
 
-const cents = z.number().int("Must be a whole number of cents").min(0, "Must be 0 or more");
+// Every money amount is capped at $100 million: far past any spec home, so a larger figure is a typing slip (an extra
+// zero or two).
+const cents = z
+  .number()
+  .int("Must be a whole number of cents")
+  .min(0, "Must be 0 or more")
+  .max(LIMITS.moneyCents, `Must be $${withCommas(LIMITS.moneyCents / 100)} or less`);
 const months = z.number().int("Must be a whole number of months").min(0, "Must be 0 or more");
 const rate = z
   .number()
   .min(0, "Must be 0 or more")
-  .max(1, "Must be 1 or less (use a decimal, e.g. 0.09 for 9%)");
-const nonNegative = z.number().min(0, "Must be 0 or more");
+  .max(LIMITS.rate, "Must be 1 or less (use a decimal, e.g. 0.09 for 9%)");
+/** A number from 0 to `max`, in one schema so a bad value raises one issue. */
+const nonNegativeUpTo = (max: number) => z.number().min(0, "Must be 0 or more").max(max, `Must be ${withCommas(max)} or less`);
 // A field with a range of its own gets its own schema: chaining `.min(1)` onto `months` would run both minimums
 // and report two issues for one bad value. The upper bounds below sit in the same schema as the minimum for the
 // same reason. A fractional value stops at the whole-number check (Zod skips the range checks after it).
@@ -19,9 +27,7 @@ const monthsFrom1UpTo = (max: number) =>
   z.number().int("Must be a whole number of months").min(1, "Must be at least 1").max(max, `Must be ${max} or less`);
 const daysUpTo = (max: number) =>
   z.number().int("Must be a whole number of days").min(0, "Must be 0 or more").max(max, `Must be ${max} or less`);
-const loanToCost = z.number().min(0, "Must be 0 or more").max(0.95, "Must be 0.95 or less");
-// $100 million: far past any spec home, so a larger figure is a typing slip (an extra zero or two).
-const priceCents = cents.max(10_000_000_000, "Must be $100,000,000 or less");
+const loanToCost = z.number().min(0, "Must be 0 or more").max(LIMITS.loanToCost, `Must be ${LIMITS.loanToCost} or less`);
 // A year before 1900 is almost always a two-digit year typed into a date field, which stores "26" as
 // 0026. Checked only once the field's format check has passed, so one bad value raises one issue.
 const isFrom1900 = (yearFirst: string): boolean => Number(yearFirst.slice(0, 4)) >= 1900;
@@ -50,9 +56,9 @@ export const LotSchema = z.object({
   city: z.string().min(1, "Required"),
   county: z.string().min(1, "Required"),
   region: z.string().min(1, "Required"),
-  acres: nonNegative,
-  frontageFt: nonNegative.optional(),
-  priceCents,
+  acres: nonNegativeUpTo(LIMITS.acres),
+  frontageFt: nonNegativeUpTo(LIMITS.frontageFt).optional(),
+  priceCents: cents,
   closingCents: cents,
   financing: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("cash") }),
@@ -71,10 +77,10 @@ export const TimelineSchema = z
       .regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Must be a month as YYYY-MM")
       .refine(isFrom1900, from1900)
       .refine(isThrough2100, through2100),
-    preConMonths: monthsUpTo(36),
-    buildMonths: monthsFrom1UpTo(36),
+    preConMonths: monthsUpTo(LIMITS.preConMonths),
+    buildMonths: monthsFrom1UpTo(LIMITS.buildMonths),
     listEarlyMonths: months,
-    closingDays: daysUpTo(180),
+    closingDays: daysUpTo(LIMITS.closingDays),
   })
   // Skipped while `buildMonths` is itself invalid, so one bad value does not raise a second issue.
   .refine((t) => t.buildMonths < 1 || t.listEarlyMonths <= t.buildMonths, {
@@ -88,10 +94,10 @@ export const ConstructionLoanSchema = z.object({
   rate,
   points: rate,
   drawFeeCents: cents,
-  termMonths: monthsFrom1UpTo(60),
+  termMonths: monthsFrom1UpTo(LIMITS.loanTermMonths),
   extensionPct: rate,
   // The extension count divides by this, so a loan always extends by at least a month.
-  extensionMonths: monthsFrom1UpTo(12),
+  extensionMonths: monthsFrom1UpTo(LIMITS.extensionMonths),
   interestMode: z.enum(["paid", "capitalized"]),
 });
 export type ConstructionLoan = z.infer<typeof ConstructionLoanSchema>;
@@ -168,10 +174,10 @@ export const DealInputsSchema = z.object({
   scenarioDefs: ScenarioDefsSchema,
   contingencyPct: rate,
   overrides: z.object({
-    basePriceCents: priceCents.optional(),
-    baseDomDays: daysUpTo(1_095).optional(),
+    basePriceCents: cents.optional(),
+    baseDomDays: daysUpTo(LIMITS.domDays).optional(),
   }),
-  plannedListPriceCents: priceCents.optional(),
+  plannedListPriceCents: cents.optional(),
   bids: z.array(BidSchema),
   compSelections: z.record(z.string(), z.boolean()),
 });

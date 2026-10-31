@@ -59,6 +59,34 @@ describe("sale price estimate", () => {
     expect(price.midCents).toBeLessThan(price.highCents);
   });
 
+  it("says the tiles are the market's estimate, and that the owner's own base price is what the scenarios use", async () => {
+    const { harness, deal } = await setupWith((inputs) => {
+      inputs.overrides = { basePriceCents: 140_000_000 };
+    });
+    await openMarket(harness, deal);
+    const estimate = card("Sale price estimate");
+
+    expect(within(estimate).getByText("Market estimate")).toBeVisible();
+    expect(within(estimate).getByText("Your base price $1,400,000 is used for the scenarios")).toBeVisible();
+    expect(summaryTile("Sale price (base)")).toHaveTextContent("$1,400,000");
+
+    await newUser().click(within(estimate).getByRole("button", { name: "Use the market estimate" }));
+    await advance(200);
+    expect(within(card("Your numbers (optional)")).getByLabelText("Base sale price")).toHaveValue("");
+    expect(within(estimate).queryByText("Market estimate")).not.toBeInTheDocument();
+    expect(within(estimate).queryByText(/is used for the scenarios/)).not.toBeInTheDocument();
+    expect(summaryTile("Sale price (base)")).toHaveTextContent(formatMoney((await samplePrice()).midCents));
+    expect((await savedAfterAutosave(harness, deal)).overrides).toEqual({});
+  });
+
+  it("says nothing about an override when there is none", async () => {
+    const { harness, deal } = await sampleSetup();
+    await openMarket(harness, deal);
+    const estimate = card("Sale price estimate");
+    expect(within(estimate).queryByText("Market estimate")).not.toBeInTheDocument();
+    expect(within(estimate).queryByRole("button", { name: "Use the market estimate" })).not.toBeInTheDocument();
+  });
+
   it("gives the price per effective sf and how many comps it rests on", async () => {
     const { harness, deal } = await sampleSetup();
     await openMarket(harness, deal);

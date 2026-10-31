@@ -1,8 +1,9 @@
+import { LIMITS } from "@engine";
 import { Card } from "../../ui/Card";
 import { NumberField, Toggle } from "../../ui/fields";
 import { fieldError } from "../deal/fieldErrors";
 import { SegmentedField } from "../deal/SegmentedField";
-import { FIELD_GRID, MAX_AREA } from "./shared";
+import { FIELD_GRID } from "./shared";
 import type { HouseCardProps } from "./shared";
 
 const STYLES = [
@@ -36,7 +37,7 @@ function LevelFields({
         label={names.finished}
         unit="sf"
         min={0}
-        max={MAX_AREA}
+        max={LIMITS.areaSf}
         value={levelOf.finishedSf}
         onChange={(sf) =>
           edit((draft) => {
@@ -50,7 +51,7 @@ function LevelFields({
         label={names.unfinished}
         unit="sf"
         min={0}
-        max={MAX_AREA}
+        max={LIMITS.areaSf}
         value={levelOf.unfinishedSf}
         onChange={(sf) =>
           edit((draft) => {
@@ -64,6 +65,7 @@ function LevelFields({
         label={names.ceilings}
         unit="ft"
         min={0}
+        max={LIMITS.ceilingFt}
         value={levelOf.ceilingFt}
         onChange={(ft) =>
           edit((draft) => {
@@ -150,7 +152,7 @@ export function SizeCard({ house, evaluation, edit }: HouseCardProps) {
               label="Total sf"
               unit="sf"
               min={0}
-              max={MAX_AREA}
+              max={LIMITS.areaSf}
               value={basement.totalSf}
               onChange={(sf) =>
                 edit((draft) => {
@@ -163,7 +165,7 @@ export function SizeCard({ house, evaluation, edit }: HouseCardProps) {
               label="Finished sf"
               unit="sf"
               min={0}
-              max={MAX_AREA}
+              max={LIMITS.areaSf}
               value={basement.finishedSf}
               onChange={(sf) =>
                 edit((draft) => {

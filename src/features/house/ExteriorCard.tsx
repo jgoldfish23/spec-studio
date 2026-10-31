@@ -1,3 +1,4 @@
+import { LIMITS } from "@engine";
 import { Card } from "../../ui/Card";
 import { NumberField } from "../../ui/fields";
 import { fieldError } from "../deal/fieldErrors";
@@ -68,7 +69,7 @@ export function ExteriorCard({ house, evaluation, edit }: HouseCardProps) {
             hint="Whole percent"
             integer
             min={0}
-            max={100}
+            max={LIMITS.exteriorPct}
             value={exterior[key]}
             onChange={(pct) => edit((draft) => void (draft.house.exterior[key] = pct))}
             error={error(`house.exterior.${key}`)}

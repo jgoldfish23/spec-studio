@@ -1,13 +1,9 @@
+import { LIMITS } from "@engine";
 import type { DealEvaluation, DealInputs } from "@engine";
 import { Card } from "../../ui/Card";
 import { OptionalMoneyField, OptionalNumberField } from "../../ui/fields";
 import { fieldError } from "../deal/fieldErrors";
 import type { Edit } from "../deal/stepShared";
-
-/** The most a price may be: the engine's cap, $100 million. */
-const MAX_PRICE_CENTS = 10_000_000_000;
-/** The most days on market the engine takes: three years. */
-const MAX_DOM_DAYS = 1_095;
 
 const FIELDS = "grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-4";
 
@@ -38,7 +34,7 @@ export function OverridesCard({ inputs, evaluation, edit }: OverridesCardProps) 
         <OptionalMoneyField
           label="Base sale price"
           min={0}
-          max={MAX_PRICE_CENTS}
+          max={LIMITS.moneyCents}
           valueCents={inputs.overrides.basePriceCents}
           onChange={(cents) => setOverride("basePriceCents", cents)}
           error={error("overrides.basePriceCents")}
@@ -48,7 +44,7 @@ export function OverridesCard({ inputs, evaluation, edit }: OverridesCardProps) 
           hint="Whole days"
           integer
           min={0}
-          max={MAX_DOM_DAYS}
+          max={LIMITS.domDays}
           value={inputs.overrides.baseDomDays}
           onChange={(days) => setOverride("baseDomDays", days)}
           error={error("overrides.baseDomDays")}
@@ -56,7 +52,7 @@ export function OverridesCard({ inputs, evaluation, edit }: OverridesCardProps) 
         <OptionalMoneyField
           label="Planned list price"
           min={0}
-          max={MAX_PRICE_CENTS}
+          max={LIMITS.moneyCents}
           valueCents={inputs.plannedListPriceCents}
           onChange={(cents) =>
             edit((draft) => {
