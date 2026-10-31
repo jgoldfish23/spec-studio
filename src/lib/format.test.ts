@@ -343,8 +343,14 @@ describe("text shown inside a form field", () => {
     expect(formatPercentInput(0.09, 2)).toBe("9.00");
     expect(formatPercentInput(0.071, 2)).toBe("7.10");
     expect(formatPercentInput(-0.05, 1)).toBe("-5.0");
-    expect(formatPercentInput(-0.000001, 2)).toBe("0.00");
+    expect(formatPercentInput(-1e-9, 2)).toBe("0.00");
     expect(parsePercent(formatPercentInput(0.071, 2))).toBe(0.071);
+  });
+
+  it("shows a stored percent with the digits it needs, never rounded to a different value", () => {
+    expect(formatPercentInput(0.07125, 2)).toBe("7.125");
+    expect(parsePercent(formatPercentInput(0.07125, 2))).toBe(0.07125);
+    expect(formatPercentInput(0.000001, 2)).toBe("0.0001");
   });
 
   it("writes a number with separators and no needless decimals", () => {

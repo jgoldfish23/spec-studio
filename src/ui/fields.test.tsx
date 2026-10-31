@@ -298,6 +298,11 @@ describe("PercentField", () => {
     expect(onChange).toHaveBeenLastCalledWith(0.07125);
   });
 
+  it("shows a stored percent that needs more than its digits without rounding it", () => {
+    render(<PercentField label="Interest rate" value={0.07125} onChange={vi.fn()} />);
+    expect(screen.getByLabelText("Interest rate")).toHaveValue("7.125");
+  });
+
   it("still tidies text on blur when that changes nothing but the look", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

@@ -95,10 +95,13 @@ export function formatMoneyInput(cents: Cents, allowCents: boolean): string {
   return `${negative ? "-" : ""}${digits}`;
 }
 
-/** `9.00` from `0.09` with two digits. */
+/**
+ * `9.00` from `0.09` with two digits: at least `digits` decimals, more (up to 6) when the stored value needs them,
+ * so a stored 7.125% shows as `7.125`, never rounded to a number the deal does not hold.
+ */
 export function formatPercentInput(decimal: number, digits: number): string {
   if (isMissing(decimal)) return "";
-  return withoutNegativeZero(percentFormat(digits, digits).format(decimal)).replace(/%$/, "");
+  return withoutNegativeZero(percentFormat(digits, Math.max(digits, 6)).format(decimal)).replace(/%$/, "");
 }
 
 /** `3,800` or `2.5`. */
