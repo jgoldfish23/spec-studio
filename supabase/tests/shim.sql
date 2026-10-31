@@ -34,3 +34,10 @@ $$;
 -- Policies call auth.uid() as the signed-in role, so both roles must be able to see the auth schema
 -- (Supabase grants the same).
 grant usage on schema auth to anon, authenticated;
+
+-- Supabase hands anon and authenticated every privilege (TRUNCATE, TRIGGER and REFERENCES included)
+-- on each new table in public, for tables created by the role that runs the migrations. Mimic that
+-- here; this must run as the same role that later runs the migrations, which is true because the
+-- test helpers apply the shim and the migrations on one superuser connection. A migration that only
+-- adds grants therefore leaves the extra privileges in place, as it would on Supabase.
+alter default privileges in schema public grant all on tables to anon, authenticated;

@@ -330,3 +330,64 @@ describe("the other company tables", () => {
     expect(result.rows.filter((r) => !r.relrowsecurity)).toEqual([]);
   });
 });
+
+describe("table privileges", () => {
+  it("gives authenticated exactly select, insert, update and delete, and anon nothing", async () => {
+    // The shim mimics Supabase's default privileges (ALL to both roles on every new table), so this
+    // fails when the migration only adds grants and does not take the rest back.
+    const tables = (
+      await db.client.query(
+        "select relname from pg_class where relnamespace = 'public'::regnamespace and relkind = 'r' order by relname",
+      )
+    ).rows.map((r) => r.relname as string);
+    expect(tables).toHaveLength(8);
+
+    const version = Number((await db.client.query("show server_version_num")).rows[0].server_version_num);
+    const everyPrivilege = [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE",
+      "TRUNCATE",
+      "REFERENCES",
+      "TRIGGER",
+      ...(version >= 170000 ? ["MAINTAIN"] : []),
+    ];
+    const held = async (role: string, table: string) =>
+      (
+        await db.client.query(
+          `select p from unnest($1::text[]) as p
+            where has_table_privilege($2::name, format('%I.%I', 'public', $3::text), p) order by p`,
+          [everyPrivilege, role, table],
+        )
+      ).rows.map((r) => r.p as string);
+
+    for (const table of tables) {
+      expect(await held("authenticated", table), `authenticated on ${table}`).toEqual([
+        "DELETE",
+        "INSERT",
+        "SELECT",
+        "UPDATE",
+      ]);
+      expect(await held("anon", table), `anon on ${table}`).toEqual([]);
+    }
+  });
+
+  it("refuses TRUNCATE, which ignores row-level security", async () => {
+    const state = await asUser(db.client, UA, (c) => sqlState(c.query("truncate public.deals")));
+    expect(state).toBe(RLS_VIOLATION);
+    const left = await db.client.query("select count(*)::int as n from deals where id = $1", [DEAL_B]);
+    expect(left.rows[0].n).toBe(1);
+  });
+
+  it("refuses to let a user attach a trigger to a table", async () => {
+    const state = await asUser(db.client, UA, (c) =>
+      sqlState(
+        c.query(
+          "create trigger sneaky before update on public.deals for each row execute function public.set_updated_at()",
+        ),
+      ),
+    );
+    expect(state).toBe(RLS_VIOLATION);
+  });
+});

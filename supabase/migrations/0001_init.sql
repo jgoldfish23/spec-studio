@@ -195,11 +195,15 @@ create policy default_prices_delete on public.default_prices
   using (company_id is not null and public.is_member(company_id));
 
 -- ---------------------------------------------------------------------------
--- Grants: signed-in users get table access (row-level security narrows it); anon gets nothing.
+-- Grants: signed-in users get select/insert/update/delete (row-level security narrows those);
+-- anon gets nothing.
 -- ---------------------------------------------------------------------------
 
 grant usage on schema public to authenticated;
-grant select, insert, update, delete on all tables in schema public to authenticated;
 
--- Supabase's default privileges hand anon every new table in public; take that back explicitly.
-revoke all on all tables in schema public from anon;
+-- Supabase's default privileges give anon and authenticated ALL on every new table in public. A grant
+-- only adds, so take everything back first. This matters beyond tidiness: TRUNCATE ignores row-level
+-- security (a member could empty a table for every company), and TRIGGER and REFERENCES let a user
+-- attach code to, or constrain, a table that holds other companies' rows.
+revoke all on all tables in schema public from anon, authenticated;
+grant select, insert, update, delete on all tables in schema public to authenticated;
