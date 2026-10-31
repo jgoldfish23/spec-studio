@@ -145,6 +145,23 @@ describe("validateDeal", () => {
     expect(validateDeal(d)).toEqual([]);
   });
 
+  it("rejects selling costs that add up to 100% only in floating point (0.7 + 0.2 + 0.1 is 0.9999999999999999)", () => {
+    const d = validDeal();
+    d.selling = { listingPct: 0.7, buyerPct: 0.2, closingPct: 0.1, concessionsCents: 0 };
+    expect(d.selling.listingPct + d.selling.buyerPct + d.selling.closingPct).toBeLessThan(1);
+    expect(paths(d)).toEqual(["selling"]);
+  });
+
+  it("accepts selling costs a hair under 100% and rejects those within 1e-9 of it", () => {
+    const d = validDeal();
+    d.selling = { listingPct: 0.5, buyerPct: 0.4999, closingPct: 0, concessionsCents: 0 };
+    expect(validateDeal(d)).toEqual([]);
+    d.selling = { listingPct: 0.5, buyerPct: 0.4999999, closingPct: 0, concessionsCents: 0 };
+    expect(validateDeal(d)).toEqual([]);
+    d.selling = { listingPct: 0.5, buyerPct: 0.4999999999, closingPct: 0, concessionsCents: 0 };
+    expect(paths(d)).toEqual(["selling"]);
+  });
+
   it("reports a selling rate above 1 once, not again as a selling-cost total", () => {
     const d = validDeal();
     d.selling.listingPct = 2.5;
@@ -251,6 +268,104 @@ describe("validateDeal", () => {
     const d: Record<string, unknown> = structuredClone(validDeal());
     delete d.house;
     expect(paths(d)).toEqual(["house"]);
+  });
+});
+
+/** One numeric field with an allowed range; `set` writes a value into a deal. */
+type Bound = { path: string; min: number; max: number; set: (d: DealInputs, v: number) => void };
+
+const BOUNDS: Bound[] = [
+  { path: "timeline.preConMonths", min: 0, max: 36, set: (d, v) => void (d.timeline.preConMonths = v) },
+  { path: "timeline.buildMonths", min: 1, max: 36, set: (d, v) => void (d.timeline.buildMonths = v) },
+  { path: "timeline.closingDays", min: 0, max: 180, set: (d, v) => void (d.timeline.closingDays = v) },
+  { path: "loan.termMonths", min: 1, max: 60, set: (d, v) => void (d.loan.termMonths = v) },
+  { path: "loan.extensionMonths", min: 1, max: 12, set: (d, v) => void (d.loan.extensionMonths = v) },
+  { path: "overrides.baseDomDays", min: 0, max: 1_095, set: (d, v) => void (d.overrides.baseDomDays = v) },
+  {
+    path: "overrides.basePriceCents",
+    min: 0,
+    max: 10_000_000_000,
+    set: (d, v) => void (d.overrides.basePriceCents = v),
+  },
+  {
+    path: "plannedListPriceCents",
+    min: 0,
+    max: 10_000_000_000,
+    set: (d, v) => void (d.plannedListPriceCents = v),
+  },
+  { path: "lot.priceCents", min: 0, max: 10_000_000_000, set: (d, v) => void (d.lot.priceCents = v) },
+];
+
+describe("input bounds", () => {
+  it.each(BOUNDS)("accepts $path at $min and at $max", ({ min, max, set }) => {
+    for (const value of [min, max]) {
+      const d = validDeal();
+      set(d, value);
+      expect(validateDeal(d), String(value)).toEqual([]);
+    }
+  });
+
+  it.each(BOUNDS)("rejects $path just over $max with exactly one issue at that path", ({ path, max, set }) => {
+    const d = validDeal();
+    set(d, max + 1);
+    expect(paths(d)).toEqual([path]);
+  });
+
+  it.each(BOUNDS)("rejects $path far over $max with exactly one issue at that path", ({ path, max, set }) => {
+    const d = validDeal();
+    set(d, max * 1_000);
+    expect(paths(d)).toEqual([path]);
+  });
+
+  it.each(BOUNDS.filter((b) => b.min > 0))(
+    "rejects $path just under $min with exactly one issue at that path",
+    ({ path, min, set }) => {
+      const d = validDeal();
+      set(d, min - 1);
+      expect(paths(d)).toEqual([path]);
+    },
+  );
+
+  it.each(BOUNDS)(
+    "rejects a fractional $path that is also over the limit with exactly one issue",
+    ({ path, max, set }) => {
+      const d = validDeal();
+      set(d, max + 0.5);
+      expect(paths(d)).toEqual([path]);
+    },
+  );
+
+  it("gives an over-limit value a message that names the limit", () => {
+    const d = validDeal();
+    d.loan.termMonths = 61;
+    expect(validateDeal(d)).toEqual([{ path: "loan.termMonths", message: "Must be 60 or less" }]);
+  });
+
+  it("accepts a land close in December 2100 and rejects January 2101 as a single issue", () => {
+    const d = validDeal();
+    d.timeline.landClose = "2100-12";
+    expect(validateDeal(d)).toEqual([]);
+    for (const landClose of ["2101-01", "9999-12"]) {
+      d.timeline.landClose = landClose;
+      expect(paths(d), landClose).toEqual(["timeline.landClose"]);
+    }
+  });
+
+  it("accepts a bid received on 2100-12-31 and rejects 2101-01-01 as a single issue", () => {
+    const bid = { code: "framing", amountCents: 6_500_000, vendor: "Wasatch Framing" };
+    const d = validDeal();
+    d.bids = [{ ...bid, receivedOn: "2100-12-31" }];
+    expect(validateDeal(d)).toEqual([]);
+    for (const receivedOn of ["2101-01-01", "9999-12-31", "2101-02-30"]) {
+      d.bids = [{ ...bid, receivedOn }];
+      expect(paths(d), receivedOn).toEqual(["bids.0.receivedOn"]);
+    }
+  });
+
+  it("reports an over-limit house field with the house. prefix, once", () => {
+    const d = validDeal();
+    d.house.levels.main.finishedSf = 50_001;
+    expect(paths(d)).toEqual(["house.levels.main.finishedSf"]);
   });
 });
 

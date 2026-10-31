@@ -159,7 +159,13 @@ function judge(
   inputs: ScenarioInputSet,
 ): { results: Record<ScenarioName, ScenarioResult>; verdict: Verdict } {
   const results = runScenarios(d, e, inputs);
-  const verdict = evaluateVerdict(results.base.metrics, results.downside.metrics, d.rules, inputs.base.domDays);
+  const verdict = evaluateVerdict(
+    results.base.metrics,
+    results.downside.metrics,
+    d.rules,
+    inputs.base.domDays,
+    results.base.cashFlow.extensions,
+  );
   return { results, verdict };
 }
 

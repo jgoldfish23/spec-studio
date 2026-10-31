@@ -93,6 +93,44 @@ describe("evaluateDeal on the golden deal", () => {
     expect(scenarios.upside.inputs.domDays).toBe(roundCents((62 * dom.lowDays) / dom.typicalDays));
   });
 
+  it("warns about the loan when the base case pays an extension (62 days on market against a limit of 56)", () => {
+    const base = unwrap(golden().scenarios).base;
+    expect(base.cashFlow.extensions).toBe(1);
+    expect(golden().verdict.loanWarning).toEqual({ maxDomWithoutExtension: 56, baseDomDays: 62, extensions: 1 });
+  });
+
+  it("warns about the loan when the term ends before the build does, even with no days on market", () => {
+    const deal: DealInputs = {
+      ...GOLDEN_DEAL,
+      loan: { ...GOLDEN_DEAL.loan, termMonths: 6 },
+      overrides: { ...GOLDEN_DEAL.overrides, baseDomDays: 0 },
+    };
+    const ev = evaluateDeal(deal, CTX);
+    const base = unwrap(ev.scenarios).base;
+    expect(base.inputs.domDays).toBe(0);
+    expect(base.cashFlow.extensions).toBeGreaterThan(0);
+    expect(ev.verdict.loanWarning).toBeDefined();
+    expect(ev.verdict.loanWarning).toEqual({
+      maxDomWithoutExtension: base.metrics.maxDomWithoutExtension,
+      baseDomDays: 0,
+      extensions: base.cashFlow.extensions,
+    });
+  });
+
+  it("has no loan warning when the base sale closes inside the loan term (56 days on market, the limit)", () => {
+    const deal: DealInputs = { ...GOLDEN_DEAL, overrides: { ...GOLDEN_DEAL.overrides, baseDomDays: 56 } };
+    const ev = evaluateDeal(deal, CTX);
+    expect(unwrap(ev.scenarios).base.cashFlow.extensions).toBe(0);
+    expect(ev.verdict).not.toHaveProperty("loanWarning");
+  });
+
+  it("has no loan warning when there is no construction loan", () => {
+    const deal: DealInputs = { ...GOLDEN_DEAL, loan: { ...GOLDEN_DEAL.loan, ltc: 0 } };
+    const ev = evaluateDeal(deal, CTX);
+    expect(unwrap(ev.scenarios).base.cashFlow.extensions).toBe(0);
+    expect(ev.verdict).not.toHaveProperty("loanWarning");
+  });
+
   it("is marginal on the margin rule alone, so goal seek reports all three levers", () => {
     const ev = golden();
     expect(ev.verdict.kind).not.toBe("go");
@@ -311,6 +349,14 @@ describe("evaluateDeal on an invalid deal", () => {
     const selling = { ...GOLDEN_DEAL.selling, listingPct: 0.5, buyerPct: 0.5, closingPct: 0.01 };
     const ev = evaluateDeal({ ...GOLDEN_DEAL, selling }, CTX);
     expect(ev.validation.map((i) => i.path)).toEqual(["selling"]);
+    expectBlocked(ev);
+    expect(ev.verdict.missing?.map((m) => m.step)).toEqual(["proforma"]);
+  });
+
+  it("reports an input past its upper bound as one issue and stops, before any cash flow", () => {
+    const deal: DealInputs = { ...GOLDEN_DEAL, loan: { ...GOLDEN_DEAL.loan, termMonths: 61 } };
+    const ev = evaluateDeal(deal, CTX);
+    expect(ev.validation.map((i) => i.path)).toEqual(["loan.termMonths"]);
     expectBlocked(ev);
     expect(ev.verdict.missing?.map((m) => m.step)).toEqual(["proforma"]);
   });

@@ -16,8 +16,11 @@ export type Verdict = {
   kind: VerdictKind;
   /** Every rule with its pass/fail and actual value; empty when the verdict is incomplete. */
   checks: RuleCheck[];
-  /** Present when the base days on market run past what the construction loan allows without an extension. */
-  loanWarning?: { maxDomWithoutExtension: number; baseDomDays: number };
+  /**
+   * Present exactly when the base case pays loan extension fees. `maxDomWithoutExtension` is the base
+   * metric as is: null with no construction loan, and 0 when the loan matures before the house lists.
+   */
+  loanWarning?: { maxDomWithoutExtension: number | null; baseDomDays: number; extensions: number };
   /** Present only on an incomplete verdict: what is needed before the deal can be judged. */
   missing?: MissingItem[];
 };
@@ -25,9 +28,16 @@ export type Verdict = {
 /**
  * Judges a deal against the rules (spec §5.8). The margin and annualized return rules use the base scenario,
  * the downside rule uses the downside scenario's profit. A null annualized return fails its rule.
+ * `baseExtensions` is how many loan extensions the base cash flow pays for; any at all adds the loan warning.
  * Never returns "incomplete"; that is `incompleteVerdict`.
  */
-export function evaluateVerdict(base: Metrics, downside: Metrics, rules: Rules, baseDomDays: number): Verdict {
+export function evaluateVerdict(
+  base: Metrics,
+  downside: Metrics,
+  rules: Rules,
+  baseDomDays: number,
+  baseExtensions: number,
+): Verdict {
   const checks: RuleCheck[] = [
     {
       rule: "marginOnSale",
@@ -58,8 +68,12 @@ export function evaluateVerdict(base: Metrics, downside: Metrics, rules: Rules, 
   else kind = "marginal";
 
   const verdict: Verdict = { kind, checks };
-  if (base.maxDomWithoutExtension !== null && baseDomDays > base.maxDomWithoutExtension) {
-    verdict.loanWarning = { maxDomWithoutExtension: base.maxDomWithoutExtension, baseDomDays };
+  if (baseExtensions > 0) {
+    verdict.loanWarning = {
+      maxDomWithoutExtension: base.maxDomWithoutExtension,
+      baseDomDays,
+      extensions: baseExtensions,
+    };
   }
   return verdict;
 }

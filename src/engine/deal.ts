@@ -10,11 +10,18 @@ const rate = z
   .min(0, "Must be 0 or more")
   .max(1, "Must be 1 or less (use a decimal, e.g. 0.09 for 9%)");
 const nonNegative = z.number().min(0, "Must be 0 or more");
-const days = z.number().int("Must be a whole number of days").min(0, "Must be 0 or more");
-// Fields with a tighter range get their own schema: chaining onto `months` or `rate` would
-// run both ranges and report two issues for one bad value.
-const atLeastOneMonth = z.number().int("Must be a whole number of months").min(1, "Must be at least 1");
+// A field with a range of its own gets its own schema: chaining `.min(1)` onto `months` would run both minimums
+// and report two issues for one bad value. The upper bounds below sit in the same schema as the minimum for the
+// same reason. A fractional value stops at the whole-number check (Zod skips the range checks after it).
+const monthsUpTo = (max: number) =>
+  z.number().int("Must be a whole number of months").min(0, "Must be 0 or more").max(max, `Must be ${max} or less`);
+const monthsFrom1UpTo = (max: number) =>
+  z.number().int("Must be a whole number of months").min(1, "Must be at least 1").max(max, `Must be ${max} or less`);
+const daysUpTo = (max: number) =>
+  z.number().int("Must be a whole number of days").min(0, "Must be 0 or more").max(max, `Must be ${max} or less`);
 const loanToCost = z.number().min(0, "Must be 0 or more").max(0.95, "Must be 0.95 or less");
+// $100 million: far past any spec home, so a larger figure is a typing slip (an extra zero or two).
+const priceCents = cents.max(10_000_000_000, "Must be $100,000,000 or less");
 // A year before 1900 is almost always a two-digit year typed into a date field, which stores "26" as
 // 0026. Checked only once the field's format check has passed, so one bad value raises one issue.
 const isFrom1900 = (yearFirst: string): boolean => Number(yearFirst.slice(0, 4)) >= 1900;
@@ -45,7 +52,7 @@ export const LotSchema = z.object({
   region: z.string().min(1, "Required"),
   acres: nonNegative,
   frontageFt: nonNegative.optional(),
-  priceCents: cents,
+  priceCents,
   closingCents: cents,
   financing: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("cash") }),
@@ -62,11 +69,12 @@ export const TimelineSchema = z
     landClose: z
       .string()
       .regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Must be a month as YYYY-MM")
-      .refine(isFrom1900, from1900),
-    preConMonths: months,
-    buildMonths: atLeastOneMonth,
+      .refine(isFrom1900, from1900)
+      .refine(isThrough2100, through2100),
+    preConMonths: monthsUpTo(36),
+    buildMonths: monthsFrom1UpTo(36),
     listEarlyMonths: months,
-    closingDays: days,
+    closingDays: daysUpTo(180),
   })
   // Skipped while `buildMonths` is itself invalid, so one bad value does not raise a second issue.
   .refine((t) => t.buildMonths < 1 || t.listEarlyMonths <= t.buildMonths, {
@@ -80,10 +88,10 @@ export const ConstructionLoanSchema = z.object({
   rate,
   points: rate,
   drawFeeCents: cents,
-  termMonths: months,
+  termMonths: monthsFrom1UpTo(60),
   extensionPct: rate,
   // The extension count divides by this, so a loan always extends by at least a month.
-  extensionMonths: atLeastOneMonth,
+  extensionMonths: monthsFrom1UpTo(12),
   interestMode: z.enum(["paid", "capitalized"]),
 });
 export type ConstructionLoan = z.infer<typeof ConstructionLoanSchema>;
@@ -98,6 +106,9 @@ export const CarrySchema = z.object({
 export type Carry = z.infer<typeof CarrySchema>;
 
 const isRate = (r: number): boolean => r >= 0 && r <= 1;
+// Rates are decimals, so a total of 0.7 + 0.2 + 0.1 comes out at 0.9999999999999999 and would pass a plain
+// `< 1` check although it is 100%. Anything within a billionth of 1 counts as 100%.
+const SELLING_TOTAL_LIMIT = 1 - 1e-9;
 
 export const SellingSchema = z
   .object({
@@ -110,7 +121,8 @@ export const SellingSchema = z
   // is itself out of range, so one bad value does not raise a second issue.
   .refine(
     (s) =>
-      ![s.listingPct, s.buyerPct, s.closingPct].every(isRate) || s.listingPct + s.buyerPct + s.closingPct < 1,
+      ![s.listingPct, s.buyerPct, s.closingPct].every(isRate) ||
+      s.listingPct + s.buyerPct + s.closingPct < SELLING_TOTAL_LIMIT,
     { message: "Listing, buyer and closing costs must total less than 100% of the sale price" },
   );
 export type Selling = z.infer<typeof SellingSchema>;
@@ -140,7 +152,7 @@ export const BidSchema = z.object({
   code: z.string().min(1, "Required"),
   amountCents: cents,
   vendor: z.string().min(1, "Required"),
-  receivedOn: DateFrom1900Schema,
+  receivedOn: DateIn1900To2100Schema,
   notes: z.string().optional(),
 });
 export type Bid = z.infer<typeof BidSchema>;
@@ -156,10 +168,10 @@ export const DealInputsSchema = z.object({
   scenarioDefs: ScenarioDefsSchema,
   contingencyPct: rate,
   overrides: z.object({
-    basePriceCents: cents.optional(),
-    baseDomDays: days.optional(),
+    basePriceCents: priceCents.optional(),
+    baseDomDays: daysUpTo(1_095).optional(),
   }),
-  plannedListPriceCents: cents.optional(),
+  plannedListPriceCents: priceCents.optional(),
   bids: z.array(BidSchema),
   compSelections: z.record(z.string(), z.boolean()),
 });

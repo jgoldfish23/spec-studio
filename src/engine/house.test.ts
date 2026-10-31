@@ -136,6 +136,101 @@ describe("validateHouse", () => {
   });
 });
 
+/** One numeric house field with an upper limit; `set` writes a value into a house. */
+type HouseBound = { path: string; max: number; set: (h: HouseModel, v: number) => void };
+
+const UPPER = { finishedSf: 1200, unfinishedSf: 200, ceilingFt: 9 };
+
+const AREA_BOUNDS: HouseBound[] = [
+  { path: "levels.main.finishedSf", max: 50_000, set: (h, v) => void (h.levels.main.finishedSf = v) },
+  { path: "levels.main.unfinishedSf", max: 50_000, set: (h, v) => void (h.levels.main.unfinishedSf = v) },
+  { path: "levels.upper.finishedSf", max: 50_000, set: (h, v) => void (h.levels.upper = { ...UPPER, finishedSf: v }) },
+  {
+    path: "levels.upper.unfinishedSf",
+    max: 50_000,
+    set: (h, v) => void (h.levels.upper = { ...UPPER, unfinishedSf: v }),
+  },
+  { path: "levels.basement.totalSf", max: 50_000, set: (h, v) => void (h.levels.basement!.totalSf = v) },
+  { path: "levels.basement.finishedSf", max: 50_000, set: (h, v) => void (h.levels.basement!.finishedSf = v) },
+  { path: "adu.finishedSf", max: 50_000, set: (h, v) => void (h.adu = { type: "detached", finishedSf: v }) },
+  { path: "outside.coveredPatioSf", max: 50_000, set: (h, v) => void (h.outside.coveredPatioSf = v) },
+  { path: "outside.flatworkSf", max: 50_000, set: (h, v) => void (h.outside.flatworkSf = v) },
+  { path: "outside.fenceLf", max: 50_000, set: (h, v) => void (h.outside.fenceLf = v) },
+  { path: "footprint.widthFt", max: 50_000, set: (h, v) => void (h.footprint.widthFt = v) },
+  { path: "footprint.depthFt", max: 50_000, set: (h, v) => void (h.footprint.depthFt = v) },
+];
+
+const COUNT_BOUNDS: HouseBound[] = [
+  { path: "garage.bays", max: 10, set: (h, v) => void (h.garage.bays = v) },
+  { path: "rooms.bedrooms", max: 20, set: (h, v) => void (h.rooms.bedrooms = v) },
+  { path: "rooms.fullBaths", max: 20, set: (h, v) => void (h.rooms.fullBaths = v) },
+  { path: "rooms.halfBaths", max: 20, set: (h, v) => void (h.rooms.halfBaths = v) },
+  { path: "rooms.fireplaces", max: 20, set: (h, v) => void (h.rooms.fireplaces = v) },
+];
+
+/**
+ * A house in which a field at its limit breaks no blocking rule: a footprint big enough for any main level
+ * and a basement big enough for any finished area.
+ */
+function roomyHouse(): HouseModel {
+  const h = clone();
+  h.footprint = { widthFt: 50_000, depthFt: 50_000, complexity: "simple" };
+  h.levels.basement = { totalSf: 50_000, finishedSf: 1_600, walkout: false };
+  return h;
+}
+
+describe("house upper bounds", () => {
+  it.each([...AREA_BOUNDS, ...COUNT_BOUNDS])("accepts $path at $max", ({ max, set }) => {
+    const h = roomyHouse();
+    set(h, max);
+    expect(validateHouse(h)).toEqual([]);
+  });
+
+  it.each([...AREA_BOUNDS, ...COUNT_BOUNDS])(
+    "rejects $path just over $max with exactly one issue at that path",
+    ({ path, max, set }) => {
+      const h = roomyHouse();
+      set(h, max + 1);
+      expect(paths(h)).toEqual([path]);
+    },
+  );
+
+  it.each([...AREA_BOUNDS, ...COUNT_BOUNDS])(
+    "rejects $path far over $max with exactly one issue at that path",
+    ({ path, max, set }) => {
+      const h = roomyHouse();
+      set(h, max * 1_000);
+      expect(paths(h)).toEqual([path]);
+    },
+  );
+
+  it.each(COUNT_BOUNDS)(
+    "rejects a fractional $path that is also over the limit with exactly one issue",
+    ({ path, max, set }) => {
+      const h = roomyHouse();
+      set(h, max + 0.5);
+      expect(paths(h)).toEqual([path]);
+    },
+  );
+
+  it("gives an over-limit value a message that names the limit", () => {
+    const h = roomyHouse();
+    h.rooms.bedrooms = 21;
+    h.footprint.widthFt = 50_001;
+    expect(validateHouse(h)).toEqual([
+      { path: "footprint.widthFt", message: "Must be 50,000 or less" },
+      { path: "rooms.bedrooms", message: "Must be 20 or less" },
+    ]);
+  });
+
+  it("does not cap ceiling height or roof pitch", () => {
+    const h = clone();
+    h.levels.main.ceilingFt = 60;
+    h.roof.pitchPer12 = 30;
+    expect(validateHouse(h)).toEqual([]);
+  });
+});
+
 describe("HouseModelSchema", () => {
   it("parses the sample house to an equal value", () => {
     expect(HouseModelSchema.parse(SAMPLE_HOUSE)).toEqual(SAMPLE_HOUSE);
