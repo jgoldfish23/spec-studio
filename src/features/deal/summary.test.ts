@@ -1,29 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_QUANTITY_RULES, evaluateDeal } from "@engine";
-import type { DealEvaluation, DealInputs, EngineContext, MissingItem } from "@engine";
-import { createLocalRepository } from "../../data/local/localRepository";
+import { evaluateDeal } from "@engine";
+import type { DealEvaluation, MissingItem } from "@engine";
 import { newDealInputs } from "../../data/newDeal";
 import { sampleComps, sampleDealInputs } from "../../data/sample";
-import { MemoryStorage } from "../../data/testing/memoryStorage";
+import { contextFor, evaluated, TEST_TODAY } from "../../testing/engineContext";
 import { headsUp, stepForMissing, summarize, topNeeds } from "./summary";
 
-const TODAY = "2026-10-31";
-
-async function contextFor(today = TODAY, comps = sampleComps()): Promise<EngineContext> {
-  const repository = createLocalRepository(new MemoryStorage());
-  return {
-    today,
-    costBook: await repository.getCostBook("utah-north"),
-    comps,
-    marketSettings: await repository.getMarketSettings("utah-north"),
-    quantityRules: DEFAULT_QUANTITY_RULES,
-  };
-}
-
-async function evaluated(inputs: DealInputs = sampleDealInputs(), today = TODAY) {
-  const context = await contextFor(today);
-  return evaluateDeal(inputs, context);
-}
+const TODAY = TEST_TODAY;
 
 function okScenarios(evaluation: DealEvaluation) {
   if (evaluation.scenarios.status !== "ok") throw new Error("the scenarios did not run");
@@ -210,7 +193,7 @@ describe("headsUp", () => {
     it("explains a missing market range in the owner's words", async () => {
       const inputs = sampleDealInputs();
       inputs.overrides = { basePriceCents: 135_000_000, baseDomDays: 62 };
-      const evaluation = evaluateDeal(inputs, await contextFor(TODAY, []));
+      const evaluation = evaluateDeal(inputs, await contextFor({ comps: [] }));
       expect(okScenarios(evaluation)).toBeDefined();
       expect(headsUp(inputs, evaluation, TODAY)).toContain(
         "No market range — the downside and upside use your own numbers",

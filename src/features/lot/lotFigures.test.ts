@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_QUANTITY_RULES, evaluateDeal } from "@engine";
-import type { DealEvaluation, DealInputs, EngineContext } from "@engine";
-import { createLocalRepository } from "../../data/local/localRepository";
 import { newDealInputs } from "../../data/newDeal";
-import { sampleComps, sampleDealInputs } from "../../data/sample";
-import { MemoryStorage } from "../../data/testing/memoryStorage";
+import { sampleDealInputs } from "../../data/sample";
+import { evaluated } from "../../testing/engineContext";
 import { landPlusClosing, priceThatMakesGo, shareOf } from "./lotFigures";
 
 describe("landPlusClosing", () => {
@@ -45,24 +42,12 @@ describe("shareOf", () => {
 });
 
 describe("priceThatMakesGo", () => {
-  async function evaluated(inputs: DealInputs): Promise<DealEvaluation> {
-    const repository = createLocalRepository(new MemoryStorage());
-    const context: EngineContext = {
-      today: "2026-10-31",
-      costBook: await repository.getCostBook("utah-north"),
-      comps: sampleComps(),
-      marketSettings: await repository.getMarketSettings("utah-north"),
-      quantityRules: DEFAULT_QUANTITY_RULES,
-    };
-    return evaluateDeal(inputs, context);
-  }
-
   it("gives the price and how far it is below the current one", async () => {
     const evaluation = await evaluated(sampleDealInputs());
     expect(evaluation.verdict.kind).toBe("marginal");
     const lever = evaluation.goalSeek?.find((result) => result.lever === "lotPrice");
     expect(lever?.reachable).toBe(true);
-    expect(priceThatMakesGo(evaluation)).toBe("$227,100 (−$67,900)");
+    expect(priceThatMakesGo(evaluation)).toEqual({ text: "$227,100 (\u2212$67,900)", good: true });
   });
 
   it("says so when the deal is already a Go", async () => {
@@ -70,7 +55,7 @@ describe("priceThatMakesGo", () => {
     inputs.lot.priceCents = 100;
     const evaluation = await evaluated(inputs);
     expect(evaluation.verdict.kind).toBe("go");
-    expect(priceThatMakesGo(evaluation)).toBe("Already a Go");
+    expect(priceThatMakesGo(evaluation)).toEqual({ text: "Already a Go", good: true });
   });
 
   it("says when the lot price alone cannot get there", async () => {
@@ -78,16 +63,19 @@ describe("priceThatMakesGo", () => {
     inputs.overrides.basePriceCents = 50_000_000;
     const evaluation = await evaluated(inputs);
     expect(evaluation.verdict.kind).toBe("nogo");
-    expect(priceThatMakesGo(evaluation)).toBe("Not reachable with lot price alone");
+    expect(priceThatMakesGo(evaluation)).toEqual({ text: "Not reachable with lot price alone", good: false });
   });
 
   it("is a dash while the deal is incomplete, and when goal seek has no lot-price answer", async () => {
     const incomplete = await evaluated(newDealInputs("2026-10-31", { rules: sampleDealInputs().rules, contingencyPct: 0.05 }));
     expect(incomplete.goalSeek).toBeNull();
-    expect(priceThatMakesGo(incomplete)).toBe("—");
+    expect(priceThatMakesGo(incomplete)).toEqual({ text: "—", good: false });
 
     const marginal = await evaluated(sampleDealInputs());
-    expect(priceThatMakesGo({ ...marginal, goalSeek: [] })).toBe("—");
-    expect(priceThatMakesGo({ ...marginal, goalSeek: [{ lever: "lotPrice", reachable: true }] })).toBe("—");
+    expect(priceThatMakesGo({ ...marginal, goalSeek: [] })).toEqual({ text: "—", good: false });
+    expect(priceThatMakesGo({ ...marginal, goalSeek: [{ lever: "lotPrice", reachable: true }] })).toEqual({
+      text: "—",
+      good: false,
+    });
   });
 });

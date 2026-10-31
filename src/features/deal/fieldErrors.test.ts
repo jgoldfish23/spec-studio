@@ -1,22 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_QUANTITY_RULES, evaluateDeal } from "@engine";
-import type { DealEvaluation, DealInputs, EngineContext } from "@engine";
-import { createLocalRepository } from "../../data/local/localRepository";
-import { sampleComps, sampleDealInputs } from "../../data/sample";
-import { MemoryStorage } from "../../data/testing/memoryStorage";
+import type { DealEvaluation, DealInputs } from "@engine";
+import { sampleDealInputs } from "../../data/sample";
+import { evaluated } from "../../testing/engineContext";
 import { fieldError } from "./fieldErrors";
-
-async function evaluated(inputs: DealInputs): Promise<DealEvaluation> {
-  const repository = createLocalRepository(new MemoryStorage());
-  const context: EngineContext = {
-    today: "2026-10-31",
-    costBook: await repository.getCostBook("utah-north"),
-    comps: sampleComps(),
-    marketSettings: await repository.getMarketSettings("utah-north"),
-    quantityRules: DEFAULT_QUANTITY_RULES,
-  };
-  return evaluateDeal(inputs, context);
-}
 
 /** The sample deal with edits that break rules the owner can fix. */
 async function withProblems(edit: (draft: DealInputs) => void): Promise<DealEvaluation> {

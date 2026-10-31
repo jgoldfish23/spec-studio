@@ -10,9 +10,9 @@ import {
   PercentField,
   TextField,
 } from "../../ui/fields";
-import { SegmentedControl } from "../../ui/SegmentedControl";
 import { useDealEditorContext } from "../deal/DealEditorContext";
 import { fieldError } from "../deal/fieldErrors";
+import { SegmentedField } from "../deal/SegmentedField";
 import type { DealEditor } from "../deal/useDealEditor";
 import { LotSidePanel } from "./LotSidePanel";
 
@@ -93,11 +93,12 @@ function LotCard({ inputs, evaluation, edit, name }: SectionProps & { name: stri
           onChange={(county) => edit((draft) => void (draft.lot.county = county))}
           error={error("lot.county")}
         />
-        <SegmentedControl
+        <SegmentedField
           label="Region"
           options={REGIONS}
           value={lot.region}
           onChange={(region) => edit((draft) => void (draft.lot.region = region))}
+          error={error("lot.region")}
         />
         <NumberField
           label="Acres"
@@ -125,12 +126,13 @@ function LotCard({ inputs, evaluation, edit, name }: SectionProps & { name: stri
         <h3 className="m-0 text-[13px] font-semibold text-[#33403A]">Utilities at the street</h3>
         <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,280px),1fr))] gap-4">
           {UtilitySchema.options.map((utility) => (
-            <SegmentedControl
+            <SegmentedField
               key={utility}
               label={UTILITY_NAMES[utility]}
               options={UTILITY_OPTIONS}
               value={lot.utilities[utility]}
               onChange={(status) => edit((draft) => void (draft.lot.utilities[utility] = status))}
+              error={error(`lot.utilities.${utility}`)}
             />
           ))}
         </div>
@@ -146,7 +148,8 @@ function PriceCard({ inputs, evaluation, edit }: SectionProps) {
   function payWith(kind: "cash" | "loan") {
     edit((draft) => {
       if (kind === "cash") draft.lot.financing = { kind: "cash" };
-      // Choosing a loan again keeps the terms already typed.
+      // The control does not fire for the option already chosen, but the deal may have changed since the click.
+      // Either way a loan that is there keeps the terms already typed.
       else if (draft.lot.financing.kind !== "loan") draft.lot.financing = { ...DEFAULT_LAND_LOAN };
     });
   }
@@ -176,7 +179,7 @@ function PriceCard({ inputs, evaluation, edit }: SectionProps) {
           onChange={(cents) => edit((draft) => void (draft.lot.closingCents = cents))}
           error={error("lot.closingCents")}
         />
-        <SegmentedControl
+        <SegmentedField
           label="Pay for land with"
           options={[
             { value: "cash", label: "Cash" },
@@ -184,6 +187,8 @@ function PriceCard({ inputs, evaluation, edit }: SectionProps) {
           ]}
           value={financing.kind}
           onChange={payWith}
+          // A loan's own boxes show what is wrong with it; the group speaks only when they are not there.
+          error={financing.kind === "loan" ? undefined : error("lot.financing")}
         />
       </div>
       {financing.kind === "loan" ? (
@@ -299,7 +304,7 @@ function TimelineCard({ inputs, evaluation, edit }: SectionProps) {
           onChange={(days) => edit((draft) => void (draft.timeline.closingDays = days))}
           error={error("timeline.closingDays")}
         />
-        <SegmentedControl
+        <SegmentedField
           label="List for sale"
           options={[
             { value: "after", label: "At completion" },
@@ -307,6 +312,8 @@ function TimelineCard({ inputs, evaluation, edit }: SectionProps) {
           ]}
           value={listsEarly ? "before" : "after"}
           onChange={(when) => listAt(when === "before")}
+          // The months box shows the message when it is there.
+          error={listsEarly ? undefined : error("timeline.listEarlyMonths")}
         />
         {listsEarly ? (
           <NumberField

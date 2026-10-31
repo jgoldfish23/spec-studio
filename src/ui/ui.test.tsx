@@ -40,6 +40,21 @@ describe("SegmentedControl", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  it("points its group at the text that describes it", () => {
+    render(
+      <>
+        <SegmentedControl<Slope> label="Slope" options={[...SLOPES]} value="gentle" onChange={() => {}} describedBy="why" />
+        <p id="why">Pick one</p>
+      </>,
+    );
+    expect(screen.getByRole("group", { name: "Slope" })).toHaveAccessibleDescription("Pick one");
+  });
+
+  it("has no description unless it is given one", () => {
+    render(<SegmentedControl<Slope> label="Slope" options={[...SLOPES]} value="gentle" onChange={() => {}} />);
+    expect(screen.getByRole("group", { name: "Slope" })).not.toHaveAttribute("aria-describedby");
+  });
+
   it("renders a disabled option disabled, and a click on it does nothing", async () => {
     const onChange = vi.fn();
     const options = [SLOPES[0], SLOPES[1], { ...SLOPES[2], disabled: true }];

@@ -1,21 +1,18 @@
-import { Link } from "react-router";
 import type { DealEvaluation, DealInputs } from "@engine";
 import { formatMoney, formatPercent } from "../../lib/format";
 import { Card } from "../../ui/Card";
+import { NextStepLink } from "../deal/NextStepLink";
 import { summarize } from "../deal/summary";
 import { landPlusClosing, priceThatMakesGo, shareOf } from "./lotFigures";
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value, good = false }: { label: string; value: string; good?: boolean }) {
   return (
     <div className="flex flex-wrap justify-between gap-x-3 gap-y-1 text-sm">
       <dt className="text-muted">{label}</dt>
-      <dd className="m-0 text-right font-bold">{value}</dd>
+      <dd className={`m-0 text-right font-bold ${good ? "text-go" : ""}`}>{value}</dd>
     </div>
   );
 }
-
-const NEXT_LINK =
-  "flex min-h-12 items-center justify-center rounded-lg bg-spruce px-4.5 py-3.5 text-[15px] font-semibold text-white no-underline hover:bg-spruce-dark focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spruce";
 
 interface LotSidePanelProps {
   dealId: string;
@@ -27,6 +24,7 @@ interface LotSidePanelProps {
 export function LotSidePanel({ dealId, lot, evaluation }: LotSidePanelProps) {
   const { totalProjectCostCents, salePriceCents } = summarize(evaluation);
   const land = landPlusClosing(lot);
+  const goPrice = priceThatMakesGo(evaluation);
   return (
     <aside aria-label="About this lot" className="flex min-w-0 flex-[1_1_340px] flex-col gap-5">
       <Card title="Lot so far">
@@ -34,12 +32,10 @@ export function LotSidePanel({ dealId, lot, evaluation }: LotSidePanelProps) {
           <Row label="Land + closing" value={formatMoney(land)} />
           <Row label="Share of total project cost" value={formatPercent(shareOf(land, totalProjectCostCents))} />
           <Row label="Share of base sale price" value={formatPercent(shareOf(land, salePriceCents))} />
-          <Row label="Price that makes this a Go" value={priceThatMakesGo(evaluation)} />
+          <Row label="Price that makes this a Go" value={goPrice.text} good={goPrice.good} />
         </dl>
       </Card>
-      <Link to={`/deals/${dealId}/house`} className={NEXT_LINK}>
-        Next: describe the house →
-      </Link>
+      <NextStepLink to={`/deals/${dealId}/house`}>Next: describe the house →</NextStepLink>
     </aside>
   );
 }

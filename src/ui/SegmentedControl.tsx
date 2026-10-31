@@ -9,17 +9,19 @@ export interface SegmentedControlProps<T extends string> {
   options: SegmentOption<T>[];
   value: T;
   onChange: (value: T) => void;
+  /** The id of text that describes the group, such as an error message under it. */
+  describedBy?: string;
 }
 
 /** A row of toggle buttons for choosing one of a few options. Selecting is by `aria-pressed`, not by color alone. */
-export function SegmentedControl<T extends string>({ label, options, value, onChange }: SegmentedControlProps<T>) {
+export function SegmentedControl<T extends string>({ label, options, value, onChange, describedBy }: SegmentedControlProps<T>) {
   return (
     <div className="flex flex-col gap-1.5">
       {/* The group carries the accessible name; this is the same text for sighted users. */}
       <span aria-hidden="true" className="text-[13px] font-semibold text-[#33403A]">
         {label}
       </span>
-      <div role="group" aria-label={label} className="flex overflow-hidden rounded-lg border border-[#C9CEC8]">
+      <div role="group" aria-label={label} aria-describedby={describedBy} className="flex overflow-hidden rounded-lg border border-[#C9CEC8]">
         {options.map((option, index) => {
           const selected = option.value === value;
           return (

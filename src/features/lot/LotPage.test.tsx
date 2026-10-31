@@ -1,15 +1,20 @@
-import { act, fireEvent, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_QUANTITY_RULES, evaluateDeal } from "@engine";
-import type { DealInputs, EngineContext } from "@engine";
+import { MemoryRouter } from "react-router";
+import { evaluateDeal } from "@engine";
+import type { DealInputs, ValidationIssue } from "@engine";
 import { newDealInputs } from "../../data/newDeal";
-import { SAMPLE_DEAL_NAME, sampleComps } from "../../data/sample";
+import { SAMPLE_DEAL_NAME, sampleDealInputs } from "../../data/sample";
 import type { StoredDeal } from "../../data/types";
 import { formatMoney } from "../../lib/format";
+import { contextFor, evaluated } from "../../testing/engineContext";
 import { createHarness, renderApp, seedSampleDeal } from "../../testing/renderApp";
 import type { Harness } from "../../testing/renderApp";
+import { DealEditorContext } from "../deal/DealEditorContext";
 import { summarize } from "../deal/summary";
+import type { DealEditor } from "../deal/useDealEditor";
+import { LotPage } from "./LotPage";
 
 beforeEach(() => {
   window.location.hash = "";
@@ -72,16 +77,6 @@ async function savedAfterAutosave(harness: Harness, deal: StoredDeal): Promise<D
   const stored = await harness.repository.getDeal(deal.id);
   if (stored === null) throw new Error("the deal is gone");
   return stored.inputs;
-}
-
-async function engineContext(harness: Harness): Promise<EngineContext> {
-  return {
-    today: "2026-10-31",
-    costBook: await harness.repository.getCostBook("utah-north"),
-    comps: sampleComps(),
-    marketSettings: await harness.repository.getMarketSettings("utah-north"),
-    quantityRules: DEFAULT_QUANTITY_RULES,
-  };
 }
 
 const card = (name: string) => screen.getByRole("region", { name });
@@ -181,7 +176,7 @@ describe("Lot page edits", () => {
 
     const edited = structuredClone(deal.inputs);
     edited.lot.priceCents = 25_400_000;
-    const expected = summarize(evaluateDeal(edited, await engineContext(harness))).totalProjectCostCents;
+    const expected = summarize(evaluateDeal(edited, await contextFor({ repository: harness.repository }))).totalProjectCostCents;
     expect(expected).not.toBeNull();
     const before = tile("Total project cost").textContent;
     expect(before).not.toContain(formatMoney(expected));
@@ -243,7 +238,7 @@ describe("Lot page edits", () => {
       expect(stored.lot.financing).toEqual({ kind: "loan", ltv: 0.65, rate: 0.095, points: 0.015 });
     });
 
-    it("keeps the loan terms when Land loan is chosen again, and goes back to cash with Cash", async () => {
+    it("keeps the typed loan terms when the pressed Land loan is clicked again, and Cash drops the loan", async () => {
       const user = newUser();
       const { harness, deal } = await sampleSetup();
       await openLot(harness, deal);
@@ -524,7 +519,9 @@ describe("a new deal", () => {
     expect(within(panel).getByText("Land + closing").nextElementSibling).toHaveTextContent("$0");
     expect(within(panel).getByText("Share of total project cost").nextElementSibling).toHaveTextContent("—");
     expect(within(panel).getByText("Share of base sale price").nextElementSibling).toHaveTextContent("—");
-    expect(within(panel).getByText("Price that makes this a Go").nextElementSibling).toHaveTextContent("—");
+    const goPrice = within(panel).getByText("Price that makes this a Go").nextElementSibling;
+    expect(goPrice).toHaveTextContent("—");
+    expect(goPrice).not.toHaveClass("text-go");
   });
 });
 
@@ -533,7 +530,7 @@ describe("the side panel", () => {
     const { harness, deal } = await sampleSetup();
     await openLot(harness, deal);
 
-    const evaluation = evaluateDeal(deal.inputs, await engineContext(harness));
+    const evaluation = evaluateDeal(deal.inputs, await contextFor({ repository: harness.repository }));
     const summary = summarize(evaluation);
     const land = 29_500_000 + 400_000;
     const panel = card("Lot so far");
@@ -546,6 +543,9 @@ describe("the side panel", () => {
     expect(row("Share of base sale price")).toHaveTextContent(saleShare);
     expect(evaluation.verdict.kind).toBe("marginal");
     expect(row("Price that makes this a Go")).toHaveTextContent("$227,100 (−$67,900)");
+    // The price to aim for is shown in the Go color, as on the mockup.
+    expect(row("Price that makes this a Go")).toHaveClass("text-go");
+    expect(row("Land + closing")).not.toHaveClass("text-go");
   });
 
   it("says Already a Go when the verdict is a go", async () => {
@@ -556,9 +556,9 @@ describe("the side panel", () => {
     await typeOver(user, "Lot price", "1");
     await advance(200);
     expect(screen.getByText(/^Go$/)).toBeVisible();
-    expect(within(card("Lot so far")).getByText("Price that makes this a Go").nextElementSibling).toHaveTextContent(
-      "Already a Go",
-    );
+    const goPrice = within(card("Lot so far")).getByText("Price that makes this a Go").nextElementSibling;
+    expect(goPrice).toHaveTextContent("Already a Go");
+    expect(goPrice).toHaveClass("text-go");
   });
 
   it("says when the lot price alone cannot make it a Go", async () => {
@@ -570,9 +570,10 @@ describe("the side panel", () => {
     await openLot(harness, deal);
 
     expect(await screen.findByText("No-go")).toBeVisible();
-    expect(within(card("Lot so far")).getByText("Price that makes this a Go").nextElementSibling).toHaveTextContent(
-      "Not reachable with lot price alone",
-    );
+    const goPrice = within(card("Lot so far")).getByText("Price that makes this a Go").nextElementSibling;
+    expect(goPrice).toHaveTextContent("Not reachable with lot price alone");
+    // Not good news, so not in the Go color.
+    expect(goPrice).not.toHaveClass("text-go");
   });
 
   it("shows dashes, not NaN, for a stored deal whose lot price is a fraction of a cent", async () => {
@@ -644,5 +645,84 @@ describe("messages from the engine", () => {
     expect(months).toHaveAttribute("aria-invalid", "true");
     const message = within(card("Timeline")).getByText("Cannot list earlier than the build is long");
     expect(months.getAttribute("aria-describedby")).toContain(message.id);
+  });
+});
+
+/**
+ * The choice controls have no box of their own for a message, and no value that breaks a rule the owner can fix gets
+ * past the data layer for most of them (an unknown utility, a loan kind that is neither, a region other than the one
+ * offered are all refused). So these tests give the page an evaluation that reports the problem, to see where it is shown.
+ */
+describe("messages under the choice controls", () => {
+  async function renderWith(validation: ValidationIssue[], change: (inputs: DealInputs) => void = () => {}) {
+    const inputs = sampleDealInputs();
+    change(inputs);
+    const evaluation = { ...(await evaluated(inputs)), validation };
+    const now = new Date().toISOString();
+    const editor: DealEditor = {
+      status: "ready",
+      deal: { id: "deal-1", name: "Fake", status: "analyzing", inputs, createdAt: now, updatedAt: now },
+      inputs,
+      evaluation,
+      context: await contextFor(),
+      edit: vi.fn(),
+      rename: () => true,
+      undo: vi.fn(),
+      redo: vi.fn(),
+      discardChanges: vi.fn(),
+      canUndo: false,
+      canRedo: false,
+      saveStatus: { kind: "saved" },
+    };
+    render(
+      <MemoryRouter>
+        <DealEditorContext.Provider value={editor}>
+          <LotPage />
+        </DealEditorContext.Provider>
+      </MemoryRouter>,
+    );
+  }
+
+  it("shows a region problem under the region control and ties it to the group", async () => {
+    await renderWith([{ path: "lot.region", message: "Region is not offered" }]);
+    expect(group("Region")).toHaveAccessibleDescription("Region is not offered");
+    expect(screen.getByText("Region is not offered")).toHaveClass("text-no-go");
+  });
+
+  it("shows a utility problem under that utility only", async () => {
+    await renderWith([{ path: "lot.utilities.sewer", message: "Pick an answer" }]);
+    expect(screen.getAllByText("Pick an answer")).toHaveLength(1);
+    expect(group("Sewer")).toHaveAccessibleDescription("Pick an answer");
+    for (const other of ["Water", "Gas", "Power", "Secondary water"]) {
+      expect(group(other)).not.toHaveAttribute("aria-describedby");
+    }
+  });
+
+  it("shows a problem with how the land is paid for under the control while no loan box is there", async () => {
+    await renderWith([{ path: "lot.financing", message: "Choose cash or a loan" }]);
+    expect(group("Pay for land with")).toHaveAccessibleDescription("Choose cash or a loan");
+  });
+
+  it("leaves a loan's problem to the loan's own box, not repeated under the control", async () => {
+    await renderWith([{ path: "lot.financing.ltv", message: "Too high" }], (inputs) => {
+      inputs.lot.financing = { kind: "loan", ltv: 1.5, rate: 0.1, points: 0.01 };
+    });
+    expect(screen.getAllByText("Too high")).toHaveLength(1);
+    expect(screen.getByLabelText("LTV %")).toHaveAccessibleDescription("Too high");
+    expect(group("Pay for land with")).not.toHaveAttribute("aria-describedby");
+  });
+
+  it("shows a listing problem under the control while no months box is there", async () => {
+    await renderWith([{ path: "timeline.listEarlyMonths", message: "Cannot list early" }]);
+    expect(group("List for sale")).toHaveAccessibleDescription("Cannot list early");
+  });
+
+  it("leaves a listing problem to the months box when it is there, not repeated under the control", async () => {
+    await renderWith([{ path: "timeline.listEarlyMonths", message: "Cannot list early" }], (inputs) => {
+      inputs.timeline.listEarlyMonths = 12;
+    });
+    expect(screen.getAllByText("Cannot list early")).toHaveLength(1);
+    expect(screen.getByLabelText("Months before completion")).toHaveAccessibleDescription(/Cannot list early/);
+    expect(group("List for sale")).not.toHaveAttribute("aria-describedby");
   });
 });

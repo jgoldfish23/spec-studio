@@ -20,12 +20,18 @@ export function shareOf(part: number | null | undefined, whole: number | null | 
   return part / whole;
 }
 
-/** What the "Price that makes this a Go" row says, from goal seek's answer for the lot price alone. */
-export function priceThatMakesGo(evaluation: DealEvaluation): string {
-  if (evaluation.verdict.kind === "go") return "Already a Go";
+/** What the "Price that makes this a Go" row says, and whether it is good news (a price to aim for, or a Go already). */
+export interface GoPrice {
+  text: string;
+  good: boolean;
+}
+
+/** The "Price that makes this a Go" row, from goal seek's answer for the lot price alone. */
+export function priceThatMakesGo(evaluation: DealEvaluation): GoPrice {
+  if (evaluation.verdict.kind === "go") return { text: "Already a Go", good: true };
   const lever = evaluation.goalSeek?.find((result) => result.lever === "lotPrice");
-  if (lever === undefined) return "—";
-  if (!lever.reachable) return "Not reachable with lot price alone";
-  if (lever.valueCents === undefined || lever.deltaCents === undefined) return "—";
-  return `${formatMoney(lever.valueCents)} (${formatMoney(lever.deltaCents)})`;
+  if (lever === undefined) return { text: "—", good: false };
+  if (!lever.reachable) return { text: "Not reachable with lot price alone", good: false };
+  if (lever.valueCents === undefined || lever.deltaCents === undefined) return { text: "—", good: false };
+  return { text: `${formatMoney(lever.valueCents)} (${formatMoney(lever.deltaCents)})`, good: true };
 }
