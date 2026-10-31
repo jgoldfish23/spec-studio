@@ -59,25 +59,47 @@ function without(records: Record<string, unknown>, id: string): Record<string, u
   return Object.fromEntries(Object.entries(records).filter(([key]) => key !== id));
 }
 
-type DealRead = { ok: true; deal: StoredDeal } | { ok: false; path: string; message: string };
+type Problem = { path: string; message: string };
+type DealRead = { ok: true; deal: StoredDeal } | ({ ok: false } & Problem);
 
 /** Zod phrases every type error as "Invalid input: expected number, received string"; the prefix says nothing. */
 const plain = (message: string): string => message.replace(/^Invalid input: /, "");
 
+/** The first thing wrong with a record is enough to find it: its dotted path, and a message that starts with it. */
+function firstProblem(error: z.ZodError): Problem {
+  const issue = error.issues[0];
+  const path = (issue?.path ?? []).map(String).join(".");
+  return { path, message: `${path === "" ? "record" : path}: ${plain(issue?.message ?? "unreadable")}` };
+}
+
 function readDeal(raw: unknown): DealRead {
   const parsed = StoredDealSchema.safeParse(raw);
-  if (parsed.success) return { ok: true, deal: parsed.data };
-  // The first problem is enough to find the record. A bad field inside `inputs` arrives from the schema's structural
-  // check with its full path (`inputs.lot.priceCents`).
-  const issue = parsed.error.issues[0];
-  const path = (issue?.path ?? []).map(String).join(".");
-  return { ok: false, path, message: `${path === "" ? "record" : path}: ${plain(issue?.message ?? "unreadable")}` };
+  // A bad field inside `inputs` arrives from the schema's structural check with its full path (`inputs.lot.priceCents`).
+  return parsed.success ? { ok: true, deal: parsed.data } : { ok: false, ...firstProblem(parsed.error) };
+}
+
+/**
+ * Refuses a record that would not read back. The record is checked as it will be stored, after a trip through JSON:
+ * that is where `NaN` and `Infinity` become `null`, and `undefined` fields vanish. Without this, one bad autosave
+ * (a blank name, a number gone wrong) would replace a good deal with one that lists as a problem.
+ */
+function assertDealReadsBack(deal: StoredDeal): void {
+  const read = readDeal(JSON.parse(JSON.stringify(deal)));
+  if (!read.ok) throw new DataError(`Couldn't save — ${read.message}`, { recordId: deal.id, path: read.path });
+}
+
+function assertCompReadsBack(comp: Comp): void {
+  const parsed = CompSchema.safeParse(JSON.parse(JSON.stringify(comp)));
+  if (parsed.success) return;
+  const problem = firstProblem(parsed.error);
+  throw new DataError(`Couldn't save — ${problem.message}`, { recordId: comp.id, path: problem.path });
 }
 
 /**
  * The demo build's repository: deals, comps and settings in `storage` (the browser's `localStorage`), the cost book
  * and market settings from the engine's defaults. Every read checks what it finds, so a record that was edited by
- * hand or written by a different version shows up as a problem instead of reaching a screen. Every method returns
+ * hand or written by a different version shows up as a problem instead of reaching a screen. Every write is checked
+ * the same way first, so a save never replaces a good record with one that would not read back. Every method returns
  * copies, so a caller can change what it gets without changing what is stored.
  */
 export function createLocalRepository(
@@ -105,6 +127,7 @@ export function createLocalRepository(
   }
 
   function putDeal(deal: StoredDeal): void {
+    assertDealReadsBack(deal);
     write(DEALS_KEY, { ...dealRecords(), [deal.id]: deal });
   }
 
@@ -178,6 +201,7 @@ export function createLocalRepository(
 
     async saveComp(comp: Comp): Promise<Comp> {
       const saved = structuredClone(comp);
+      assertCompReadsBack(saved);
       // Unlike deals, comps have no screen to reset them, so a store that cannot be read is started over.
       const store = readStore(storage, COMPS_KEY);
       write(COMPS_KEY, { ...(store.ok ? store.records : {}), [saved.id]: saved });

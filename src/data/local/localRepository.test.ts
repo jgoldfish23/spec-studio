@@ -571,6 +571,98 @@ describe("company settings", () => {
   });
 });
 
+describe("a save that would not read back", () => {
+  const rawDeals = (storage: Storage): string | null => storage.getItem(DEALS_KEY);
+
+  it("rejects a blank name and keeps the deal that was stored", async () => {
+    const { repo, storage } = setup();
+    const created = await repo.createDeal({ name: "Kaysville lot", inputs: sampleDealInputs() });
+    const before = rawDeals(storage);
+    const error = (await repo.saveDeal({ ...created, name: "" }).catch((e: unknown) => e)) as DataError;
+    expect(error).toBeInstanceOf(DataError);
+    expect(error.recordId).toBe(created.id);
+    expect(error.path).toBe("name");
+    expect(error.message).toMatch(/^Couldn't save — name: /);
+    expect(rawDeals(storage)).toBe(before);
+    expect(((await repo.getDeal(created.id)) as StoredDeal).name).toBe("Kaysville lot");
+  });
+
+  it.each([
+    ["NaN", Number.NaN],
+    ["Infinity", Number.POSITIVE_INFINITY],
+    ["-Infinity", Number.NEGATIVE_INFINITY],
+  ])("rejects %s in the inputs, which JSON would turn into null", async (_name, bad) => {
+    const { repo, storage } = setup();
+    const created = await repo.createDeal({ name: "A", inputs: sampleDealInputs() });
+    const before = rawDeals(storage);
+    const edited = { ...created, inputs: { ...created.inputs, lot: { ...created.inputs.lot, priceCents: bad } } };
+    const error = (await repo.saveDeal(edited).catch((e: unknown) => e)) as DataError;
+    expect(error).toBeInstanceOf(DataError);
+    expect(error.recordId).toBe(created.id);
+    expect(error.path).toBe("inputs.lot.priceCents");
+    expect(error.message).toMatch(/^Couldn't save — inputs\.lot\.priceCents: /);
+    expect(rawDeals(storage)).toBe(before);
+    expect(await repo.getDeal(created.id)).toEqual(created);
+  });
+
+  it("rejects a timestamp that is not a date, so a clock fault cannot corrupt a deal", async () => {
+    const { repo, clock, storage } = setup();
+    const created = await repo.createDeal({ name: "A", inputs: sampleDealInputs() });
+    const before = rawDeals(storage);
+    clock.now = "yesterday";
+    const error = (await repo.saveDeal(created).catch((e: unknown) => e)) as DataError;
+    expect(error).toBeInstanceOf(DataError);
+    expect(error.path).toBe("updatedAt");
+    expect(rawDeals(storage)).toBe(before);
+  });
+
+  it("rejects a new deal with a blank name and stores nothing", async () => {
+    const { repo, storage } = setup();
+    const error = (await repo.createDeal({ name: "", inputs: sampleDealInputs() }).catch((e: unknown) => e)) as DataError;
+    expect(error).toBeInstanceOf(DataError);
+    expect(error.path).toBe("name");
+    expect(error.message).toMatch(/^Couldn't save — name: /);
+    expect(rawDeals(storage)).toBeNull();
+    expect(await repo.listDeals()).toEqual({ deals: [], problems: [] });
+  });
+
+  it("rejects a comp whose price is NaN and keeps the comp that was stored", async () => {
+    const { repo, storage } = setup();
+    const original = comp("c1");
+    await repo.saveComp(original);
+    const before = storage.getItem(COMPS_KEY);
+    const error = (await repo
+      .saveComp({ ...original, soldPriceCents: Number.NaN })
+      .catch((e: unknown) => e)) as DataError;
+    expect(error).toBeInstanceOf(DataError);
+    expect(error.recordId).toBe("c1");
+    expect(error.path).toBe("soldPriceCents");
+    expect(error.message).toMatch(/^Couldn't save — soldPriceCents: /);
+    expect(storage.getItem(COMPS_KEY)).toBe(before);
+    expect(await repo.listComps("utah-north")).toEqual([original]);
+  });
+
+  it("does not create the comps key for a comp it rejects", async () => {
+    const { repo, storage } = setup();
+    await expect(repo.saveComp({ ...comp("c1"), yearBuilt: Number.POSITIVE_INFINITY })).rejects.toBeInstanceOf(DataError);
+    expect(storage.getItem(COMPS_KEY)).toBeNull();
+  });
+
+  it("still saves a deal with problems the owner can fix", async () => {
+    const { repo } = setup();
+    const created = await repo.createDeal({ name: "A", inputs: sampleDealInputs() });
+    created.inputs.lot.city = "";
+    created.inputs.timeline.buildMonths = 2.5;
+    const basement = created.inputs.house.levels.basement;
+    expect(basement).toBeDefined();
+    if (basement) basement.finishedSf = 99_999;
+    created.inputs.loan.ltc = 2;
+    const saved = await repo.saveDeal(created);
+    expect(await repo.getDeal(created.id)).toEqual(saved);
+    expect(((await repo.getDeal(created.id)) as StoredDeal).inputs.lot.city).toBe("");
+  });
+});
+
 describe("a write that fails", () => {
   it("turns a full or blocked store into a DataError for saveDeal", async () => {
     const { repo } = setup(new FullStorage());
