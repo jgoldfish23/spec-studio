@@ -12,7 +12,7 @@ import { StatTile } from "../../ui/StatTile";
 import { VerdictChip } from "../../ui/VerdictChip";
 import type { SaveStatus } from "./autosaver";
 import { useDealEditorContext } from "./DealEditorContext";
-import type { DealEditor } from "./useDealEditor";
+import type { DealEditor, EvaluationError } from "./useDealEditor";
 import { STEPS } from "./steps";
 import { headsUp, stepForMissing, summarize, topNeeds } from "./summary";
 
@@ -240,6 +240,23 @@ function StepTabs({ dealId }: { dealId: string }) {
   );
 }
 
+/**
+ * The engine threw on the deal as it is now (spec §8): the deal still shows as needing info, and this says why, with
+ * what a bug report needs, and how to get the numbers back.
+ */
+function CalcFailure({ error }: { error: EvaluationError }) {
+  return (
+    <div role="alert" className="flex flex-col gap-1 rounded-xl border border-[#F2C2BE] bg-no-go-bg px-4 py-2 text-no-go">
+      <details>
+        <summary className={`cursor-pointer rounded-md py-2.5 text-[17px] font-bold ${focusRing}`}>Couldn't calculate — details</summary>
+        <p className="m-0 break-words text-sm">{error.message}</p>
+        <p className="m-0 mt-1 mb-2 text-sm">{`Input hash ${error.inputHash}`}</p>
+      </details>
+      <p className="m-0 pb-2 text-sm">Undo your last change, or change an input to try again.</p>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 
 interface ReadyProps {
@@ -285,6 +302,8 @@ function ReadyDeal({ dealId, editor, name, inputs, evaluation, today }: ReadyPro
 
         <StepTabs dealId={dealId} />
       </div>
+
+      {editor.evaluationError ? <CalcFailure error={editor.evaluationError} /> : null}
 
       {/* A step that cannot draw is replaced by the message; the header and the tabs stay, so the owner can move on. */}
       <CalcErrorBoundary key={pathname} input={inputs} resetOn={evaluation}>

@@ -3,7 +3,7 @@ import { uniformBookFor } from "./__fixtures__/books";
 import { GOLDEN_COMPS, GOLDEN_DEAL, GOLDEN_EXPECTED, goldenEstimate, goldenProFormaInput } from "./__fixtures__/golden";
 import { linePartsFor } from "./costbook";
 import type { DealInputs } from "./deal";
-import { evaluateDeal, type DealEvaluation, type EngineContext } from "./evaluate";
+import { evaluateDeal, failedEvaluation, type DealEvaluation, type EngineContext } from "./evaluate";
 import * as engine from "./index";
 import { DEFAULT_MARKET_SETTINGS } from "./market";
 import { breakEvenDomDays, type Metrics } from "./metrics";
@@ -558,11 +558,29 @@ describe("evaluateDeal performance", () => {
   });
 });
 
+describe("failedEvaluation", () => {
+  it("is an evaluation where nothing ran: every step incomplete with one engineError item, at the pro forma", () => {
+    const ev = failedEvaluation("Couldn't calculate this deal");
+    const item: MissingItem = { code: "engineError", message: "Couldn't calculate this deal", step: "proforma" };
+    expect(ev.validation).toEqual([]);
+    expectBlocked(ev);
+    expect(ev.verdict.missing).toEqual([item]);
+    const steps: Result<unknown>[] = [ev.quantities, ev.estimate, ev.price, ev.dom, ev.scenarios];
+    for (const r of steps) expect(missingOf(r)).toEqual([item]);
+    expect(ev.scoredComps).toEqual([]);
+  });
+
+  it("carries the message it is given", () => {
+    expect(failedEvaluation("boom").verdict.missing).toEqual([{ code: "engineError", message: "boom", step: "proforma" }]);
+  });
+});
+
 describe("public API (index.ts)", () => {
   it("re-exports exactly the documented values", () => {
     expect(Object.keys(engine).sort()).toEqual(
       [
         "evaluateDeal",
+        "failedEvaluation",
         "validateDeal",
         "listYearMonth",
         "DEFAULT_RULES",

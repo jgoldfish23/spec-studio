@@ -1,10 +1,12 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { evaluateDeal } from "@engine";
+import { evaluateDeal, failedEvaluation } from "@engine";
 import type { DealEvaluation, DealInputs, EngineContext } from "@engine";
 import { queryKeys, useDeal, useEngineContext, useRepository } from "../../data/queries";
 import { DataError } from "../../data/types";
 import type { StoredDeal } from "../../data/types";
+import { errorMessage } from "../../lib/errorMessage";
+import { inputHash } from "../../lib/inputHash";
 import { createAutosaver } from "./autosaver";
 import type { Autosaver, SaveStatus } from "./autosaver";
 import { dealEditorReducer, initialEditorState } from "./dealEditorReducer";
@@ -16,6 +18,22 @@ export const EVALUATE_DELAY_MS = 150;
 
 const SAVED: SaveStatus = { kind: "saved" };
 
+/** What a failed evaluation's items say: the deal could not be worked out, which is not something the owner left out. */
+const FAILED_EVALUATION = "Couldn't calculate this deal";
+
+/** Why the engine could not evaluate the deal as it is now: the exception's message and a hash of the inputs it was given. */
+export interface EvaluationError {
+  message: string;
+  inputHash: string;
+}
+
+/** One evaluation of the deal: the engine's answer, or, when the engine threw, a stand-in and what went wrong. */
+interface Outcome {
+  evaluation: DealEvaluation;
+  error?: EvaluationError;
+  thrown?: unknown;
+}
+
 export interface DealEditor {
   status: "loading" | "notFound" | "error" | "ready";
   /** Set when `status` is `"error"`. */
@@ -24,8 +42,13 @@ export interface DealEditor {
   deal?: StoredDeal;
   /** The inputs being edited. Set when ready. */
   inputs?: DealInputs;
-  /** The deal evaluated, up to 150 ms behind `inputs` while edits are coming in. Set when ready. */
+  /**
+   * The deal evaluated, up to 150 ms behind `inputs` while edits are coming in. Set when ready. When the engine threw,
+   * it is `failedEvaluation` (every step incomplete) and `evaluationError` says what happened.
+   */
   evaluation?: DealEvaluation;
+  /** Set when ready and the engine threw on the inputs `evaluation` is of (a bug, spec §8). */
+  evaluationError?: EvaluationError;
   /** The inputs `evaluation` is of: `inputs` as they were when the deal was last evaluated. Set when ready. */
   evaluatedInputs?: DealInputs;
   /** What the engine was given besides the deal. Set when ready. */
@@ -59,7 +82,8 @@ function toDataError(error: Error): DataError {
 /**
  * The editor behind every step screen of one deal. It loads the deal once, keeps the owner's edits with an undo
  * history, evaluates the deal 150 ms after the last change, and saves 1 s after it (and again every 5 s while a
- * save keeps failing). Leaving the deal, or hiding or closing the page, saves what is waiting.
+ * save keeps failing). Leaving the deal, or hiding or closing the page, saves what is waiting. If the engine throws,
+ * the editor stays ready with `failedEvaluation` and says why in `evaluationError`.
  */
 export function useDealEditor(dealId: string): DealEditor {
   const repository = useRepository();
@@ -99,10 +123,30 @@ export function useDealEditor(dealId: string): DealEditor {
     const timer = setTimeout(() => setEvaluated(present), EVALUATE_DELAY_MS);
     return () => clearTimeout(timer);
   }, [present, evaluated]);
-  const evaluation = useMemo(
-    () => (evaluated !== null && context !== undefined ? evaluateDeal(evaluated, context) : undefined),
-    [evaluated, context],
-  );
+  // An engine that throws must not take the deal down with it: the frame, the tabs, undo and every field stay usable,
+  // and the owner is told "Couldn't calculate" until an undo or another change gives inputs the engine can work out.
+  const outcome = useMemo<Outcome | undefined>(() => {
+    if (evaluated === null || context === undefined) return undefined;
+    try {
+      return { evaluation: evaluateDeal(evaluated, context) };
+    } catch (thrown) {
+      return {
+        evaluation: failedEvaluation(FAILED_EVALUATION),
+        error: { message: errorMessage(thrown), inputHash: inputHash(evaluated) },
+        thrown,
+      };
+    }
+  }, [evaluated, context]);
+  const evaluation = outcome?.evaluation;
+  const evaluationError = outcome?.error;
+
+  // The console hears about each failure once: the same inputs failing again (after an undo and a redo) add nothing.
+  const reported = useRef(new Set<string>());
+  useEffect(() => {
+    if (outcome?.error === undefined || reported.current.has(outcome.error.inputHash)) return;
+    reported.current.add(outcome.error.inputHash);
+    console.error(`Couldn't calculate deal ${dealId} (input hash ${outcome.error.inputHash}):`, outcome.thrown);
+  }, [outcome, dealId]);
 
   // One autosaver per deal. Leaving the deal (or the page) saves what is waiting, without waiting for the answer.
   const autosaver = useRef<Autosaver<StoredDeal> | null>(null);
@@ -207,6 +251,7 @@ export function useDealEditor(dealId: string): DealEditor {
       deal: isReady ? deal : undefined,
       inputs: isReady ? present : undefined,
       evaluation: isReady ? evaluation : undefined,
+      evaluationError: isReady ? evaluationError : undefined,
       evaluatedInputs: isReady ? (evaluated ?? undefined) : undefined,
       context: isReady ? context : undefined,
       edit,
@@ -218,6 +263,24 @@ export function useDealEditor(dealId: string): DealEditor {
       canRedo: live && editor.future.length > 0,
       saveStatus,
     }),
-    [status, error, isReady, deal, present, evaluation, evaluated, context, edit, rename, undo, redo, discardChanges, live, editor, saveStatus],
+    [
+      status,
+      error,
+      isReady,
+      deal,
+      present,
+      evaluation,
+      evaluationError,
+      evaluated,
+      context,
+      edit,
+      rename,
+      undo,
+      redo,
+      discardChanges,
+      live,
+      editor,
+      saveStatus,
+    ],
   );
 }

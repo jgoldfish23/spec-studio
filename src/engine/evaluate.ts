@@ -115,6 +115,15 @@ function invalidEvaluation(validation: ValidationIssue[]): DealEvaluation {
   );
 }
 
+/**
+ * What stands in for an evaluation when `evaluateDeal` itself threw (a bug in the engine): the same shape as a blocked
+ * deal, every step incomplete with one `engineError` item at the pro forma, and no validation issues, so a screen
+ * draws it as it draws any deal that cannot be worked out yet, rather than going blank.
+ */
+export function failedEvaluation(message: string): DealEvaluation {
+  return blockedEvaluation([], [{ code: "engineError", message, step: "proforma" }]);
+}
+
 /** An unusable context (comps, cost book, settings, rules or today): blocked like an invalid deal, at the `settings` step. */
 function invalidContextEvaluation(issues: ValidationIssue[]): DealEvaluation {
   return blockedEvaluation(

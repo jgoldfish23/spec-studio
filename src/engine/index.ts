@@ -1,8 +1,8 @@
 /**
- * The engine's public API: `evaluateDeal`, the deal input schemas and defaults, and the types of
- * everything it takes and returns.
+ * The engine's public API: `evaluateDeal` (and `failedEvaluation`, what stands in for it when it throws), the deal
+ * input schemas and defaults, and the types of everything it takes and returns.
  */
-export { evaluateDeal } from "./evaluate";
+export { evaluateDeal, failedEvaluation } from "./evaluate";
 export type { DealEvaluation, EngineContext } from "./evaluate";
 
 export {

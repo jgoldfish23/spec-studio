@@ -5,12 +5,14 @@ import { RouterProvider } from "react-router/dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DealInputs, EngineContext } from "@engine";
 import { SAMPLE_DEAL_NAME } from "../../data/sample";
+import { inputHash } from "../../lib/inputHash";
 import { createHarness, renderApp, seedSampleDeal } from "../../testing/renderApp";
+import { DealCrashBoundary } from "./DealCrashBoundary";
 import { useDealEditorContext } from "./DealEditorContext";
 import { DealRoute } from "./DealRoute";
 
-// The engine is real except that a test can make it throw for chosen inputs (spec §8: an engine exception is
-// caught at the screen boundary and the data is unaffected).
+// The engine is real except that a test can make it throw for chosen inputs (spec §8: an engine exception is caught,
+// shown as "Couldn't calculate — details" with the input hash, and the deal stays usable).
 const control = vi.hoisted(() => ({ throwWhen: null as null | ((inputs: DealInputs) => boolean) }));
 vi.mock("@engine", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@engine")>();
@@ -169,7 +171,18 @@ describe("a deal screen", () => {
     expect(screen.queryByText("Couldn't calculate")).not.toBeInTheDocument();
   });
 
-  it("shows Couldn't calculate with details when the engine throws while editing, and the edit is still saved", async () => {
+  /** The engine failures the editor reported on the console. */
+  const engineFailures = () =>
+    vi.mocked(console.error).mock.calls.filter(([message]) => typeof message === "string" && message.startsWith("Couldn't calculate deal"));
+
+  /** The inputs of `deal` moved to Boomtown, as the Controls button makes them. */
+  function inBoomtown(inputs: DealInputs): DealInputs {
+    const moved = structuredClone(inputs);
+    moved.lot.city = "Boomtown";
+    return moved;
+  }
+
+  it("keeps the header, tabs, Undo and the step when the engine throws on an edit, and says Couldn't calculate with the input hash", async () => {
     const user = userEvent.setup();
     const harness = createHarness();
     const deal = await seedSampleDeal(harness.repository);
@@ -177,23 +190,96 @@ describe("a deal screen", () => {
     renderDeal(harness, deal.id, "lot");
 
     await user.click(await screen.findByRole("button", { name: "Move to Boomtown" }));
-    expect(await screen.findByText("Couldn't calculate")).toBeVisible();
-    const details = screen.getByText("Details").closest("details") as HTMLElement;
+    const panel = await screen.findByRole("alert");
+    expect(panel).toHaveTextContent("Couldn't calculate — details");
+    expect(panel).toHaveTextContent("Undo your last change, or change an input to try again.");
+    const details = within(panel).getByText("Couldn't calculate — details").closest("details") as HTMLElement;
     expect(details).toHaveTextContent("engine fell over");
-    expect(details).toHaveTextContent(/Input hash: [0-9a-f]{8}/);
+    const hash = inputHash(inBoomtown(deal.inputs));
+    expect(details).toHaveTextContent(`Input hash ${hash}`);
+    expect(panel).not.toHaveTextContent(/unaffected/);
 
-    // The editor unmounted on the way out and saved what was waiting at once, well before the 1 s autosave would have.
-    await waitFor(async () => expect((await harness.repository.getDeal(deal.id))?.inputs.lot.city).toBe("Boomtown"), { timeout: 800 });
-    expect(screen.queryByText(/Couldn't save your last changes/)).not.toBeInTheDocument();
+    // Everything around it still works: the name, the tabs, Undo, the step, and the strip and verdict, which show the
+    // failed evaluation as a deal that cannot be worked out.
+    expect(screen.getByLabelText("Deal name")).toHaveValue(SAMPLE_DEAL_NAME);
+    expect(screen.getByRole("navigation", { name: "Deal steps" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Move to Boomtown" })).toBeVisible();
+    expect(within(screen.getByRole("region", { name: "Deal summary" })).getAllByText("—")).toHaveLength(5);
+    expect(screen.getByText("Needs info")).toBeVisible();
+
+    // Logged once, with the hash, for whoever has to find the bug.
+    expect(engineFailures()).toEqual([[expect.stringContaining(hash), expect.objectContaining({ message: "engine fell over" })]]);
+    // The edit is kept like any other: it is saved, so nothing the owner typed is lost.
+    await waitFor(async () => expect((await harness.repository.getDeal(deal.id))?.inputs.lot.city).toBe("Boomtown"), { timeout: 3000 });
   });
 
-  it("shows Couldn't calculate for a stored deal the engine cannot evaluate, and the app around it still works", async () => {
+  it("recovers on Undo without leaving the page, and logs a failure once however often it comes back", async () => {
+    const user = userEvent.setup();
+    const harness = createHarness();
+    const deal = await seedSampleDeal(harness.repository);
+    control.throwWhen = (inputs) => inputs.lot.city === "Boomtown";
+    renderDeal(harness, deal.id, "lot");
+
+    await user.click(await screen.findByRole("button", { name: "Move to Boomtown" }));
+    expect(await screen.findByText("Couldn't calculate — details")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(screen.queryByText("Couldn't calculate — details")).not.toBeInTheDocument());
+    expect(await screen.findByText(/^(Go|Marginal|No-go)$/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Move to Boomtown" })).toBeVisible();
+
+    // The same inputs again: the panel is back, but the console already has this one.
+    await user.click(screen.getByRole("button", { name: "Redo" }));
+    expect(await screen.findByText("Couldn't calculate — details")).toBeVisible();
+    expect(engineFailures()).toHaveLength(1);
+  });
+
+  it("opens a stored deal the engine cannot evaluate, with Couldn't calculate shown and the fields still editable", async () => {
+    const user = userEvent.setup();
     const harness = createHarness();
     const deal = await seedSampleDeal(harness.repository);
     control.throwWhen = () => true;
-    renderDeal(harness, deal.id, "lot");
-    expect(await screen.findByText("Couldn't calculate")).toBeVisible();
-    expect(screen.queryByLabelText("Deal name")).not.toBeInTheDocument();
-    expect((await harness.repository.getDeal(deal.id))?.name).toBe(SAMPLE_DEAL_NAME);
+    renderApp(`#/deals/${deal.id}/lot`, harness);
+
+    expect(await screen.findByText("Couldn't calculate — details")).toBeVisible();
+    expect(screen.getByLabelText("Deal name")).toHaveValue(SAMPLE_DEAL_NAME);
+    expect(screen.getByRole("navigation", { name: "Deal steps" })).toBeVisible();
+
+    const city = await screen.findByLabelText("City");
+    await user.clear(city);
+    await user.type(city, "Layton");
+    expect(city).toHaveValue("Layton");
+    await waitFor(async () => expect((await harness.repository.getDeal(deal.id))?.inputs.lot.city).toBe("Layton"), { timeout: 3000 });
+  });
+});
+
+describe("a deal screen that cannot be drawn at all", () => {
+  it("says something went wrong showing the deal, that the saved changes are kept, and links back to Deals", async () => {
+    const router = createMemoryRouter(
+      [
+        { path: "/deals", element: <h1>Deals list</h1> },
+        {
+          path: "/deals/:dealId/lot",
+          element: (
+            <DealCrashBoundary>
+              <Crash />
+            </DealCrashBoundary>
+          ),
+        },
+      ],
+      { initialEntries: ["/deals/d1/lot"] },
+    );
+    render(<RouterProvider router={router} />);
+
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("Something went wrong showing this deal.");
+    expect(alert).toHaveTextContent("Your last saved changes are kept. Go back to Deals and open it again.");
+    expect(alert).not.toHaveTextContent(/Change an input/i);
+    expect(alert).not.toHaveTextContent(/Couldn't calculate/);
+    const back = within(alert).getByRole("link", { name: "Back to Deals" });
+    expect(back).toHaveAttribute("href", "/deals");
+    await userEvent.click(back);
+    expect(await screen.findByRole("heading", { name: "Deals list" })).toBeVisible();
   });
 });
