@@ -11,6 +11,11 @@ export interface AutosaverOptions<T> {
   /** How long to wait before trying a failed save again. */
   retryMs?: number;
   onStatus: (status: SaveStatus) => void;
+  /**
+   * Called once with the newest unsaved value when a save fails after `dispose()`. A disposed autosaver shows no
+   * status and arms no retry, so this is the only way the owner of the value learns that it never reached the store.
+   */
+  onAbandoned?: (value: T, message: string) => void;
 }
 
 export interface Autosaver<T> {
@@ -20,6 +25,11 @@ export interface Autosaver<T> {
   flush(): Promise<void>;
   /** Cancels what is waiting and silences the status. A save already started, or already asked for by `flush`, finishes. */
   dispose(): void;
+  /**
+   * Drops the waiting value, any delay and any retry, because the value must not be saved (its deal is gone). A save
+   * already running is not cancelled, and if it fails it is not retried. Safe to call again and again.
+   */
+  discard(): void;
 }
 
 const messageOf = (error: unknown): string =>
@@ -35,6 +45,7 @@ export function createAutosaver<T>({
   delayMs = 1000,
   retryMs = 5000,
   onStatus,
+  onAbandoned,
 }: AutosaverOptions<T>): Autosaver<T> {
   let latest: T | undefined;
   /** A value is waiting to be saved: `latest` has not been saved yet. */
@@ -45,6 +56,8 @@ export function createAutosaver<T>({
   let current: Promise<void> = Promise.resolve();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
+  /** Counts `discard` calls, so a save that was running during one knows its value was given up. */
+  let discards = 0;
   let status: SaveStatus = { kind: "saved" };
 
   function setStatus(next: SaveStatus): void {
@@ -78,21 +91,28 @@ export function createAutosaver<T>({
         dirty = false;
         due = false;
         setStatus({ kind: "saving" });
+        const discardsBefore = discards;
         let failure: string | undefined;
         try {
           await save(value);
         } catch (error) {
           failure = messageOf(error);
         }
+        // A value given up during its own save is not retried, and its failure is no longer news.
+        if (discards !== discardsBefore) failure = undefined;
         // A failed value stays the one to save, unless an edit made during the save replaced it.
         const replaced = dirty;
         if (failure !== undefined && !replaced) dirty = true;
         if (dirty && due) continue;
-        if (failure !== undefined) {
+        if (failure === undefined) {
+          setStatus(dirty ? { kind: "pending" } : { kind: "saved" });
+        } else if (disposed) {
+          // Nothing will retry this: hand the newest unsaved value to whoever owns it.
+          dirty = false;
+          onAbandoned?.(latest as T, failure);
+        } else {
           setStatus({ kind: "error", message: failure });
           if (!replaced) startTimer(retryMs);
-        } else {
-          setStatus(dirty ? { kind: "pending" } : { kind: "saved" });
         }
       }
     } finally {
@@ -124,6 +144,14 @@ export function createAutosaver<T>({
     dispose() {
       disposed = true;
       clearTimer();
+    },
+    discard() {
+      discards++;
+      dirty = false;
+      due = false;
+      clearTimer();
+      // With a save running, its end reports the status; otherwise nothing is left waiting or failing.
+      if (!running) setStatus({ kind: "saved" });
     },
   };
 }

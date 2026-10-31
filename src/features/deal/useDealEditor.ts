@@ -9,6 +9,7 @@ import { createAutosaver } from "./autosaver";
 import type { Autosaver, SaveStatus } from "./autosaver";
 import { dealEditorReducer, initialEditorState } from "./dealEditorReducer";
 import type { EditorAction, EditorState } from "./dealEditorReducer";
+import { reportLostSave } from "./lostSaves";
 
 /** How long after the last change the deal is evaluated again. */
 export const EVALUATE_DELAY_MS = 150;
@@ -32,6 +33,12 @@ export interface DealEditor {
   rename(name: string): boolean;
   undo(): void;
   redo(): void;
+  /**
+   * Gives up the save that is waiting (and any retry), for a deal that is about to be deleted: without it, the
+   * autosave would write the deal back, or the editor's last save on the way out would. A save already running
+   * finishes. Edits made after the call are saved as usual.
+   */
+  discardChanges(): void;
   canUndo: boolean;
   canRedo: boolean;
   saveStatus: SaveStatus;
@@ -106,6 +113,11 @@ export function useDealEditor(dealId: string): DealEditor {
         return saved;
       },
       onStatus: setSaveStatus,
+      // The last save on the way out failed and nothing will retry it: the owner must be told, not left with "saved".
+      onAbandoned: (deal, message) => {
+        console.error(`Couldn't save deal ${deal.id}:`, message);
+        reportLostSave({ dealId: deal.id, dealName: deal.name, message });
+      },
     });
     autosaver.current = instance;
     return () => {
@@ -130,17 +142,27 @@ export function useDealEditor(dealId: string): DealEditor {
     if (changed) autosaver.current?.schedule(deal);
   }, [deal]);
 
+  // A deal that was deleted elsewhere while it is open: the editor must not write it back, and is no longer ready.
+  const missing = dealQuery.isSuccess && dealQuery.data === null;
+  const deletedElsewhere = seeded && missing;
+  /** Seeded and still there: the editor can be used. */
+  const live = seeded && !missing;
+  useEffect(() => {
+    if (deletedElsewhere) autosaver.current?.discard();
+  }, [deletedElsewhere]);
+
   const edit = useCallback((recipe: (draft: DealInputs) => void) => dispatch({ type: "edit", recipe }), []);
   const undo = useCallback(() => dispatch({ type: "undo" }), []);
   const redo = useCallback(() => dispatch({ type: "redo" }), []);
+  const discardChanges = useCallback(() => autosaver.current?.discard(), []);
   const rename = useCallback(
     (newName: string): boolean => {
       const trimmed = newName.trim();
-      if (trimmed === "" || !seeded) return false;
+      if (trimmed === "" || !live) return false;
       setSeed((current) => (current === null || current.name === trimmed ? current : { ...current, name: trimmed }));
       return true;
     },
-    [seeded],
+    [live],
   );
 
   // Once seeded, the editor owns the deal: a later failed or empty read of it is not the editor's problem. The
@@ -160,7 +182,7 @@ export function useDealEditor(dealId: string): DealEditor {
 
   let status: DealEditor["status"] = "loading";
   if (error) status = "error";
-  else if (!seeded && dealQuery.data === null) status = "notFound";
+  else if (missing) status = "notFound";
   else if (seeded && context !== undefined && evaluation !== undefined) status = "ready";
   const isReady = status === "ready";
 
@@ -176,10 +198,11 @@ export function useDealEditor(dealId: string): DealEditor {
       rename,
       undo,
       redo,
-      canUndo: seeded && editor.past.length > 0,
-      canRedo: seeded && editor.future.length > 0,
+      discardChanges,
+      canUndo: live && editor.past.length > 0,
+      canRedo: live && editor.future.length > 0,
       saveStatus,
     }),
-    [status, error, isReady, deal, present, evaluation, context, edit, rename, undo, redo, seeded, editor, saveStatus],
+    [status, error, isReady, deal, present, evaluation, context, edit, rename, undo, redo, discardChanges, live, editor, saveStatus],
   );
 }

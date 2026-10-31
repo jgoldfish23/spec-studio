@@ -13,6 +13,7 @@ import { SAMPLE_DEAL_NAME, sampleComps, sampleDealInputs } from "../../data/samp
 import { MemoryStorage } from "../../data/testing/memoryStorage";
 import { DataError } from "../../data/types";
 import type { Repository, StoredDeal } from "../../data/types";
+import { resetLostSaves, useLostSaves } from "./lostSaves";
 import { useDealEditor } from "./useDealEditor";
 
 const ORIGINAL_PRICE = sampleDealInputs().lot.priceCents;
@@ -90,6 +91,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
+  resetLostSaves();
 });
 
 describe("useDealEditor loading", () => {
@@ -387,13 +389,193 @@ describe("useDealEditor editing", () => {
   it("gives edit, undo, redo and rename a stable identity", async () => {
     const s = await setup();
     const view = await ready(s);
-    const { edit, undo, redo, rename } = view.result.current;
+    const { edit, undo, redo, rename, discardChanges } = view.result.current;
     act(() => view.result.current.edit(setPrice(NEW_PRICE)));
     await advance(1000);
     expect(view.result.current.edit).toBe(edit);
     expect(view.result.current.undo).toBe(undo);
     expect(view.result.current.redo).toBe(redo);
     expect(view.result.current.rename).toBe(rename);
+    expect(view.result.current.discardChanges).toBe(discardChanges);
+  });
+
+  it("is notFound, with nothing written back, when the deal turns out to be deleted while it is open", async () => {
+    const s = await setup();
+    const view = await ready(s);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    expect(view.result.current.saveStatus).toEqual({ kind: "pending" });
+
+    // Deleted elsewhere: the repository forgets it, and the next read of it comes back empty.
+    await s.repository.deleteDeal(s.first.id);
+    await act(async () => {
+      await s.client.invalidateQueries({ queryKey: queryKeys.deal(s.first.id) });
+    });
+    await advance(10);
+    expect(view.result.current.status).toBe("notFound");
+    expect(view.result.current.deal).toBeUndefined();
+    expect(view.result.current.inputs).toBeUndefined();
+    expect(view.result.current.canUndo).toBe(false);
+    let accepted: boolean | undefined;
+    act(() => {
+      accepted = view.result.current.rename("Too late");
+    });
+    expect(accepted).toBe(false);
+
+    await advance(30_000);
+    expect(s.saveDeal).not.toHaveBeenCalled();
+    expect(await s.storedDeal(s.first.id)).toBeNull();
+    expect(view.result.current.saveStatus).toEqual({ kind: "saved" });
+
+    view.unmount();
+    await advance(30_000);
+    expect(s.saveDeal).not.toHaveBeenCalled();
+    expect(await s.storedDeal(s.first.id)).toBeNull();
+  });
+
+  it("is notFound when the cached deal is set to null under an editor with a save waiting", async () => {
+    const s = await setup();
+    const view = await ready(s);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+
+    act(() => {
+      s.client.setQueryData(queryKeys.deal(s.first.id), null);
+    });
+    await advance(0); // the query client tells its observers on the next tick
+    expect(view.result.current.status).toBe("notFound");
+    await advance(30_000);
+    expect(s.saveDeal).not.toHaveBeenCalled();
+    expect((await s.storedDeal(s.first.id))?.inputs.lot.priceCents).toBe(ORIGINAL_PRICE);
+  });
+});
+
+describe("useDealEditor discardChanges", () => {
+  it("cancels the save that is waiting", async () => {
+    const s = await setup();
+    const view = await ready(s);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    expect(view.result.current.saveStatus).toEqual({ kind: "pending" });
+
+    act(() => view.result.current.discardChanges());
+    expect(view.result.current.saveStatus).toEqual({ kind: "saved" });
+    await advance(5000);
+    expect(s.saveDeal).not.toHaveBeenCalled();
+    expect((await s.storedDeal(s.first.id))?.inputs.lot.priceCents).toBe(ORIGINAL_PRICE);
+    // The editor itself is untouched: only the saving was given up.
+    expect(view.result.current.inputs?.lot.priceCents).toBe(NEW_PRICE);
+  });
+
+  it("leaves nothing for the editor to save when it goes away", async () => {
+    const s = await setup();
+    const view = await ready(s);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    act(() => view.result.current.rename("Doomed"));
+    act(() => view.result.current.discardChanges());
+
+    view.unmount();
+    await advance(30_000);
+    expect(s.saveDeal).not.toHaveBeenCalled();
+    const stored = await s.storedDeal(s.first.id);
+    expect(stored?.inputs.lot.priceCents).toBe(ORIGINAL_PRICE);
+    expect(stored?.name).toBe(SAMPLE_DEAL_NAME);
+  });
+
+  it("can be called again and again, and edits after it are saved as usual", async () => {
+    const s = await setup();
+    const view = await ready(s);
+    act(() => view.result.current.discardChanges());
+    act(() => view.result.current.discardChanges());
+    act(() => view.result.current.edit(setPrice(20_000_000)));
+    act(() => view.result.current.discardChanges());
+    act(() => view.result.current.discardChanges());
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    await advance(1000);
+    expect(s.saveDeal).toHaveBeenCalledTimes(1);
+    expect((await s.storedDeal(s.first.id))?.inputs.lot.priceCents).toBe(NEW_PRICE);
+  });
+});
+
+describe("useDealEditor edits that could not be saved", () => {
+  it("records the lost edits, and says so on the console, when the last save fails as the editor goes away", async () => {
+    const s = await setup();
+    s.saveDeal.mockRejectedValueOnce(new Error("Couldn't save — browser storage is full or unavailable"));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const lost = renderHook(() => useLostSaves());
+    const view = await ready(s);
+
+    act(() => {
+      view.result.current.rename("Renamed before leaving");
+      view.result.current.edit(setPrice(NEW_PRICE));
+    });
+    view.unmount();
+    await advance(60_000);
+
+    expect(s.saveDeal).toHaveBeenCalledTimes(1); // nothing retries a deal nobody is looking at
+    expect((await s.storedDeal(s.first.id))?.inputs.lot.priceCents).toBe(ORIGINAL_PRICE);
+    expect(lost.result.current).toEqual([
+      {
+        dealId: s.first.id,
+        dealName: "Renamed before leaving",
+        message: "Couldn't save — browser storage is full or unavailable",
+      },
+    ]);
+    expect(consoleError).toHaveBeenCalledTimes(1);
+    expect(consoleError).toHaveBeenCalledWith(
+      `Couldn't save deal ${s.first.id}:`,
+      "Couldn't save — browser storage is full or unavailable",
+    );
+    consoleError.mockRestore();
+  });
+
+  it("records the old deal's lost edits when the editor moves to another deal", async () => {
+    const s = await setup();
+    const second = await s.repository.createDeal({ name: "Second deal", inputs: sampleDealInputs() });
+    s.saveDeal.mockRejectedValueOnce(new Error("disk full"));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const lost = renderHook(() => useLostSaves());
+    const view = await ready(s);
+
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    view.rerender({ dealId: second.id });
+    await settle(view);
+    await advance(10);
+
+    expect(lost.result.current).toEqual([{ dealId: s.first.id, dealName: SAMPLE_DEAL_NAME, message: "disk full" }]);
+    expect(consoleError).toHaveBeenCalledWith(`Couldn't save deal ${s.first.id}:`, "disk full");
+    // The new deal is its own story: it is loaded and has nothing wrong with it.
+    expect(view.result.current.deal?.id).toBe(second.id);
+    expect(view.result.current.saveStatus).toEqual({ kind: "saved" });
+    consoleError.mockRestore();
+  });
+
+  it("records nothing when the last save works", async () => {
+    const s = await setup();
+    const consoleError = vi.spyOn(console, "error");
+    const lost = renderHook(() => useLostSaves());
+    const view = await ready(s);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    view.unmount();
+    await advance(60_000);
+    expect((await s.storedDeal(s.first.id))?.inputs.lot.priceCents).toBe(NEW_PRICE);
+    expect(lost.result.current).toEqual([]);
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it("records nothing for a failed save that is still being retried", async () => {
+    const s = await setup();
+    s.saveDeal.mockRejectedValueOnce(new Error("down"));
+    const consoleError = vi.spyOn(console, "error");
+    const lost = renderHook(() => useLostSaves());
+    const view = await ready(s);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    await advance(1000);
+    expect(view.result.current.saveStatus.kind).toBe("error");
+    expect(lost.result.current).toEqual([]);
+    await advance(5000);
+    expect(view.result.current.saveStatus).toEqual({ kind: "saved" });
+    expect(lost.result.current).toEqual([]);
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 });
 

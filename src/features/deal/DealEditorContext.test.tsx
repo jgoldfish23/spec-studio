@@ -10,6 +10,7 @@ const editor: DealEditor = {
   rename: () => false,
   undo: () => undefined,
   redo: () => undefined,
+  discardChanges: () => undefined,
   canUndo: false,
   canRedo: false,
   saveStatus: { kind: "saved" },

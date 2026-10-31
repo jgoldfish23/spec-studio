@@ -23,6 +23,7 @@ function setup(options: { delayMs?: number; retryMs?: number } = {}) {
   const calls: number[] = [];
   const statuses: SaveStatus[] = [];
   const gates: Deferred[] = [];
+  const abandoned: { value: number; message: string }[] = [];
   let stored: number | undefined;
   let running = 0;
   let maxRunning = 0;
@@ -44,6 +45,7 @@ function setup(options: { delayMs?: number; retryMs?: number } = {}) {
       }
     },
     onStatus: (status) => statuses.push(status),
+    onAbandoned: (value, message) => abandoned.push({ value, message }),
   });
 
   return {
@@ -51,6 +53,7 @@ function setup(options: { delayMs?: number; retryMs?: number } = {}) {
     calls,
     statuses,
     gates,
+    abandoned,
     failWith,
     stored: () => stored,
     maxRunning: () => maxRunning,
@@ -337,7 +340,7 @@ describe("createAutosaver", () => {
     expect(t.maxRunning()).toBe(1);
   });
 
-  it("does not retry a failed save after dispose", async () => {
+  it("does not retry a failed save after dispose, and hands the value to onAbandoned once", async () => {
     const t = setup();
     t.failWith.push(new Error("down"));
     t.saver.schedule(1);
@@ -345,6 +348,174 @@ describe("createAutosaver", () => {
     t.saver.dispose();
     await advance(60_000);
     expect(t.calls).toEqual([1]);
+    // No status after dispose, and no timer: the only signal is the callback, and it fires exactly once.
+    expect(t.statuses).toEqual([{ kind: "pending" }, { kind: "saving" }]);
+    expect(t.abandoned).toEqual([{ value: 1, message: "down" }]);
+    await t.saver.flush();
+    await advance(60_000);
+    expect(t.abandoned).toHaveLength(1);
+  });
+
+  it("does not call onAbandoned when the save after dispose works", async () => {
+    const t = setup();
+    t.saver.schedule(1);
+    void t.saver.flush();
+    t.saver.dispose();
+    await advance(60_000);
+    expect(t.stored()).toBe(1);
+    expect(t.abandoned).toEqual([]);
+  });
+
+  it("does not call onAbandoned for a failure that will be retried", async () => {
+    const t = setup();
+    t.failWith.push(new Error("down"));
+    t.saver.schedule(1);
+    await advance(1000);
+    expect(t.statuses.at(-1)?.kind).toBe("error");
+    expect(t.abandoned).toEqual([]);
+    await advance(5000);
+    expect(t.stored()).toBe(1);
+    expect(t.abandoned).toEqual([]);
+  });
+
+  it("calls onAbandoned for a running save that fails after dispose, with nothing newer to try", async () => {
+    const t = setup();
+    const first = deferred();
+    t.gates.push(first);
+    t.saver.schedule(1);
+    await advance(1000);
+    expect(t.calls).toEqual([1]);
+
+    t.saver.dispose();
+    first.reject(new Error("quota"));
+    await advance(60_000);
+    expect(t.calls).toEqual([1]);
+    expect(t.abandoned).toEqual([{ value: 1, message: "quota" }]);
+  });
+
+  it("does not abandon a failed value when a newer one is saved after it", async () => {
+    const t = setup();
+    const first = deferred();
+    t.gates.push(first);
+    t.saver.schedule(1);
+    await advance(1000);
+    t.saver.schedule(2);
+    void t.saver.flush();
+    t.saver.dispose();
+
+    first.reject(new Error("down"));
+    await advance(0);
+    expect(t.calls).toEqual([1, 2]);
+    expect(t.stored()).toBe(2);
+    expect(t.abandoned).toEqual([]);
+  });
+
+  it("abandons the newest value when it is the one that fails after dispose", async () => {
+    const t = setup();
+    const first = deferred();
+    t.gates.push(first);
+    t.saver.schedule(1);
+    await advance(1000);
+    t.saver.schedule(2);
+    void t.saver.flush();
+    t.saver.dispose();
+
+    t.failWith.push(new Error("first fails"), new Error("second fails"));
+    first.resolve();
+    await advance(0);
+    // The first save fails, but a newer value is due, so that goes next. It fails too, and nothing can retry it.
+    expect(t.calls).toEqual([1, 2]);
+    expect(t.abandoned).toEqual([{ value: 2, message: "second fails" }]);
+  });
+
+  describe("discard", () => {
+    it("cancels a scheduled save", async () => {
+      const t = setup();
+      t.saver.schedule(1);
+      t.saver.discard();
+      await advance(60_000);
+      expect(t.calls).toEqual([]);
+      expect(t.statuses.at(-1)).toEqual({ kind: "saved" });
+    });
+
+    it("leaves nothing for flush to save", async () => {
+      const t = setup();
+      t.saver.schedule(1);
+      t.saver.discard();
+      await t.saver.flush();
+      expect(t.calls).toEqual([]);
+      expect(t.stored()).toBeUndefined();
+    });
+
+    it("never cancels a save that is already running", async () => {
+      const t = setup();
+      const first = deferred();
+      t.gates.push(first);
+      t.saver.schedule(1);
+      await advance(1000);
+      t.saver.schedule(2);
+      t.saver.discard();
+
+      first.resolve();
+      await advance(60_000);
+      expect(t.calls).toEqual([1]);
+      expect(t.stored()).toBe(1);
+      expect(t.statuses.at(-1)).toEqual({ kind: "saved" });
+    });
+
+    it("does not retry a running save that fails after the discard", async () => {
+      const t = setup();
+      const first = deferred();
+      t.gates.push(first);
+      t.saver.schedule(1);
+      await advance(1000);
+      t.saver.discard();
+
+      first.reject(new Error("down"));
+      await advance(60_000);
+      expect(t.calls).toEqual([1]);
+      expect(t.statuses.at(-1)).toEqual({ kind: "saved" });
+      expect(t.abandoned).toEqual([]);
+    });
+
+    it("stops the retry of a failed save", async () => {
+      const t = setup();
+      t.failWith.push(new Error("down"));
+      t.saver.schedule(1);
+      await advance(1000);
+      expect(t.statuses.at(-1)?.kind).toBe("error");
+
+      t.saver.discard();
+      expect(t.statuses.at(-1)).toEqual({ kind: "saved" });
+      await advance(60_000);
+      expect(t.calls).toEqual([1]);
+    });
+
+    it("can be called again and again, and a later schedule saves normally", async () => {
+      const t = setup();
+      t.saver.discard();
+      t.saver.discard();
+      expect(t.statuses).toEqual([]);
+
+      t.saver.schedule(1);
+      t.saver.discard();
+      t.saver.discard();
+      t.saver.schedule(2);
+      await advance(1000);
+      expect(t.calls).toEqual([2]);
+      expect(t.stored()).toBe(2);
+    });
+
+    it("keeps a discarded value from being saved by flush then dispose", async () => {
+      const t = setup();
+      t.saver.schedule(1);
+      t.saver.discard();
+      void t.saver.flush();
+      t.saver.dispose();
+      await advance(60_000);
+      expect(t.calls).toEqual([]);
+      expect(t.abandoned).toEqual([]);
+    });
   });
 
   it("uses the delays it is given", async () => {
