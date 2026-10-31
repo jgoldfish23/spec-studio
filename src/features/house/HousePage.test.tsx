@@ -977,6 +977,12 @@ describe("messages under the choice controls, and figures from unusable numbers"
     expect(screen.getByText("Mix must be 100")).toHaveClass("text-no-go");
   });
 
+  it("shows a message about one material only under that material, not again under the total", async () => {
+    await renderWith([{ path: "house.exterior.stonePct", message: "Must be 100 or less" }]);
+    expect(screen.getAllByText("Must be 100 or less")).toHaveLength(1);
+    expect(screen.getByLabelText("Stone %")).toHaveAccessibleDescription("Whole percent Must be 100 or less");
+  });
+
   it("counts a percent that is not a number as nothing in the bar, and shows a dash for the total", async () => {
     await renderWith([], (inputs) => {
       inputs.house.exterior.stonePct = Number.NaN;

@@ -1,7 +1,7 @@
 import { Card } from "../../ui/Card";
 import { NumberField } from "../../ui/fields";
 import { fieldError } from "../deal/fieldErrors";
-import { COUNT_GRID } from "./shared";
+import { COUNT_GRID, issueAt } from "./shared";
 import type { HouseCardProps } from "./shared";
 
 type Material = "stonePct" | "stuccoPct" | "boardBattenPct" | "fiberCementPct";
@@ -54,7 +54,8 @@ export function ExteriorCard({ house, evaluation, edit }: HouseCardProps) {
   // A stored deal can hold a figure that is not a usable number; then there is no total to show.
   const total = values.every(isNumber) ? values.reduce((sum, value) => sum + value, 0) : null;
   const adds = total !== null && Math.abs(total - 100) <= TOLERANCE;
-  const engineMessage = error("house.exterior");
+  // Only a message about the mix as a whole; a message about one material already shows under its own box.
+  const engineMessage = issueAt(evaluation, "house.exterior");
   return (
     <Card title="Exterior">
       <MixBar exterior={exterior} />

@@ -9,7 +9,7 @@ import { takeoffRows } from "./takeoff";
 import type { EstimateChange } from "./useEstimateChange";
 
 /** "Change from last edit: +$12,300", with the engine's minus sign for a drop. Null when there is nothing honest to say. */
-export function changeText(change: EstimateChange | null): string | null {
+function changeText(change: EstimateChange | null): string | null {
   if (change === null || change.before === null || change.after === null) return null;
   const difference = change.after - change.before;
   const amount = formatMoney(difference);

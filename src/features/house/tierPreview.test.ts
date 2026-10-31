@@ -79,7 +79,7 @@ describe("tierPreview", () => {
     expect(withCurrent).toEqual(without);
   });
 
-  it("gives null for a tier whose estimate cannot be worked out, and still prices the others", async () => {
+  it("gives null for every tier when the house cannot be estimated at any tier", async () => {
     const inputs = sampleDealInputs();
     const ctx = await contextFor();
     // A house the engine refuses outright (exterior percentages that do not add up) is incomplete at every tier.
