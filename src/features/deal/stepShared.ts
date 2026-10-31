@@ -1,5 +1,7 @@
-import type { DealEditor } from "../deal/useDealEditor";
+// Pieces every step screen draws with: the `edit` type, and the classes of the buttons and notes that repeat.
+import type { DealEditor } from "./useDealEditor";
 
+/** What a step screen calls to change the deal: `useDealEditor`'s `edit`. */
 export type Edit = DealEditor["edit"];
 
 /** The ring that shows where the keyboard is, on a button or link on a light background. */

@@ -48,7 +48,8 @@ export type CompFormField =
   | "lotAcres"
   | "garageBays";
 
-const FIELD_ORDER: readonly CompFormField[] = [
+/** Every box of the form, in the order the form shows them. */
+export const COMP_FORM_FIELDS: readonly CompFormField[] = [
   "address",
   "city",
   "county",
@@ -93,8 +94,8 @@ export function emptyCompForm(county: string): CompFormValues {
   };
 }
 
-/** Dollars as the form shows them: whole dollars, with cents only for an amount that has them. */
-const moneyText = (cents: Cents): string => formatMoneyInput(cents, cents % 100 !== 0);
+/** Dollars as the form shows them: whole dollars, like every amount that is not a unit price. */
+const moneyText = (cents: Cents): string => formatMoneyInput(cents, false);
 
 /** A comp's facts as the text of each box, for editing it. */
 export function formFromComp(comp: Comp): CompFormValues {
@@ -123,9 +124,13 @@ export function formFromComp(comp: Comp): CompFormValues {
   };
 }
 
-/** Facts a comp can carry that the form has no box for, so an edit must not drop them. */
+/**
+ * What an edit must not change: the facts the form has no box for, and where the comp came from. `compFromForm` makes
+ * a sold, hand-entered, verified comp, which is right for a new comp; a comp that was imported, or is still a listing,
+ * keeps its own source, verified flag and status when its other facts are corrected.
+ */
 export function keepUnshownFields(edited: Comp, original: Comp): Comp {
-  const kept = { ...edited };
+  const kept: Comp = { ...edited, status: original.status, source: original.source, verified: original.verified };
   if (original.originalListPriceCents !== undefined) kept.originalListPriceCents = original.originalListPriceCents;
   if (original.priceCuts !== undefined) kept.priceCuts = original.priceCuts;
   if (original.notes !== undefined) kept.notes = original.notes;
@@ -146,7 +151,10 @@ interface NumberBox {
   field: CompFormField;
   key: string;
   integer: boolean;
-  /** What a blank box means: it is asked for, or it counts as zero. */
+  /**
+   * What a blank box means: it is asked for, or it counts as zero. A box that feeds the match score or the adjusted
+   * price is always asked for, so a blank is never taken for a real 0.
+   */
   blank: "required" | 0;
 }
 
@@ -157,9 +165,13 @@ const NUMBER_BOXES: readonly NumberBox[] = [
   { field: "beds", key: "beds", integer: false, blank: 0 },
   { field: "baths", key: "baths", integer: false, blank: 0 },
   { field: "yearBuilt", key: "yearBuilt", integer: true, blank: "required" },
-  { field: "lotAcres", key: "lotAcres", integer: false, blank: 0 },
-  { field: "garageBays", key: "garageBays", integer: true, blank: 0 },
+  { field: "lotAcres", key: "lotAcres", integer: false, blank: "required" },
+  { field: "garageBays", key: "garageBays", integer: true, blank: "required" },
 ];
+
+/** What is wrong with text that is not a whole-dollar amount: cents, or not an amount at all. */
+const dollarsProblem = (text: string): string =>
+  parseDollars(text, { allowCents: true }) === null ? "Enter a dollar amount" : "Enter whole dollars";
 
 /** A comp is new construction when it sold within this many years of being built (the same cut-off the scoring uses). */
 const NEW_CONSTRUCTION_YEARS = 3;
@@ -169,8 +181,9 @@ const NEW_CONSTRUCTION_YEARS = 3;
  * checked first, then everything else against `CompSchema`; each problem is reported once, at the form field it
  * belongs to, in the order the form shows its fields. There is no comp while there is any problem.
  *
- * A blank list price means the sold price. A blank contract date is left out, never stored as null. A blank area,
- * bed, bath, lot or garage box counts as zero.
+ * Amounts are whole dollars. A blank list price means the sold price. A blank contract date is left out, never stored
+ * as null. A blank basement sf, unfinished sf, bed or bath box counts as zero; the garage and lot boxes feed the
+ * match score and the adjusted price, so they are asked for.
  */
 export function compFromForm(
   values: CompFormValues,
@@ -188,7 +201,6 @@ export function compFromForm(
     id,
     region,
     status: "sold",
-    county: values.county.trim(),
     basementFinish: values.basementFinish,
     walkout: values.walkout,
     adu: values.adu,
@@ -197,7 +209,7 @@ export function compFromForm(
     verified: true,
   };
 
-  for (const field of ["address", "city"] as const) {
+  for (const field of ["address", "city", "county"] as const) {
     const text = values[field].trim();
     if (text === "") report(field, "Required");
     else candidate[field] = text;
@@ -214,8 +226,8 @@ export function compFromForm(
   if (soldText === "") {
     report("soldPrice", "Enter the sold price");
   } else {
-    const cents = parseDollars(soldText, { allowCents: true });
-    if (cents === null) report("soldPrice", "Enter a dollar amount");
+    const cents = parseDollars(soldText, { allowCents: false });
+    if (cents === null) report("soldPrice", dollarsProblem(soldText));
     else candidate.soldPriceCents = cents;
   }
 
@@ -225,8 +237,8 @@ export function compFromForm(
     const sold = candidate.soldPriceCents;
     if (typeof sold === "number" && sold > 0) candidate.listPriceCents = sold;
   } else {
-    const cents = parseDollars(listText, { allowCents: true });
-    if (cents === null) report("listPrice", "Enter a dollar amount");
+    const cents = parseDollars(listText, { allowCents: false });
+    if (cents === null) report("listPrice", dollarsProblem(listText));
     else candidate.listPriceCents = cents;
   }
 
@@ -268,11 +280,19 @@ export function compFromForm(
   }
 
   const rank = (path: string) => {
-    const index = FIELD_ORDER.indexOf(path as CompFormField);
-    return index === -1 ? FIELD_ORDER.length : index;
+    const index = (COMP_FORM_FIELDS as readonly string[]).indexOf(path);
+    return index === -1 ? COMP_FORM_FIELDS.length : index;
   };
   const issues = [...found].sort((a, b) => rank(a.path) - rank(b.path));
 
   if (issues.length === 0 && parsed.success) return { comp: parsed.data, issues };
   return { issues };
+}
+
+/**
+ * The issues that belong to no box of the form (a problem with the region or the id, say). `compFromForm` reports
+ * them like any other, but there is no box to put them under, so the form shows them on their own.
+ */
+export function unplacedIssues(issues: readonly ValidationIssue[]): ValidationIssue[] {
+  return issues.filter((issue) => !(COMP_FORM_FIELDS as readonly string[]).includes(issue.path));
 }

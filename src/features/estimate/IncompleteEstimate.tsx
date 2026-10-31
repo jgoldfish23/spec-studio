@@ -6,7 +6,7 @@ import { STEPS } from "../deal/steps";
 import { stepForMissing } from "../deal/summary";
 import { BidForm } from "./BidForm";
 import type { FocusTarget } from "./CostTable";
-import { ACTION_BUTTON, FOCUS_RING } from "./shared";
+import { ACTION_BUTTON, FOCUS_RING } from "../deal/stepShared";
 
 interface ItemProps {
   dealId: string;

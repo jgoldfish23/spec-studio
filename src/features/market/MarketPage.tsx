@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import type { DealEvaluation, DealInputs, EngineContext } from "@engine";
 import { useDealEditorContext } from "../deal/DealEditorContext";
 import { NextStepLink } from "../deal/NextStepLink";
-import type { Edit } from "../estimate/shared";
+import type { Edit } from "../deal/stepShared";
 import { CompsCard } from "./CompsCard";
 import { DomCard } from "./DomCard";
 import { listingMonthOf } from "./marketFormat";

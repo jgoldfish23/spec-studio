@@ -4,16 +4,8 @@ import { CompSchema } from "@engine";
 import type { Comp } from "@engine";
 import { DataError } from "../../data/types";
 import { advance, installFakeClock, newUser, pasteOver } from "../../testing/editorTiming";
-import {
-  card,
-  compRow,
-  fillBoxes,
-  harnessOver,
-  listedAddresses,
-  NEW_COMP_BOXES,
-  openMarket,
-  sampleSetup,
-} from "./marketTestUtils";
+import { harnessOver, sampleSetup } from "../../testing/stepHarness";
+import { card, compRow, fillBoxes, listedAddresses, NEW_COMP_BOXES, openMarket } from "./marketTestUtils";
 
 installFakeClock();
 
@@ -176,8 +168,27 @@ describe("saving a new comp", () => {
     expect(fieldMessage(form, "Sold date")).toBe("Required");
     expect(fieldMessage(form, "Above-grade finished sf")).toBe("Required");
     expect(fieldMessage(form, "Year built")).toBe("Required");
+    expect(fieldMessage(form, "Lot acres")).toBe("Required");
+    expect(fieldMessage(form, "Garage bays")).toBe("Required");
     expect(fieldMessage(form, "Sold price")).toBe("Enter the sold price");
+    // The county is filled in from the deal, so it has nothing to say until it is emptied.
+    expect(fieldMessage(form, "County")).toBe("");
+    // The boxes that do not feed the match or the price may stay blank.
+    for (const label of ["Beds", "Baths", "Basement finished sf", "Unfinished sf"]) expect(fieldMessage(form, label)).toBe("");
     expect(within(form).getByLabelText("Address")).toHaveFocus();
+    expect(await harness.repository.listComps("utah-north")).toHaveLength(8);
+  });
+
+  it("asks for the county when it is emptied, and says what a blank bed, bath, basement or unfinished box means", async () => {
+    const { harness, form, user } = await openAdd();
+    await fillBoxes(user, form, { ...NEW_COMP_BOXES, County: "" });
+    await user.clear(within(form).getByLabelText("County"));
+
+    await user.click(within(form).getByRole("button", { name: "Save" }));
+
+    expect(fieldMessage(form, "County")).toBe("Required");
+    expect(within(form).getByLabelText("County")).toHaveFocus();
+    expect(within(form).getByText("A blank bed, bath, basement or unfinished box counts as 0.")).toBeVisible();
     expect(await harness.repository.listComps("utah-north")).toHaveLength(8);
   });
 
@@ -423,6 +434,27 @@ describe("editing a comp", () => {
       notes: "Corner lot",
       priceCuts: 2,
       originalListPriceCents: 150_000_000,
+    });
+  });
+
+  it("keeps the source, the verified flag and the status of a comp that was not entered by hand", async () => {
+    const { harness, deal } = await sampleSetup();
+    const original = (await stored(harness, ADDRESS)) as Comp;
+    await harness.repository.saveComp({ ...original, source: "csv", verified: false, status: "pending" });
+    await openMarket(harness, deal);
+    const user = newUser();
+
+    await user.click(within(compRow(ADDRESS)).getByRole("button", { name: "Edit" }));
+    await pasteOver(user, "Beds", "6", screen.getByRole("form", { name: "Edit comp" }));
+    await user.click(within(screen.getByRole("form", { name: "Edit comp" })).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("form")).not.toBeInTheDocument());
+
+    expect(await stored(harness, ADDRESS)).toEqual({
+      ...original,
+      beds: 6,
+      source: "csv",
+      verified: false,
+      status: "pending",
     });
   });
 

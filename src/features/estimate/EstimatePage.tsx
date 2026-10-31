@@ -3,7 +3,7 @@ import { useDealEditorContext } from "../deal/DealEditorContext";
 import { fieldError } from "../deal/fieldErrors";
 import { NextStepLink } from "../deal/NextStepLink";
 import { CostLinesCard } from "./CostLinesCard";
-import type { Edit } from "./shared";
+import type { Edit } from "../deal/stepShared";
 import { BidsNextCard, BuildEstimateCard, ConfidenceCard } from "./SummaryCards";
 
 interface EstimateScreenProps {

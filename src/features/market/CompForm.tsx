@@ -2,11 +2,10 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import type { BasementFinish, Comp } from "@engine";
 import { SegmentedControl } from "../../ui/SegmentedControl";
-import { Toggle } from "../../ui/fields";
-import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "../estimate/shared";
-import { compFromForm } from "./compForm";
+import { TextField, Toggle } from "../../ui/fields";
+import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "../deal/stepShared";
+import { compFromForm, unplacedIssues } from "./compForm";
 import type { CompFormField, CompFormValues } from "./compForm";
-import { FormBox } from "./FormBox";
 
 const FINISHES: { value: BasementFinish; label: string }[] = [
   { value: "none", label: "None" },
@@ -36,9 +35,10 @@ export interface CompFormProps {
 
 /**
  * An inline card for a sold comp. It checks nothing until Save is tried, then says what is wrong under each box and
- * keeps saying it as the boxes are fixed. Save hands the finished `Comp` to `onSave`; Cancel (or Escape) calls
- * `onCancel`; neither writes anything itself. Focus starts in Address, and goes to the first box with a message when
- * a Save is refused.
+ * keeps saying it as the boxes are fixed. A problem that belongs to no box is said above the buttons, so a refused
+ * Save always says why. Save hands the finished `Comp` to `onSave`; Cancel (or Escape) calls `onCancel`; neither
+ * writes anything itself. Focus starts in Address, and goes to the first box with a message (or the message above the
+ * buttons) when a Save is refused.
  */
 export function CompForm({ mode, initial, region, id, saving, saveError, onSave, onCancel }: CompFormProps) {
   const titleId = useId();
@@ -52,11 +52,14 @@ export function CompForm({ mode, initial, region, id, saving, saveError, onSave,
     formRef.current?.querySelector("input")?.focus();
   }, []);
   useEffect(() => {
-    if (refusals > 0) formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+    if (refusals === 0) return;
+    const form = formRef.current;
+    (form?.querySelector<HTMLElement>('[aria-invalid="true"]') ?? form?.querySelector<HTMLElement>("[data-unplaced]"))?.focus();
   }, [refusals]);
 
   const { comp, issues } = compFromForm(values, region, id);
   const messages = new Map<string, string>(attempted ? issues.map((issue) => [issue.path, issue.message] as const) : []);
+  const unplaced = attempted ? unplacedIssues(issues) : [];
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -77,10 +80,10 @@ export function CompForm({ mode, initial, region, id, saving, saveError, onSave,
   /** A text box of the form: its text, and the message about it if Save has been tried. */
   function box(field: CompFormField, label: string, extra: { hint?: string; type?: "date"; numeric?: boolean; prefix?: string } = {}) {
     return (
-      <FormBox
+      <TextField
         label={label}
         value={values[field]}
-        onChange={(text) => setValues((current) => ({ ...current, [field]: text }))}
+        onChange={(text: string) => setValues((current) => ({ ...current, [field]: text }))}
         error={messages.get(field)}
         hint={extra.hint}
         type={extra.type}
@@ -139,7 +142,13 @@ export function CompForm({ mode, initial, region, id, saving, saveError, onSave,
         {flag("adu", "ADU")}
         {flag("pool", "Pool")}
       </div>
-      <p className="m-0 text-xs text-muted">A blank area, bed, bath, lot or garage box counts as 0.</p>
+      <p className="m-0 text-xs text-muted">A blank bed, bath, basement or unfinished box counts as 0.</p>
+      {unplaced.length > 0 ? (
+        // Not a box's own message: tabIndex so a refused Save can put focus here when no box has one.
+        <p role="alert" tabIndex={-1} data-unplaced className="m-0 text-[13px] font-medium text-no-go outline-none">
+          {`Couldn't save this comp: ${unplaced.map((issue) => issue.message).join("; ")}`}
+        </p>
+      ) : null}
       {saveError ? (
         <p role="alert" className="m-0 text-[13px] font-medium text-no-go">
           {saveError}

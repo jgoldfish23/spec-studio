@@ -6,7 +6,8 @@ import { formatPercent } from "../../lib/format";
 import { advance, installFakeClock, newUser, savedAfterAutosave } from "../../testing/editorTiming";
 import type { User } from "../../testing/editorTiming";
 import { evaluated } from "../../testing/engineContext";
-import { lineRow, openEstimate, region, sampleSetup } from "./estimateTestUtils";
+import { sampleSetup } from "../../testing/stepHarness";
+import { lineRow, openEstimate, region } from "./estimateTestUtils";
 
 installFakeClock();
 

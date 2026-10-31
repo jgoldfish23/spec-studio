@@ -14,7 +14,7 @@ import {
   unitCostText,
   variantName,
 } from "./lineFormat";
-import { ACTION_BUTTON, FOCUS_RING } from "./shared";
+import { ACTION_BUTTON, FOCUS_RING } from "../deal/stepShared";
 
 /** Which lines the table lists. */
 export type LineFilter = "all" | "defaults";

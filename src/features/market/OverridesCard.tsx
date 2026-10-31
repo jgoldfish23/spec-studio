@@ -2,7 +2,7 @@ import type { DealEvaluation, DealInputs } from "@engine";
 import { Card } from "../../ui/Card";
 import { OptionalMoneyField, OptionalNumberField } from "../../ui/fields";
 import { fieldError } from "../deal/fieldErrors";
-import type { Edit } from "../estimate/shared";
+import type { Edit } from "../deal/stepShared";
 
 /** The most a price may be: the engine's cap, $100 million. */
 const MAX_PRICE_CENTS = 10_000_000_000;
@@ -45,6 +45,7 @@ export function OverridesCard({ inputs, evaluation, edit }: OverridesCardProps) 
         />
         <OptionalNumberField
           label="Base days on market"
+          hint="Whole days"
           integer
           min={0}
           max={MAX_DOM_DAYS}

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Estimate } from "@engine";
 import { formatMoney } from "../../lib/format";
 import { installFakeClock, newUser } from "../../testing/editorTiming";
+import { sampleSetup, setupWith } from "../../testing/stepHarness";
 import {
   bodyRows,
   costTable,
@@ -11,9 +12,7 @@ import {
   lineRow,
   openEstimate,
   region,
-  sampleSetup,
   setupEveryLineBid,
-  setupWith,
 } from "./estimateTestUtils";
 import { formatAsOf, formatQuantity, variantName } from "./lineFormat";
 

@@ -4,8 +4,8 @@ import { useDeleteComp, useSaveComp } from "../../data/queries";
 import { errorMessage, withoutSavePrefix } from "../../lib/errorMessage";
 import { Card } from "../../ui/Card";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
-import { FOCUS_RING, MUTED_NOTE } from "../estimate/shared";
-import type { Edit } from "../estimate/shared";
+import { FOCUS_RING, MUTED_NOTE } from "../deal/stepShared";
+import type { Edit } from "../deal/stepShared";
 import { CompForm } from "./CompForm";
 import { emptyCompForm, formFromComp, keepUnshownFields } from "./compForm";
 import { CompsTable } from "./CompsTable";
@@ -34,6 +34,13 @@ function rowsOf(evaluation: DealEvaluation, comps: Comp[]): CompRow[] {
     return evaluation.scoredComps.map(({ comp, score, included }) => ({ comp, score, included }));
   }
   return comps.map((comp) => ({ comp, score: null, included: null }));
+}
+
+/** The line under the card's title: how many comps, and that they are ranked when they have been scored. */
+function caption(count: number, ranked: boolean): string {
+  if (count === 0) return "Sold homes like this one.";
+  const comps = `${count} ${count === 1 ? "comp" : "comps"}`;
+  return ranked ? `${comps}, ranked by match.` : `${comps}. Match scores appear once the deal's missing details are filled in.`;
 }
 
 interface CompsCardProps {
@@ -66,6 +73,8 @@ export function CompsCard({ inputs, evaluation, context, edit }: CompsCardProps)
   }, [form]);
 
   const rows = rowsOf(evaluation, context.comps);
+  /** Every comp has a score only when the deal could be scored; otherwise the table is the library as it is. */
+  const ranked = rows.some((row) => row.score !== null);
   const county = inputs.lot.county;
 
   /** Moves focus to the element marked `marker` in the card. False when there is none. */
@@ -152,9 +161,7 @@ export function CompsCard({ inputs, evaluation, context, edit }: CompsCardProps)
         </div>
       }
     >
-      <p className="m-0 -mt-2 text-[13px] text-muted">
-        {rows.length === 0 ? "Sold homes like this one, ranked by match." : `${rows.length} ${rows.length === 1 ? "comp" : "comps"}, ranked by match.`}
-      </p>
+      <p className="m-0 -mt-2 text-[13px] text-muted">{caption(rows.length, ranked)}</p>
       {/* Focusable only from code: the last place focus can go back to when the row it was on is gone. */}
       <div ref={boxRef} tabIndex={-1} className="flex flex-col gap-4 outline-none">
         {form !== null ? (
@@ -180,6 +187,7 @@ export function CompsCard({ inputs, evaluation, context, edit }: CompsCardProps)
         ) : (
           <CompsTable
             rows={rows}
+            ranked={ranked}
             price={evaluation.price}
             settings={context.marketSettings}
             selections={inputs.compSelections}

@@ -4,7 +4,7 @@ import type { Bid, Cents, ISODate } from "@engine";
 import { todayIso } from "../../lib/today";
 import { DateField, OptionalMoneyField, TextField } from "../../ui/fields";
 import { bidProblems, MAX_BID_CENTS } from "./bids";
-import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "./shared";
+import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "../deal/stepShared";
 
 export interface BidFormProps {
   /** The cost code the bid is for. */

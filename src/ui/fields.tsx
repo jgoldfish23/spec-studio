@@ -433,17 +433,24 @@ export interface TextFieldProps extends FieldProps {
   value: string;
   onChange: (text: string) => void;
   onBlur?: () => void;
+  /** `date` draws the browser's own date picker; the value is then `YYYY-MM-DD` or empty. */
+  type?: "text" | "date";
+  /** The keyboard a phone offers. */
+  inputMode?: "text" | "decimal" | "numeric";
+  /** A symbol before the text, e.g. `$`. */
+  prefix?: string;
 }
 
-/** Plain text. Fully controlled: there is nothing to parse. */
-export function TextField({ label, value, onChange, onBlur, hint, error }: TextFieldProps) {
+/** Plain text. Fully controlled: there is nothing to parse, so the box holds exactly what was typed. */
+export function TextField({ label, value, onChange, onBlur, hint, error, type = "text", inputMode, prefix }: TextFieldProps) {
   return (
     <FieldFrame label={label} hint={hint} message={error}>
       {(control, invalid) => (
-        <InputBox invalid={invalid}>
+        <InputBox invalid={invalid} prefix={prefix}>
           <input
             {...control}
-            type="text"
+            type={type}
+            inputMode={inputMode}
             value={value}
             onChange={(event) => onChange(event.target.value)}
             onBlur={onBlur}

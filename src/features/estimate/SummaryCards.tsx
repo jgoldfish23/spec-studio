@@ -4,7 +4,7 @@ import { formatMoney, formatPercent } from "../../lib/format";
 import { Card } from "../../ui/Card";
 import { PercentField } from "../../ui/fields";
 import { TIER_NAMES } from "../house/shared";
-import { MUTED_NOTE } from "./shared";
+import { MUTED_NOTE } from "../deal/stepShared";
 
 /** The most a contingency rate may be: the engine's cap, 100% (stored as the decimal 1). */
 const MAX_CONTINGENCY = 1;

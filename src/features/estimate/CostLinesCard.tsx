@@ -6,7 +6,7 @@ import { removeBid, upsertBid } from "./bids";
 import { CostTable } from "./CostTable";
 import type { FocusTarget, LineFilter } from "./CostTable";
 import { IncompleteEstimate } from "./IncompleteEstimate";
-import type { Edit } from "./shared";
+import type { Edit } from "../deal/stepShared";
 
 const FILTERS = [
   { value: "all", label: "All lines" },

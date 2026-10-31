@@ -4,7 +4,8 @@ import type { Comp } from "@engine";
 import { sampleComps } from "../../data/sample";
 import { formatDayRange, formatMoney } from "../../lib/format";
 import { advance, installFakeClock, newUser, pasteOver, savedAfterAutosave } from "../../testing/editorTiming";
-import { card, openMarket, sampleDom, samplePrice, sampleSetup, setupWith, summaryTile } from "./marketTestUtils";
+import { sampleSetup, setupWith } from "../../testing/stepHarness";
+import { card, openMarket, sampleDom, samplePrice, summaryTile } from "./marketTestUtils";
 
 installFakeClock();
 
@@ -185,6 +186,8 @@ describe("your numbers", () => {
     expect(within(numbers).getByLabelText("Base days on market")).toHaveValue("");
     expect(within(numbers).getByLabelText("Planned list price")).toHaveValue("");
     expect(within(numbers).getByText("Leave blank to use the market estimate below.")).toBeVisible();
+    // Days are whole: the box says so, and it is the box's description.
+    expect(within(numbers).getByLabelText("Base days on market")).toHaveAccessibleDescription("Whole days");
   });
 
   it("shows the numbers a deal already holds", async () => {
@@ -266,6 +269,7 @@ describe("your numbers", () => {
 
     await pasteOver(user, "Base days on market", "7.5", numbers);
     expect(within(numbers).getByText("Enter a number")).toBeVisible();
+    expect(within(numbers).getByText("Whole days")).toBeVisible();
     await pasteOver(user, "Base days on market", "5000", numbers);
     expect(within(numbers).getByText("Must be between 0 and 1,095")).toBeVisible();
     await pasteOver(user, "Base sale price", "200,000,000", numbers);

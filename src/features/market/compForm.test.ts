@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CompSchema } from "@engine";
 import type { Comp } from "@engine";
 import { sampleComps } from "../../data/sample";
-import { compFromForm, emptyCompForm, formFromComp, keepUnshownFields } from "./compForm";
+import { compFromForm, emptyCompForm, formFromComp, keepUnshownFields, unplacedIssues } from "./compForm";
 import type { CompFormValues } from "./compForm";
 
 const ID = "7d5f2b1e-3c1a-4b8e-9a52-6f1d1c0a9e11";
@@ -116,31 +116,45 @@ describe("compFromForm: a complete form", () => {
     expect(compFromForm(validForm({ contractDate: "2026-05-20" }), "utah-north", ID).comp?.contractDate).toBe("2026-05-20");
   });
 
-  it("counts blank size, bed, bath, lot and garage boxes as zero", () => {
+  it("counts a blank basement sf, unfinished sf, bed or bath box as zero", () => {
     const { comp, issues } = compFromForm(
-      validForm({ basementSf: "", unfinishedSf: "", beds: "", baths: "", lotAcres: "", garageBays: "" }),
+      validForm({ basementSf: "", unfinishedSf: "", beds: "", baths: "" }),
+      "utah-north",
+      ID,
+    );
+    expect(issues).toEqual([]);
+    expect(comp).toMatchObject({ basementFinishedSf: 0, unfinishedSf: 0, beds: 0, baths: 0 });
+  });
+
+  it("asks for the garage bays and the lot acres, which feed the match and the adjusted price, rather than call a blank 0", () => {
+    expect(issuesOf(validForm({ garageBays: "" }))).toEqual({ garageBays: "Required" });
+    expect(issuesOf(validForm({ lotAcres: "  " }))).toEqual({ lotAcres: "Required" });
+  });
+
+  it("still takes a 0 that was typed for the garage bays and the lot acres", () => {
+    const { comp, issues } = compFromForm(validForm({ garageBays: "0", lotAcres: "0" }), "utah-north", ID);
+    expect(issues).toEqual([]);
+    expect(comp).toMatchObject({ garageBays: 0, lotAcres: 0 });
+  });
+
+  it("reads grouped numbers and dollar signs the way the other fields do", () => {
+    const { comp, issues } = compFromForm(
+      validForm({ soldPrice: "$1,365,000", listPrice: "1,399,000.00", aboveGradeSf: "2,173.5", baths: "2.5" }),
       "utah-north",
       ID,
     );
     expect(issues).toEqual([]);
     expect(comp).toMatchObject({
-      basementFinishedSf: 0,
-      unfinishedSf: 0,
-      beds: 0,
-      baths: 0,
-      lotAcres: 0,
-      garageBays: 0,
+      soldPriceCents: 136_500_000,
+      listPriceCents: 139_900_000,
+      aboveGradeFinishedSf: 2173.5,
+      baths: 2.5,
     });
   });
 
-  it("reads grouped numbers, dollar signs and cents the way the other fields do", () => {
-    const { comp, issues } = compFromForm(
-      validForm({ soldPrice: "$1,365,000.50", aboveGradeSf: "2,173.5", baths: "2.5" }),
-      "utah-north",
-      ID,
-    );
-    expect(issues).toEqual([]);
-    expect(comp).toMatchObject({ soldPriceCents: 136_500_050, aboveGradeFinishedSf: 2173.5, baths: 2.5 });
+  it("takes prices in whole dollars, and says so when there are cents", () => {
+    expect(issuesOf(validForm({ soldPrice: "1,365,000.50" }))).toEqual({ soldPrice: "Enter whole dollars" });
+    expect(issuesOf(validForm({ listPrice: "$1,399,000.5" }))).toEqual({ listPrice: "Enter whole dollars" });
   });
 
   it("trims the text boxes", () => {
@@ -171,20 +185,24 @@ describe("compFromForm: new construction", () => {
 });
 
 describe("compFromForm: what is required", () => {
-  it("asks for the address, city, both dates, the above-grade area and the year built", () => {
+  it("asks for the address, city, both dates, the sold price, the above-grade area, the year built, the lot and the garage", () => {
     const issues = issuesOf({ ...emptyCompForm("Davis") });
-    expect(issues).toMatchObject({
+    expect(issues).toEqual({
       address: "Required",
       city: "Required",
       listDate: "Required",
       soldDate: "Required",
+      soldPrice: "Enter the sold price",
       aboveGradeSf: "Required",
       yearBuilt: "Required",
-      soldPrice: "Enter the sold price",
+      lotAcres: "Required",
+      garageBays: "Required",
     });
-    expect(Object.keys(issues).sort()).toEqual(
-      ["address", "city", "listDate", "soldDate", "soldPrice", "aboveGradeSf", "yearBuilt"].sort(),
-    );
+  });
+
+  it("asks for the county too: a blank one would fall back to the weaker region score", () => {
+    expect(issuesOf(validForm({ county: "" }))).toEqual({ county: "Required" });
+    expect(issuesOf(validForm({ county: "   " }))).toEqual({ county: "Required" });
   });
 
   it("treats a box with only spaces as empty", () => {
@@ -241,6 +259,16 @@ describe("compFromForm: what CompSchema says", () => {
     expect(issuesOf(validForm({ lotAcres: "x" }))).toEqual({ lotAcres: "Enter a number" });
   });
 
+  it("reports a problem that belongs to no box, and unplacedIssues finds it", () => {
+    // The region comes from the deal, not from a box; a bad one cannot be put under any field.
+    const { comp, issues } = compFromForm(validForm(), undefined as unknown as string, ID);
+    expect(comp).toBeUndefined();
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.path).toBe("region");
+    expect(unplacedIssues(issues)).toEqual(issues);
+    expect(unplacedIssues([...issues, { path: "soldPrice", message: "Enter the sold price" }])).toEqual(issues);
+  });
+
   it("gives one message per field", () => {
     const issues = compFromForm(validForm({ soldPrice: "0", yearBuilt: "1700", soldDate: "" }), "utah-north", ID).issues;
     const paths = issues.map((issue) => issue.path);
@@ -249,7 +277,17 @@ describe("compFromForm: what CompSchema says", () => {
 
   it("lists issues in the order the form shows its fields", () => {
     const paths = compFromForm({ ...emptyCompForm("Davis") }, "utah-north", ID).issues.map((issue) => issue.path);
-    expect(paths).toEqual(["address", "city", "listDate", "soldDate", "soldPrice", "aboveGradeSf", "yearBuilt"]);
+    expect(paths).toEqual([
+      "address",
+      "city",
+      "listDate",
+      "soldDate",
+      "soldPrice",
+      "aboveGradeSf",
+      "yearBuilt",
+      "lotAcres",
+      "garageBays",
+    ]);
   });
 });
 
@@ -288,16 +326,20 @@ describe("formFromComp", () => {
     }
   });
 
-  it("round-trips a contract date, a list price that differs from the sold price and cents", () => {
+  it("round-trips a contract date and a list price that differs from the sold price", () => {
     const comp: Comp = {
       ...(sampleComps()[0] as Comp),
       contractDate: "2026-05-20",
       listPriceCents: 139_900_000,
-      soldPriceCents: 136_500_050,
     };
     const back = compFromForm(formFromComp(comp), comp.region, comp.id);
     expect(back.issues).toEqual([]);
     expect(back.comp).toEqual(comp);
+  });
+
+  it("shows a price that has cents in whole dollars, as every other amount is", () => {
+    const comp: Comp = { ...(sampleComps()[0] as Comp), soldPriceCents: 136_500_050, listPriceCents: 136_500_049 };
+    expect(formFromComp(comp)).toMatchObject({ soldPrice: "1,365,001", listPrice: "1,365,000" });
   });
 
   it("leaves the boxes of a facts-less comp empty instead of showing undefined", () => {
@@ -324,6 +366,14 @@ describe("keepUnshownFields", () => {
     };
     const edited = compFromForm(formFromComp(original), original.region, original.id).comp as Comp;
     expect(edited.notes).toBeUndefined();
+    expect(keepUnshownFields(edited, original)).toEqual(original);
+  });
+
+  it("keeps the source, the verified flag and the status of a comp that was not entered by hand", () => {
+    const original: Comp = { ...(sampleComps()[0] as Comp), source: "csv", verified: false, status: "pending" };
+    const edited = compFromForm(formFromComp(original), original.region, original.id).comp as Comp;
+    expect(edited).toMatchObject({ source: "manual", verified: true, status: "sold" });
+    expect(keepUnshownFields(edited, original)).toMatchObject({ source: "csv", verified: false, status: "pending" });
     expect(keepUnshownFields(edited, original)).toEqual(original);
   });
 

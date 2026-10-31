@@ -5,7 +5,8 @@ import { newDealInputs } from "../../data/newDeal";
 import { advance, installFakeClock, newUser, pasteOver, typeOver } from "../../testing/editorTiming";
 import { createHarness, renderApp } from "../../testing/renderApp";
 import type { Harness } from "../../testing/renderApp";
-import { card, compsTable, fillBoxes, listedAddresses, openMarket, sampleSetup } from "./marketTestUtils";
+import { sampleSetup } from "../../testing/stepHarness";
+import { card, compsTable, fillBoxes, listedAddresses, openMarket } from "./marketTestUtils";
 
 installFakeClock();
 
@@ -80,6 +81,7 @@ describe("a new deal with no comps in its region", () => {
       "Sold price": "900,000",
       "Above-grade finished sf": "2,000",
       "Year built": "2026",
+      "Lot acres": "0.25",
       "Garage bays": "3",
     });
     await user.click(within(form).getByRole("button", { name: "Save" }));
@@ -126,11 +128,27 @@ describe("a deal that cannot be evaluated yet", () => {
     expect(within(card("Days on market")).getByText("lot.city: Required")).toBeVisible();
     expect(screen.queryByText(NEEDS_PRICE)).not.toBeInTheDocument();
     // Without a score there is nothing to rank or to include, but the comps are still there to edit and delete.
-    expect(listedAddresses()).toHaveLength(8);
-    const row = within(compsTable()).getAllByRole("row")[1] as HTMLElement;
+    expect(listedAddresses("Comps")).toHaveLength(8);
+    const row = within(compsTable("Comps")).getAllByRole("row")[1] as HTMLElement;
     expect(within(row).getByRole("button", { name: "Edit" })).toBeVisible();
     expect(within(row).queryByRole("button", { name: "Included" })).not.toBeInTheDocument();
     expect(within(row).queryByRole("button", { name: "Excluded" })).not.toBeInTheDocument();
+    expect(within(row).getAllByRole("cell")[6]).toHaveTextContent(/^—$/);
+  });
+
+  it("does not call the comps ranked by match when they have no match scores", async () => {
+    const { harness, deal } = await sampleSetup();
+    await harness.repository.saveDeal({
+      ...deal,
+      inputs: { ...deal.inputs, lot: { ...deal.inputs.lot, city: "" } },
+    });
+    await openMarket(harness, deal);
+
+    expect(screen.queryByRole("table", { name: "Comps ranked by match" })).not.toBeInTheDocument();
+    expect(compsTable("Comps")).toBeVisible();
+    const comps = card("Comps");
+    expect(within(comps).getByText("8 comps. Match scores appear once the deal's missing details are filled in.")).toBeVisible();
+    expect(within(comps).queryByText(/ranked by match/)).not.toBeInTheDocument();
   });
 
   it("asks for sold comps with dates when the price is fine but no comp has the dates days on market needs", async () => {

@@ -476,6 +476,25 @@ describe("TextField", () => {
     await userEvent.tab();
     expect(onBlur).toHaveBeenCalledTimes(1);
   });
+
+  it("is a text box with the usual keyboard unless told otherwise", () => {
+    render(<TextField label="Vendor" value="" onChange={() => {}} />);
+    const input = screen.getByLabelText("Vendor");
+    expect(input).toHaveAttribute("type", "text");
+    expect(input).not.toHaveAttribute("inputmode");
+  });
+
+  it("can be a date box, which keeps an emptied value empty", () => {
+    render(<TextField label="Contract date" type="date" value="2026-05-20" onChange={() => {}} />);
+    expect(screen.getByLabelText("Contract date")).toHaveAttribute("type", "date");
+    expect(screen.getByLabelText("Contract date")).toHaveValue("2026-05-20");
+  });
+
+  it("can ask for a number keyboard and draw a symbol before the text", () => {
+    render(<TextField label="Sold price" inputMode="decimal" prefix="$" value="1,365,000" onChange={() => {}} />);
+    expect(screen.getByLabelText("Sold price")).toHaveAttribute("inputmode", "decimal");
+    expect(screen.getByText("$")).toBeInTheDocument();
+  });
 });
 
 describe("MonthField and DateField", () => {

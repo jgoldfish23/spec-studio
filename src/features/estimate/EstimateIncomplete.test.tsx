@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { advance, installFakeClock, newUser, savedAfterAutosave } from "../../testing/editorTiming";
 import type { User } from "../../testing/editorTiming";
 import { createHarness } from "../../testing/renderApp";
-import { harnessOver, openEstimate, region, sampleSetup, setupWith, withoutPricesFor } from "./estimateTestUtils";
+import { harnessOver, sampleSetup, setupWith } from "../../testing/stepHarness";
+import { openEstimate, region, withoutPricesFor } from "./estimateTestUtils";
 
 installFakeClock();
 

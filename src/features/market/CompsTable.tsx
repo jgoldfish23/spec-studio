@@ -2,7 +2,7 @@ import { useId } from "react";
 import { compDomDays } from "@engine";
 import type { Comp, MarketSettings, PriceEstimate, Result } from "@engine";
 import { formatMoney, formatNumberInput } from "../../lib/format";
-import { ACTION_BUTTON, FOCUS_RING } from "../estimate/shared";
+import { ACTION_BUTTON, FOCUS_RING } from "../deal/stepShared";
 import { finishedSf, listedToSold, MISSING, pricePerFinishedSf } from "./marketFormat";
 
 /** A comp as the table lists it. `score` and `included` are null while the deal cannot be scored. */
@@ -128,6 +128,8 @@ function daysToContract(comp: Comp, settings: MarketSettings): string {
 
 export interface CompsTableProps {
   rows: CompRow[];
+  /** The rows have match scores and are in the order of them. Otherwise the table does not claim to be ranked. */
+  ranked: boolean;
   price: Result<PriceEstimate>;
   settings: MarketSettings;
   /** The deal's choices, comp id to in or out. */
@@ -139,14 +141,14 @@ export interface CompsTableProps {
 }
 
 /**
- * The comps, best match first, with what each is worth to this house and whether it counts. The table scrolls
- * sideways inside its own box on a narrow screen, so the page does not.
+ * The comps, best match first when they have been scored, with what each is worth to this house and whether it counts.
+ * The table scrolls sideways inside its own box on a narrow screen, so the page does not.
  */
-export function CompsTable({ rows, price, settings, selections, onToggle, onReset, onEdit, onDelete }: CompsTableProps) {
+export function CompsTable({ rows, ranked, price, settings, selections, onToggle, onReset, onEdit, onDelete }: CompsTableProps) {
   const used = price.status === "ok" ? price.value.comps : [];
   return (
     <div className="relative overflow-x-auto">
-      <table aria-label="Comps ranked by match" className="w-full min-w-[1120px] border-collapse text-sm">
+      <table aria-label={ranked ? "Comps ranked by match" : "Comps"} className="w-full min-w-[1120px] border-collapse text-sm">
         <thead>
           <tr className="bg-[#F7F8F6] text-left text-xs uppercase tracking-[0.04em] text-muted">
             <th scope="col" className={HEADER}>

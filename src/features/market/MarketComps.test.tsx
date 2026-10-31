@@ -5,19 +5,8 @@ import { sampleComps } from "../../data/sample";
 import { formatMoney } from "../../lib/format";
 import { advance, installFakeClock, newUser, savedAfterAutosave } from "../../testing/editorTiming";
 import { evaluated } from "../../testing/engineContext";
-import {
-  card,
-  compRow,
-  compsTable,
-  farComp,
-  harnessOver,
-  listedAddresses,
-  openMarket,
-  sampleScored,
-  samplePrice,
-  sampleSetup,
-  setupWith,
-} from "./marketTestUtils";
+import { harnessOver, sampleSetup, setupWith } from "../../testing/stepHarness";
+import { card, compRow, compsTable, farComp, listedAddresses, openMarket, sampleScored, samplePrice } from "./marketTestUtils";
 
 installFakeClock();
 
@@ -54,6 +43,7 @@ describe("the comps table", () => {
     expect(listedAddresses()).toEqual(scored.map(({ comp }) => comp.address));
     expect(listedAddresses()).toHaveLength(8);
     expect(listedAddresses()[0]).toBe(TOP);
+    expect(within(card("Comps")).getByText("8 comps, ranked by match.")).toBeVisible();
   });
 
   it("shows a comp's facts in its row", async () => {
@@ -143,6 +133,7 @@ describe("the comps table", () => {
     await openMarket(harness, deal);
 
     expect(within(card("Comps")).getByText("No comps yet. Add the first one to get a market estimate.")).toBeVisible();
+    expect(within(card("Comps")).getByText("Sold homes like this one.")).toBeVisible();
     expect(screen.queryByRole("table", { name: "Comps ranked by match" })).not.toBeInTheDocument();
   });
 

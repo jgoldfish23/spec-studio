@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { sampleDealInputs } from "../../data/sample";
 import { formatMoney, formatPercent } from "../../lib/format";
 import { advance, installFakeClock, newUser, pasteOver, savedAfterAutosave } from "../../testing/editorTiming";
-import { costTable, estimateOf, openEstimate, region, sampleSetup, setupEveryLineBid } from "./estimateTestUtils";
+import { sampleSetup } from "../../testing/stepHarness";
+import { costTable, estimateOf, openEstimate, region, setupEveryLineBid } from "./estimateTestUtils";
 
 installFakeClock();
 

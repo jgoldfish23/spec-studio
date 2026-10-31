@@ -1,18 +1,13 @@
 // Shared set-up for the market page's tests (not a test itself).
 import { fireEvent, screen, within } from "@testing-library/react";
-import { QueryClientProvider } from "@tanstack/react-query";
-import type { ReactNode } from "react";
 import type { Comp, DomEstimate, PriceEstimate } from "@engine";
-import { RepositoryProvider } from "../../data/RepositoryProvider";
 import { sampleComps } from "../../data/sample";
-import type { Repository, StoredDeal } from "../../data/types";
+import type { StoredDeal } from "../../data/types";
 import { pasteOver } from "../../testing/editorTiming";
 import type { User } from "../../testing/editorTiming";
 import { evaluated } from "../../testing/engineContext";
 import { renderApp } from "../../testing/renderApp";
 import type { Harness } from "../../testing/renderApp";
-
-export { sampleSetup, setupWith } from "../estimate/estimateTestUtils";
 
 export async function openMarket(harness: Harness, deal: StoredDeal) {
   renderApp(`#/deals/${deal.id}/market`, harness);
@@ -20,7 +15,8 @@ export async function openMarket(harness: Harness, deal: StoredDeal) {
 }
 
 export const card = (name: string) => screen.getByRole("region", { name });
-export const compsTable = () => screen.getByRole("table", { name: "Comps ranked by match" });
+/** The comps table. Its name says it is ranked unless the deal could not be scored, when it is just "Comps". */
+export const compsTable = (name = "Comps ranked by match") => screen.getByRole("table", { name });
 
 /** The row of a comp, found by its address. */
 export function compRow(address: string): HTMLElement {
@@ -30,8 +26,8 @@ export function compRow(address: string): HTMLElement {
 }
 
 /** The addresses of the table's rows, top to bottom: the first line of each row's header cell. */
-export function listedAddresses(): string[] {
-  const rows = within(compsTable()).getAllByRole("row").slice(1);
+export function listedAddresses(tableName?: string): string[] {
+  const rows = within(compsTable(tableName)).getAllByRole("row").slice(1);
   return rows.map((row) => within(row).getByRole("rowheader").firstElementChild?.textContent ?? "");
 }
 
@@ -56,16 +52,6 @@ export async function sampleDom(): Promise<DomEstimate> {
 /** The sample's comps in the engine's order, best match first. */
 export async function sampleScored() {
   return (await evaluated()).scoredComps;
-}
-
-/** The same harness reading everything through `repository`. */
-export function harnessOver(base: Harness, repository: Repository): Harness {
-  const Providers = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={base.client}>
-      <RepositoryProvider repository={repository}>{children}</RepositoryProvider>
-    </QueryClientProvider>
-  );
-  return { ...base, repository, Providers };
 }
 
 /** A sold comp far from the sample deal: another county, older and smaller, so it scores under the threshold. */

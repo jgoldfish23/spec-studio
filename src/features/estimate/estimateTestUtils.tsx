@@ -1,29 +1,12 @@
 // Shared set-up for the estimate page's tests (not a test itself).
-import { QueryClientProvider } from "@tanstack/react-query";
 import { screen, within } from "@testing-library/react";
-import type { ReactNode } from "react";
 import type { Bid, DealInputs, Estimate } from "@engine";
-import { RepositoryProvider } from "../../data/RepositoryProvider";
 import { sampleDealInputs } from "../../data/sample";
 import type { Repository, StoredDeal } from "../../data/types";
 import { evaluated } from "../../testing/engineContext";
-import { createHarness, renderApp, seedSampleDeal } from "../../testing/renderApp";
+import { renderApp } from "../../testing/renderApp";
 import type { Harness } from "../../testing/renderApp";
-
-export async function sampleSetup() {
-  const harness = createHarness();
-  const deal = await seedSampleDeal(harness.repository);
-  return { harness, deal };
-}
-
-/** The sample deal with a change, stored as a deal of its own. */
-export async function setupWith(change: (inputs: DealInputs) => void, base: Harness = createHarness()) {
-  const sample = await seedSampleDeal(base.repository);
-  const inputs = structuredClone(sample.inputs);
-  change(inputs);
-  const deal = await base.repository.createDeal({ name: "Changed", inputs });
-  return { harness: base, deal };
-}
+import { setupWith } from "../../testing/stepHarness";
 
 /** What the engine says the estimate is for a deal (the sample when omitted). */
 export async function estimateOf(inputs: DealInputs = sampleDealInputs()): Promise<Estimate> {
@@ -41,16 +24,6 @@ export async function setupEveryLineBid() {
   return setupWith((inputs) => {
     inputs.bids = estimate.lines.map((line) => crewBid(line.code));
   });
-}
-
-/** The same harness reading everything through `repository`. */
-export function harnessOver(base: Harness, repository: Repository): Harness {
-  const Providers = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={base.client}>
-      <RepositoryProvider repository={repository}>{children}</RepositoryProvider>
-    </QueryClientProvider>
-  );
-  return { ...base, repository, Providers };
 }
 
 /** A repository whose cost book has no prices for `code`, neither in the owner's price book nor among the defaults. */
