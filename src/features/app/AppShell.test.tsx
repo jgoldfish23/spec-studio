@@ -1,17 +1,19 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { App } from "../../App";
+import { createHarness, renderApp, seedSampleDeal } from "../../testing/renderApp";
+import { reportLostSave, resetLostSaves } from "../deal/lostSaves";
 
-const renderAt = (hash: string) => {
-  window.location.hash = hash;
-  return render(<App />);
-};
+const renderAt = (hash: string) => renderApp(hash);
 
 describe("app shell", () => {
   beforeEach(() => {
     window.location.hash = "";
+  });
+  afterEach(() => {
+    resetLostSaves();
   });
 
   it("shows the brand link, the Deals link and the demo-mode pill", () => {
@@ -58,9 +60,11 @@ describe("app shell", () => {
   });
 
   it("redirects a deal URL without a step to its Lot step", async () => {
-    renderAt("#/deals/abc");
+    const harness = createHarness();
+    const deal = await seedSampleDeal(harness.repository);
+    renderApp(`#/deals/${deal.id}`, harness);
     expect(await screen.findByRole("heading", { level: 1, name: /Lot/ })).toBeVisible();
-    expect(window.location.hash).toBe("#/deals/abc/lot");
+    expect(window.location.hash).toBe(`#/deals/${deal.id}/lot`);
     expect(screen.getByRole("link", { name: "Deals" })).toHaveAttribute("aria-current", "page");
   });
 
@@ -70,17 +74,23 @@ describe("app shell", () => {
     ["estimate", "Estimate"],
     ["market", "Market"],
     ["proforma", "Pro forma"],
-  ])("has a route for the %s step", (step, title) => {
-    renderAt(`#/deals/abc/${step}`);
-    expect(within(screen.getByRole("main")).getByRole("heading", { level: 1, name: new RegExp(title) })).toBeVisible();
+  ])("has a route for the %s step", async (step, title) => {
+    const harness = createHarness();
+    const deal = await seedSampleDeal(harness.repository);
+    renderApp(`#/deals/${deal.id}/${step}`, harness);
+    const main = screen.getByRole("main");
+    expect(await within(main).findByRole("heading", { level: 1, name: new RegExp(title) })).toBeVisible();
+    expect(within(main).getByText("This step is being built.")).toBeVisible();
   });
 
   it("mounts under StrictMode, as main.tsx does", () => {
     window.location.hash = "#/nope";
+    const harness = createHarness();
     render(
       <StrictMode>
         <App />
       </StrictMode>,
+      { wrapper: harness.Providers },
     );
     expect(within(screen.getByRole("main")).getByRole("heading", { level: 1, name: "Page not found" })).toBeVisible();
   });
@@ -88,5 +98,60 @@ describe("app shell", () => {
   it("treats an unknown step as not found", () => {
     renderAt("#/deals/abc/garage");
     expect(within(screen.getByRole("main")).getByRole("heading", { level: 1, name: "Page not found" })).toBeVisible();
+  });
+
+  describe("the Deals link", () => {
+    it.each(["#/", "#/deals", "#/deals/abc", "#/deals/abc/lot", "#/deals/abc/proforma"])(
+      "is the current page at %s",
+      (hash) => {
+        renderAt(hash);
+        expect(within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Deals" })).toHaveAttribute(
+          "aria-current",
+          "page",
+        );
+      },
+    );
+
+    it.each(["#/nope", "#/dealsfoo", "#/deals/abc/garage", "#/deals/abc/lot/extra"])(
+      "is not the current page on the not-found address %s",
+      (hash) => {
+        renderAt(hash);
+        expect(screen.getByRole("heading", { level: 1, name: "Page not found" })).toBeVisible();
+        expect(within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Deals" })).not.toHaveAttribute(
+          "aria-current",
+        );
+      },
+    );
+  });
+
+  describe("edits that could not be saved", () => {
+    it("shows nothing when nothing was lost", () => {
+      renderAt("#/");
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("shows a dismissible banner above the page for each deal whose last changes were lost", async () => {
+      const user = userEvent.setup();
+      renderAt("#/");
+      act(() => {
+        reportLostSave({ dealId: "d1", dealName: "Maple Street", message: "browser storage is full" });
+        reportLostSave({ dealId: "d2", dealName: "Oak Hollow", message: "storage is blocked" });
+      });
+
+      const alerts = await screen.findAllByRole("alert");
+      expect(alerts).toHaveLength(2);
+      expect(alerts[0]).toHaveTextContent("Couldn't save your last changes to Maple Street: browser storage is full");
+      expect(alerts[1]).toHaveTextContent("Couldn't save your last changes to Oak Hollow: storage is blocked");
+      const heading = screen.getByRole("heading", { level: 1, name: "Deals" });
+      expect(alerts[0]?.compareDocumentPosition(heading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+      await user.click(within(alerts[0] as HTMLElement).getByRole("button", { name: "Dismiss" }));
+      await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(1));
+      expect(screen.queryByText(/Maple Street/)).not.toBeInTheDocument();
+      expect(screen.getByText(/Oak Hollow/)).toBeVisible();
+
+      await user.click(screen.getByRole("button", { name: "Dismiss" }));
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
   });
 });

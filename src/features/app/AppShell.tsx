@@ -1,7 +1,17 @@
-import { Link, Outlet, useLocation } from "react-router";
+import { Link, Outlet, useMatches } from "react-router";
+import { dismissLostSave, useLostSaves } from "../deal/lostSaves";
 
 /** Sections that arrive in later phases: shown so the product's shape is visible, but inert. */
 const LATER_SECTIONS = ["Cost book", "Comps", "Plans", "Builds"] as const;
+
+/**
+ * Marks the routes that belong to the Deals section: the list and every step of a deal, but not an address that
+ * merely starts like them. The shell reads it from the matched routes, so a path that matches nothing is never marked.
+ */
+export const DEALS_SECTION = { section: "deals" } as const;
+
+const isDealsSection = (handle: unknown): boolean =>
+  typeof handle === "object" && handle !== null && "section" in handle && handle.section === DEALS_SECTION.section;
 
 const focusRing =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-clay";
@@ -28,9 +38,8 @@ function HouseLogo() {
 }
 
 export function AppShell() {
-  const { pathname } = useLocation();
-  // Deals is the whole deal flow: the list and every step of a deal.
-  const dealsActive = pathname === "/" || pathname.startsWith("/deals");
+  const dealsActive = useMatches().some((match) => isDealsSection(match.handle));
+  const lostSaves = useLostSaves();
 
   return (
     <div className="min-h-dvh bg-paper text-ink">
@@ -82,6 +91,27 @@ export function AppShell() {
       </header>
 
       <main className="mx-auto max-w-[1320px] px-4 py-6 sm:px-8 sm:py-8">
+        {/* Edits that could not be saved and are gone: the owner must hear about them, wherever they are in the app. */}
+        {lostSaves.length > 0 ? (
+          <div className="mb-6 flex flex-col gap-2">
+            {lostSaves.map((entry) => (
+              <div
+                key={entry.dealId}
+                role="alert"
+                className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#F2C2BE] bg-no-go-bg px-4 py-2 text-sm font-medium text-no-go"
+              >
+                <p className="m-0 min-w-0 flex-1">{`Couldn't save your last changes to ${entry.dealName}: ${entry.message}`}</p>
+                <button
+                  type="button"
+                  onClick={() => dismissLostSave(entry.dealId)}
+                  className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-no-go px-3.5 font-semibold hover:bg-surface ${focusRing}`}
+                >
+                  Dismiss
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
         <Outlet />
       </main>
     </div>
