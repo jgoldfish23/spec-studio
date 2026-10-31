@@ -10,7 +10,7 @@ import { createQueryClient } from "../../data/queryClient";
 import { queryKeys } from "../../data/queries";
 import { RepositoryProvider } from "../../data/RepositoryProvider";
 import { SAMPLE_DEAL_NAME, sampleComps, sampleDealInputs } from "../../data/sample";
-import { MemoryStorage } from "../../data/testing/memoryStorage";
+import { MemoryStorage } from "../../data/local/memoryStorage";
 import { DataError } from "../../data/types";
 import type { Repository, StoredDeal } from "../../data/types";
 import { resetLostSaves, useLostSaves } from "./lostSaves";

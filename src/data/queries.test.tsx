@@ -22,7 +22,7 @@ import {
 import { RepositoryProvider } from "./RepositoryProvider";
 import { sampleComps, sampleDealInputs } from "./sample";
 import { STARTER_COST_BOOK } from "./starterCostBook";
-import { MemoryStorage } from "./testing/memoryStorage";
+import { MemoryStorage } from "./local/memoryStorage";
 import { DataError } from "./types";
 import type { Repository } from "./types";
 

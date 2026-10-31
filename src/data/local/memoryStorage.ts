@@ -1,6 +1,7 @@
 /**
- * An in-memory `Storage`, for tests: the same methods as `localStorage` with nothing written to disk. A test that
- * needs a full or blocked store extends it and overrides `setItem` or `getItem`.
+ * An in-memory `Storage`: the same methods as `localStorage` with nothing written to disk. Demo mode falls back to it
+ * when the browser blocks storage (see `openBrowserStorage`), and tests run on it. A test that needs a full or blocked
+ * store extends it and overrides `setItem` or `getItem`.
  */
 export class MemoryStorage implements Storage {
   private readonly items = new Map<string, string>();

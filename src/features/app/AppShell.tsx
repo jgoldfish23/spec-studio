@@ -1,7 +1,9 @@
+import { useContext } from "react";
 import { Link, Outlet, useMatches } from "react-router";
 import { withoutSavePrefix } from "../../lib/errorMessage";
 import { dismissLostSave, useLostSaves } from "../deal/lostSaves";
 import type { LostSave } from "../deal/lostSaves";
+import { PersistentStorageContext } from "./storageMode";
 
 /** Sections that arrive in later phases: shown so the product's shape is visible, but inert. */
 const LATER_SECTIONS = ["Cost book", "Comps", "Plans", "Builds"] as const;
@@ -48,6 +50,7 @@ function HouseLogo() {
 export function AppShell() {
   const dealsActive = useMatches().some((match) => isDealsSection(match.handle));
   const lostSaves = useLostSaves();
+  const persistent = useContext(PersistentStorageContext);
 
   return (
     <div className="min-h-dvh bg-paper text-ink">
@@ -93,7 +96,7 @@ export function AppShell() {
 
           <p className="order-2 ml-auto flex items-center gap-2 rounded-full border border-nav-line px-3 py-1 text-xs text-nav-text md:order-3">
             <span aria-hidden="true" className="size-1.5 rounded-full bg-clay" />
-            Demo mode · saved in this browser
+            {persistent ? "Demo mode · saved in this browser" : "Demo mode · not saved — this browser blocks storage"}
           </p>
         </div>
       </header>

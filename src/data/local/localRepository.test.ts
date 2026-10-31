@@ -3,7 +3,7 @@ import { DEFAULT_MARKET_SETTINGS, DEFAULT_RULES, type Comp } from "@engine";
 import { sampleComps, sampleDealInputs } from "../sample";
 import { STARTER_COST_BOOK } from "../starterCostBook";
 import { newDealInputs } from "../newDeal";
-import { MemoryStorage } from "../testing/memoryStorage";
+import { MemoryStorage } from "./memoryStorage";
 import { DataError, type StoredDeal } from "../types";
 import { COMPS_KEY, createLocalRepository, DEALS_KEY, SETTINGS_KEY } from "./localRepository";
 

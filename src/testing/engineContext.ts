@@ -2,7 +2,7 @@ import { DEFAULT_QUANTITY_RULES, evaluateDeal } from "@engine";
 import type { Comp, DealEvaluation, DealInputs, EngineContext, ISODate } from "@engine";
 import { createLocalRepository } from "../data/local/localRepository";
 import { sampleComps, sampleDealInputs } from "../data/sample";
-import { MemoryStorage } from "../data/testing/memoryStorage";
+import { MemoryStorage } from "../data/local/memoryStorage";
 import type { Repository } from "../data/types";
 
 /** The date tests evaluate deals on, unless one says otherwise: the sample's comps are inside their year on it. */

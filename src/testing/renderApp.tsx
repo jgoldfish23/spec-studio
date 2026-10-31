@@ -8,7 +8,7 @@ import { createLocalRepository } from "../data/local/localRepository";
 import { createQueryClient } from "../data/queryClient";
 import { RepositoryProvider } from "../data/RepositoryProvider";
 import { SAMPLE_DEAL_NAME, sampleComps, sampleDealInputs } from "../data/sample";
-import { MemoryStorage } from "../data/testing/memoryStorage";
+import { MemoryStorage } from "../data/local/memoryStorage";
 import type { Repository, StoredDeal } from "../data/types";
 import { resetLostSaves } from "../features/deal/lostSaves";
 

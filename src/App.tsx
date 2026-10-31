@@ -3,6 +3,7 @@ import { createHashRouter, Navigate, type RouteObject } from "react-router";
 import { RouterProvider } from "react-router/dom";
 import { AppShell, DEALS_SECTION } from "./features/app/AppShell";
 import { NotFound } from "./features/app/NotFound";
+import { PersistentStorageContext } from "./features/app/storageMode";
 import { DealRoute } from "./features/deal/DealRoute";
 import { lazyStep } from "./features/deal/lazyStep";
 import { StepPlaceholder } from "./features/deal/StepPlaceholder";
@@ -60,8 +61,17 @@ const routes: RouteObject[] = [
   },
 ];
 
-export function App() {
+export interface AppProps {
+  /** False when the browser blocks storage and the data lives in memory only; the shell then says nothing is saved. */
+  persistentStorage?: boolean;
+}
+
+export function App({ persistentStorage = true }: AppProps) {
   // Created per mount, not at module level, so each mount reads the current `#/...` location.
   const [router] = useState(() => createHashRouter(routes));
-  return <RouterProvider router={router} />;
+  return (
+    <PersistentStorageContext.Provider value={persistentStorage}>
+      <RouterProvider router={router} />
+    </PersistentStorageContext.Provider>
+  );
 }

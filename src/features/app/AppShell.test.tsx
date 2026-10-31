@@ -25,6 +25,16 @@ describe("app shell", () => {
     expect(within(header).getByText("Demo mode · saved in this browser")).toBeVisible();
   });
 
+  it("says nothing is saved when the browser blocks storage", async () => {
+    window.location.hash = "#/deals";
+    render(<App persistentStorage={false} />, { wrapper: createHarness().Providers });
+    const header = screen.getByRole("banner");
+    expect(within(header).getByText("Demo mode · not saved — this browser blocks storage")).toBeVisible();
+    expect(within(header).queryByText("Demo mode · saved in this browser")).not.toBeInTheDocument();
+    // The app still works: the Deals page is there to use.
+    expect(await screen.findByRole("button", { name: "New deal" })).toBeEnabled();
+  });
+
   it.each(["Cost book", "Comps", "Plans", "Builds"])(
     "shows %s as an inert item with a Later tag, not a link",
     (name) => {
