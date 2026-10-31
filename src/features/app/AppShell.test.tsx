@@ -101,10 +101,17 @@ describe("app shell", () => {
     expect(within(main).queryByText("This step is being built.")).not.toBeInTheDocument();
   });
 
-  it.each([
-    ["market", "Market"],
-    ["proforma", "Pro forma"],
-  ])("has a route for the %s step", async (step, title) => {
+  it("has a route for the market step, with its screen", async () => {
+    const harness = createHarness();
+    const deal = await seedSampleDeal(harness.repository);
+    renderApp(`#/deals/${deal.id}/market`, harness);
+    const main = screen.getByRole("main");
+    expect(await within(main).findByRole("heading", { level: 1, name: "Market" })).toBeInTheDocument();
+    expect(await within(main).findByRole("table", { name: "Comps ranked by match" })).toBeInTheDocument();
+    expect(within(main).queryByText("This step is being built.")).not.toBeInTheDocument();
+  });
+
+  it.each([["proforma", "Pro forma"]])("has a route for the %s step", async (step, title) => {
     const harness = createHarness();
     const deal = await seedSampleDeal(harness.repository);
     renderApp(`#/deals/${deal.id}/${step}`, harness);

@@ -564,6 +564,7 @@ describe("public API (index.ts)", () => {
       [
         "evaluateDeal",
         "validateDeal",
+        "listYearMonth",
         "DEFAULT_RULES",
         "DEFAULT_SCENARIO_DEFS",
         "DEFAULT_MARKET_SETTINGS",

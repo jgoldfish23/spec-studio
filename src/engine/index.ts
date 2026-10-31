@@ -23,6 +23,7 @@ export {
   DealInputsSchema,
   DEFAULT_RULES,
   DEFAULT_SCENARIO_DEFS,
+  listYearMonth,
   LotSchema,
   RulesSchema,
   ScenarioDefSchema,

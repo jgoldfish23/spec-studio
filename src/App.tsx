@@ -10,12 +10,14 @@ import { DealsPage } from "./features/deals/DealsPage";
 import { EstimatePage } from "./features/estimate/EstimatePage";
 import { HousePage } from "./features/house/HousePage";
 import { LotPage } from "./features/lot/LotPage";
+import { MarketPage } from "./features/market/MarketPage";
 
 /** The screen of each step that has one built; the others show a placeholder. */
 const STEP_SCREENS: Partial<Record<StepId, ReactNode>> = {
   lot: <LotPage />,
   house: <HousePage />,
   estimate: <EstimatePage />,
+  market: <MarketPage />,
 };
 
 const routes: RouteObject[] = [
