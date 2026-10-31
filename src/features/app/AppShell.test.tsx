@@ -91,8 +91,17 @@ describe("app shell", () => {
     expect(within(main).queryByText("This step is being built.")).not.toBeInTheDocument();
   });
 
+  it("has a route for the estimate step, with its screen", async () => {
+    const harness = createHarness();
+    const deal = await seedSampleDeal(harness.repository);
+    renderApp(`#/deals/${deal.id}/estimate`, harness);
+    const main = screen.getByRole("main");
+    expect(await within(main).findByRole("heading", { level: 1, name: "Estimate" })).toBeInTheDocument();
+    expect(await within(main).findByRole("table", { name: "Cost lines by division" })).toBeInTheDocument();
+    expect(within(main).queryByText("This step is being built.")).not.toBeInTheDocument();
+  });
+
   it.each([
-    ["estimate", "Estimate"],
     ["market", "Market"],
     ["proforma", "Pro forma"],
   ])("has a route for the %s step", async (step, title) => {
