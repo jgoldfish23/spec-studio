@@ -46,6 +46,19 @@ describe("the comps table", () => {
     expect(within(card("Comps")).getByText("8 comps, ranked by match.")).toBeVisible();
   });
 
+  it("tags the sample's comps as sample data, and not the owner's own", async () => {
+    const { harness, deal } = await sampleSetup();
+    const far = farComp();
+    await harness.repository.saveComp(far);
+    await openMarket(harness, deal);
+
+    const header = (address: string) => within(compRow(address)).getByRole("rowheader");
+    for (const comp of sampleComps()) expect(within(header(comp.address)).getByText("Sample")).toBeVisible();
+    expect(within(header(far.address)).queryByText("Sample")).not.toBeInTheDocument();
+    // The tag is beside the address, not part of it.
+    expect(listedAddresses()).toContain(TOP);
+  });
+
   it("shows a comp's facts in its row", async () => {
     const { harness, deal } = await sampleSetup();
     await openMarket(harness, deal);
@@ -53,7 +66,7 @@ describe("the comps table", () => {
     const implied = price.comps.find((comp) => comp.id === "comp-1")?.impliedCents;
 
     const cells = within(compRow(TOP)).getAllByRole("cell");
-    expect(within(compRow(TOP)).getByRole("rowheader")).toHaveTextContent(`${TOP}Kaysville`);
+    expect(within(compRow(TOP)).getByRole("rowheader")).toHaveTextContent(`${TOP}SampleKaysville`);
     // Built, finished sf (2,173 above grade and 1,777 in the basement), sold price, price per finished sf.
     expect(cells.slice(0, 4).map((cell) => cell.textContent)).toEqual(["2025", "3,950", "$1,365,000", "$346"]);
     // Days to contract, listed → sold, match, adjusted value.

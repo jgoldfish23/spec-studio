@@ -1,6 +1,7 @@
 import { useId } from "react";
 import { compDomDays } from "@engine";
 import type { Comp, MarketSettings, PriceEstimate, Result } from "@engine";
+import { SAMPLE_COMP_IDS } from "../../data/sample";
 import { formatMoney, formatNumberInput } from "../../lib/format";
 import { ACTION_BUTTON, FOCUS_RING } from "../deal/stepShared";
 import { finishedSf, listedToSold, MISSING, pricePerFinishedSf } from "./marketFormat";
@@ -55,9 +56,15 @@ function CompTableRow({ row, impliedCents, settings, chosen, onToggle, onReset, 
   return (
     <tr className="border-t border-[#EEF0EC] align-middle">
       <th scope="row" className="px-3 py-3 text-left font-normal">
-        <div id={nameId} className="font-semibold">
+        <span id={nameId} className="font-semibold">
           {comp.address}
-        </div>
+        </span>
+        {/* Sample data in the shared library: the owner should know a figure rests on it. */}
+        {SAMPLE_COMP_IDS.has(comp.id) ? (
+          <span className="ml-2 inline-block rounded-sm border border-[#B8BEB9] px-1.5 py-px align-[1px] text-[11px] font-medium text-muted">
+            Sample
+          </span>
+        ) : null}
         <div className="text-[13px] text-muted">{comp.city}</div>
       </th>
       <td className={CELL}>{comp.yearBuilt}</td>

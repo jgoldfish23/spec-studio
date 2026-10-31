@@ -23,6 +23,17 @@ export function sampleDealInputs(): DealInputs {
   return deal;
 }
 
+/**
+ * The ids of the sample's comps. They are sample data in the shared comps library: a deal other than the sample leaves
+ * them out unless the owner puts them in, the Market step tags them "Sample", and they go with the last sample deal.
+ */
+export const SAMPLE_COMP_IDS: ReadonlySet<string> = new Set(goldenComps.map((comp) => comp.id));
+
+/** A deal's comp choices that leave out every sample comp in `library`, so a real deal is never priced from sample data. */
+export function leaveOutSampleComps(library: readonly Comp[]): Record<string, boolean> {
+  return Object.fromEntries(library.filter((comp) => SAMPLE_COMP_IDS.has(comp.id)).map((comp) => [comp.id, false]));
+}
+
 /** The golden deal's 8 sold comps, parsed on every call so each caller gets its own copy. */
 export function sampleComps(): Comp[] {
   return goldenComps.map((comp) => CompSchema.parse(comp));

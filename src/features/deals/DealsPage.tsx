@@ -1,18 +1,20 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { DEFAULT_MARKET_SETTINGS } from "@engine";
+import type { Comp } from "@engine";
 import { newDealInputs } from "../../data/newDeal";
 import {
   useCompanySettings,
   useComps,
   useCreateDeal,
   useDeals,
+  useDeleteComp,
   useDeleteDeal,
   useRepository,
   useResetDeals,
   useSaveComp,
 } from "../../data/queries";
-import { SAMPLE_DEAL_NAME, sampleComps, sampleDealInputs } from "../../data/sample";
+import { leaveOutSampleComps, SAMPLE_COMP_IDS, SAMPLE_DEAL_NAME, sampleComps, sampleDealInputs } from "../../data/sample";
 import type { StoredDeal } from "../../data/types";
 import { errorMessage } from "../../lib/errorMessage";
 import { formatMoney, formatPercentCompact } from "../../lib/format";
@@ -30,8 +32,18 @@ const BUTTON = `inline-flex min-h-11 items-center gap-2 rounded-lg px-4.5 text-[
 /** The unreadable-store problem: the repository reports a store it cannot read as a problem with this id. */
 const WHOLE_STORE = "*";
 
-/** What the owner is being asked to confirm. */
-type Confirming = { kind: "delete"; id: string; name: string } | { kind: "reset" } | null;
+/**
+ * What the owner is being asked to confirm. Deleting the last sample deal also deletes the sample's comps that are in
+ * the library (`sampleCompIds`), so sample data does not outlive the sample.
+ */
+type Confirming = { kind: "delete"; id: string; name: string; sampleCompIds: string[] } | { kind: "reset" } | null;
+
+/** "Delete Sample — Kaysville lot? This can't be undone. Its 8 sample comps are removed too." */
+function deleteQuestion({ name, sampleCompIds }: { name: string; sampleCompIds: readonly string[] }): string {
+  const count = sampleCompIds.length;
+  const comps = count === 0 ? "" : count === 1 ? " Its 1 sample comp is removed too." : ` Its ${count} sample comps are removed too.`;
+  return `Delete ${name}? This can't be undone.${comps}`;
+}
 
 function RulesCard() {
   const rules = useCompanySettings().data?.rules;
@@ -73,14 +85,19 @@ function RulesCard() {
   );
 }
 
+/** "9 sold comps in Northern Utah (8 are sample data)." */
+function compsLine(comps: readonly Comp[]): string {
+  const sold = comps.filter((comp) => comp.status === "sold");
+  const sample = sold.filter((comp) => SAMPLE_COMP_IDS.has(comp.id)).length;
+  const note = sample === 0 ? "" : ` (${sample} ${sample === 1 ? "is" : "are"} sample data)`;
+  return `${sold.length} sold ${sold.length === 1 ? "comp" : "comps"} in Northern Utah${note}.`;
+}
+
 function CompsCard() {
   const comps = useComps(REGION).data;
-  const sold = comps?.filter((comp) => comp.status === "sold").length;
   return (
     <Card title="Comps library">
-      <p className="m-0 text-sm leading-normal text-[#33403A]">
-        {sold === undefined ? "Loading…" : `${sold} sold ${sold === 1 ? "comp" : "comps"} in Northern Utah.`}
-      </p>
+      <p className="m-0 text-sm leading-normal text-[#33403A]">{comps === undefined ? "Loading…" : compsLine(comps)}</p>
     </Card>
   );
 }
@@ -92,6 +109,8 @@ export function DealsPage() {
   const createDeal = useCreateDeal();
   const deleteDeal = useDeleteDeal();
   const saveComp = useSaveComp();
+  const deleteComp = useDeleteComp();
+  const library = useComps(REGION).data;
   const resetDeals = useResetDeals();
 
   const [confirming, setConfirming] = useState<Confirming>(null);
@@ -114,31 +133,46 @@ export function DealsPage() {
   const startDeal = () =>
     perform("Couldn't create the deal", async () => {
       const settings = await repository.getCompanySettings();
-      const deal = await createDeal.mutateAsync({ name: "Untitled deal", inputs: newDealInputs(todayIso(), settings) });
+      const inputs = newDealInputs(todayIso(), settings);
+      // A real deal is not priced from sample data: the sample's comps start out of it (the owner can put them in).
+      inputs.compSelections = leaveOutSampleComps(await repository.listComps(inputs.lot.region));
+      const deal = await createDeal.mutateAsync({ name: "Untitled deal", inputs });
       void navigate(`/deals/${deal.id}/lot`);
     });
 
   const loadSample = () =>
     perform("Couldn't load the sample deal", async () => {
-      // The comps first, so the sample is priced the moment it opens. A comp is replaced by id, so this is repeatable.
-      for (const comp of sampleComps()) await saveComp.mutateAsync(comp);
+      // The comps first, so the sample is priced the moment it opens. Only the ones that are missing: a sample comp the
+      // owner has changed keeps the change.
+      const stored = new Set((await repository.listComps(REGION)).map((comp) => comp.id));
+      for (const comp of sampleComps()) if (!stored.has(comp.id)) await saveComp.mutateAsync(comp);
       const deal = await createDeal.mutateAsync({ name: SAMPLE_DEAL_NAME, inputs: sampleDealInputs() });
       void navigate(`/deals/${deal.id}/proforma`);
     });
 
-  const removeDeal = (id: string) => perform("Couldn't delete the deal", () => deleteDeal.mutateAsync(id));
+  const removeDeal = (id: string, sampleCompIds: readonly string[] = []) =>
+    perform("Couldn't delete the deal", async () => {
+      await deleteDeal.mutateAsync(id);
+      for (const compId of sampleCompIds) await deleteComp.mutateAsync(compId);
+    });
   const removeEverything = () => perform("Couldn't remove the saved deals", () => resetDeals.mutateAsync());
 
   const confirm = (): void => {
     const pending = confirming;
     setConfirming(null);
-    if (pending?.kind === "delete") void removeDeal(pending.id);
+    if (pending?.kind === "delete") void removeDeal(pending.id, pending.sampleCompIds);
     else if (pending?.kind === "reset") void removeEverything();
   };
 
   const list = deals.data;
   const hasSample = list?.deals.some((deal) => deal.name === SAMPLE_DEAL_NAME) ?? false;
-  const askToDelete = (deal: StoredDeal) => setConfirming({ kind: "delete", id: deal.id, name: deal.name });
+  const askToDelete = (deal: StoredDeal) => {
+    // The last deal named as the sample takes the sample's comps with it.
+    const lastSample =
+      deal.name === SAMPLE_DEAL_NAME && (list?.deals.filter((other) => other.name === SAMPLE_DEAL_NAME).length ?? 0) <= 1;
+    const sampleCompIds = lastSample ? (library ?? []).filter((comp) => SAMPLE_COMP_IDS.has(comp.id)).map((comp) => comp.id) : [];
+    setConfirming({ kind: "delete", id: deal.id, name: deal.name, sampleCompIds });
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -244,7 +278,7 @@ export function DealsPage() {
 
       {confirming ? (
         <ConfirmDialog
-          message={confirming.kind === "delete" ? `Delete ${confirming.name}? This can't be undone.` : "Remove all saved deals? This can't be undone."}
+          message={confirming.kind === "delete" ? deleteQuestion(confirming) : "Remove all saved deals? This can't be undone."}
           confirmLabel={confirming.kind === "delete" ? "Delete" : "Remove all"}
           onConfirm={confirm}
           onCancel={() => setConfirming(null)}
