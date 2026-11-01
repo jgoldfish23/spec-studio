@@ -327,7 +327,7 @@ With zero included sold comps the market estimate is `incomplete`.
 **Timeline in months**
 
 - Land close = month 0; build start = `preConMonths`; completion = build start + `buildMonths`; list = completion − `listEarlyMonths`
-- Contract = list + DOM; sale close = contract + closing days (fractional months allowed)
+- Contract = list + DOM; sale close = contract + closing days (fractional months allowed). Each is snapped to the nearest whole month when within 1e-9 of it (contract first), so floating-point noise never adds a period or an extension.
 - Loan maturity = build start + `termMonths`
 
 **Spending schedule**
@@ -403,7 +403,7 @@ The scenario definitions are editable per deal. The owner can override the base 
 - **Marginal** — base profit > 0 and exactly one rule fails, and it isn't the downside rule
 - **Go** — all rules pass
 
-Reasons list every rule with pass/fail and the actual value. A **loan warning** is added when base DOM > `maxDomWithoutExtension`.
+Reasons list every rule with pass/fail and the actual value. A **loan warning** is added when the base scenario's cash flow has one or more loan extensions.
 
 **What would make it a Go.** For each lever — lot price, base sale price, build cost — find by bisection the value where all rules pass, holding the other levers fixed. The engine is monotonic in each lever. Output the value and change from current. If a lever can't get there within bounds (lot ≥ $0; price ≤ +50%; build ≥ −50%), say "not reachable with this lever alone." Goal seek runs only when the verdict isn't Go.
 

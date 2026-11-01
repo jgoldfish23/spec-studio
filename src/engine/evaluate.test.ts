@@ -3,7 +3,7 @@ import { uniformBookFor } from "./__fixtures__/books";
 import { GOLDEN_COMPS, GOLDEN_DEAL, GOLDEN_EXPECTED, goldenEstimate, goldenProFormaInput } from "./__fixtures__/golden";
 import { linePartsFor } from "./costbook";
 import type { DealInputs } from "./deal";
-import { evaluateDeal, type DealEvaluation, type EngineContext } from "./evaluate";
+import { evaluateDeal, failedEvaluation, type DealEvaluation, type EngineContext } from "./evaluate";
 import * as engine from "./index";
 import { DEFAULT_MARKET_SETTINGS } from "./market";
 import { breakEvenDomDays, type Metrics } from "./metrics";
@@ -11,6 +11,7 @@ import { roundCents } from "./money";
 import { computeQuantities, DEFAULT_QUANTITY_RULES } from "./quantities";
 import type { MissingItem, Result } from "./result";
 import { sensitivityGrid } from "./scenarios";
+import type { ScoredComp } from "./market";
 
 const CTX: EngineContext = {
   today: "2026-10-30",
@@ -90,6 +91,44 @@ describe("evaluateDeal on the golden deal", () => {
     expect(scenarios.upside.inputs.priceCents).toBe(roundCents((135_000_000 * price.highCents) / price.midCents));
     expect(scenarios.downside.inputs.domDays).toBe(roundCents((62 * dom.highDays) / dom.typicalDays));
     expect(scenarios.upside.inputs.domDays).toBe(roundCents((62 * dom.lowDays) / dom.typicalDays));
+  });
+
+  it("warns about the loan when the base case pays an extension (62 days on market against a limit of 56)", () => {
+    const base = unwrap(golden().scenarios).base;
+    expect(base.cashFlow.extensions).toBe(1);
+    expect(golden().verdict.loanWarning).toEqual({ maxDomWithoutExtension: 56, baseDomDays: 62, extensions: 1 });
+  });
+
+  it("warns about the loan when the term ends before the build does, even with no days on market", () => {
+    const deal: DealInputs = {
+      ...GOLDEN_DEAL,
+      loan: { ...GOLDEN_DEAL.loan, termMonths: 6 },
+      overrides: { ...GOLDEN_DEAL.overrides, baseDomDays: 0 },
+    };
+    const ev = evaluateDeal(deal, CTX);
+    const base = unwrap(ev.scenarios).base;
+    expect(base.inputs.domDays).toBe(0);
+    expect(base.cashFlow.extensions).toBeGreaterThan(0);
+    expect(ev.verdict.loanWarning).toBeDefined();
+    expect(ev.verdict.loanWarning).toEqual({
+      maxDomWithoutExtension: base.metrics.maxDomWithoutExtension,
+      baseDomDays: 0,
+      extensions: base.cashFlow.extensions,
+    });
+  });
+
+  it("has no loan warning when the base sale closes inside the loan term (56 days on market, the limit)", () => {
+    const deal: DealInputs = { ...GOLDEN_DEAL, overrides: { ...GOLDEN_DEAL.overrides, baseDomDays: 56 } };
+    const ev = evaluateDeal(deal, CTX);
+    expect(unwrap(ev.scenarios).base.cashFlow.extensions).toBe(0);
+    expect(ev.verdict).not.toHaveProperty("loanWarning");
+  });
+
+  it("has no loan warning when there is no construction loan", () => {
+    const deal: DealInputs = { ...GOLDEN_DEAL, loan: { ...GOLDEN_DEAL.loan, ltc: 0 } };
+    const ev = evaluateDeal(deal, CTX);
+    expect(unwrap(ev.scenarios).base.cashFlow.extensions).toBe(0);
+    expect(ev.verdict).not.toHaveProperty("loanWarning");
   });
 
   it("is marginal on the margin rule alone, so goal seek reports all three levers", () => {
@@ -280,17 +319,63 @@ describe("evaluateDeal on an invalid deal", () => {
       code: "invalidDeal",
       message: `${i.path}: ${i.message}`,
       step: "house",
+      ref: i.path,
     }));
     expect(ev.verdict.missing).toEqual(expected);
     const steps: Result<unknown>[] = [ev.quantities, ev.estimate, ev.price, ev.dom, ev.scenarios];
     for (const r of steps) expect(missingOf(r)).toEqual(expected);
+    expect(ev.scoredComps).toEqual([]);
   });
 
-  it("sends each issue to the wizard step that fixes it", () => {
-    const deal: DealInputs = { ...GOLDEN_DEAL, lot: { ...GOLDEN_DEAL.lot, priceCents: -1 }, contingencyPct: 2 };
+  it("sends each issue to the wizard step where the app edits it, with the issue's path as its ref", () => {
+    const deal: DealInputs = {
+      ...GOLDEN_DEAL,
+      lot: { ...GOLDEN_DEAL.lot, priceCents: -1 },
+      house: { ...GOLDEN_DEAL.house, garage: { ...GOLDEN_DEAL.house.garage, bays: -1 } },
+      timeline: { ...GOLDEN_DEAL.timeline, closingDays: -1 },
+      loan: { ...GOLDEN_DEAL.loan, rate: 2 },
+      carry: { ...GOLDEN_DEAL.carry, stagingMonthlyCents: -1 },
+      selling: { ...GOLDEN_DEAL.selling, concessionsCents: -1 },
+      rules: { ...GOLDEN_DEAL.rules, minMarginOnSale: 2 },
+      contingencyPct: 2,
+      overrides: { baseDomDays: -1 },
+      plannedListPriceCents: -1,
+      bids: GOLDEN_DEAL.bids.map((b, i) => (i === 0 ? { ...b, vendor: "" } : b)),
+      compSelections: { c1: "yes" as unknown as boolean },
+    };
     const ev = evaluateDeal(deal, CTX);
-    const steps = Object.fromEntries((ev.verdict.missing ?? []).map((m) => [m.message.split(":")[0], m.step]));
-    expect(steps).toEqual({ "lot.priceCents": "lot", contingencyPct: "proforma" });
+    const steps = Object.fromEntries((ev.verdict.missing ?? []).map((m) => [m.ref, m.step]));
+    expect(steps).toEqual({
+      "lot.priceCents": "lot",
+      "house.garage.bays": "house",
+      "timeline.closingDays": "lot",
+      "loan.rate": "proforma",
+      "carry.stagingMonthlyCents": "proforma",
+      "selling.concessionsCents": "proforma",
+      "rules.minMarginOnSale": "proforma",
+      contingencyPct: "estimate",
+      "overrides.baseDomDays": "market",
+      plannedListPriceCents: "market",
+      "bids.0.vendor": "estimate",
+      "compSelections.c1": "market",
+    });
+    for (const item of ev.verdict.missing ?? []) expect(item.message.startsWith(`${item.ref}: `)).toBe(true);
+  });
+
+  it("reports a 16-digit roof pitch or ceiling as a validation issue, and returns promptly", () => {
+    const cases = [
+      ["house.roof.pitchPer12", "Must be 24 or less", (d: DealInputs) => void (d.house.roof.pitchPer12 = 1_234_567_890_123_456)],
+      ["house.levels.main.ceilingFt", "Must be 30 or less", (d: DealInputs) => void (d.house.levels.main.ceilingFt = 1_234_567_890_123_456)],
+    ] as const;
+    for (const [path, message, set] of cases) {
+      const deal = structuredClone(GOLDEN_DEAL);
+      set(deal);
+      const started = performance.now();
+      const ev = evaluateDeal(deal, CTX);
+      expect(performance.now() - started).toBeLessThan(1_000);
+      expect(ev.validation).toEqual([{ path, message }]);
+      expect(ev.verdict.kind).toBe("incomplete");
+    }
   });
 
   it("reports a bid dated before 1900 (a two-digit year typed into a date field) instead of throwing", () => {
@@ -313,11 +398,180 @@ describe("evaluateDeal on an invalid deal", () => {
     expect(ev.verdict.missing?.map((m) => m.step)).toEqual(["proforma"]);
   });
 
+  it("reports an input past its upper bound as one issue and stops, before any cash flow", () => {
+    const deal: DealInputs = { ...GOLDEN_DEAL, loan: { ...GOLDEN_DEAL.loan, termMonths: 61 } };
+    const ev = evaluateDeal(deal, CTX);
+    expect(ev.validation.map((i) => i.path)).toEqual(["loan.termMonths"]);
+    expectBlocked(ev);
+    expect(ev.verdict.missing?.map((m) => m.step)).toEqual(["proforma"]);
+  });
+
   it("stops at validation, before any cash flow, when the loan could never extend", () => {
     const deal: DealInputs = { ...GOLDEN_DEAL, loan: { ...GOLDEN_DEAL.loan, extensionMonths: 0 } };
     const ev = evaluateDeal(deal, CTX);
     expect(ev.validation.map((i) => i.path)).toEqual(["loan.extensionMonths"]);
     expectBlocked(ev);
+  });
+});
+
+/** A copy of the golden context with `value` written at a dotted path (`comps.0.soldDate`). */
+function contextWith(path: string, value: unknown, base: EngineContext = CTX): EngineContext {
+  const ctx = structuredClone(base);
+  const keys = path.split(".");
+  const last = keys.pop()!;
+  let node: unknown = ctx;
+  for (const key of keys) node = (node as Record<string, unknown>)[key];
+  (node as Record<string, unknown>)[last] = value;
+  return ctx;
+}
+
+/** The golden context with one regional default in the cost book, so `costBook.defaults.0.*` can be broken. */
+const CTX_WITH_DEFAULT: EngineContext = {
+  ...CTX,
+  costBook: {
+    defaults: [
+      {
+        code: "framing",
+        variant: "base",
+        tier: null,
+        region: "utah-north",
+        unitPriceCents: 650,
+        unit: "sf",
+        asOf: "2026-01-15",
+        verified: true,
+        sourceNote: "Starter price",
+      },
+    ],
+    priceBook: [],
+  },
+};
+
+describe("evaluateDeal on an invalid context", () => {
+  const badContexts: [name: string, path: string, ctx: EngineContext][] = [
+    ["a US-style comp sold date", "comps.0.soldDate", contextWith("comps.0.soldDate", "6/15/2026")],
+    ["a comp sold date that is not on the calendar", "comps.0.soldDate", contextWith("comps.0.soldDate", "2026-02-30")],
+    ["an empty today", "today", contextWith("today", "")],
+    ["a default dated with slashes", "costBook.defaults.0.asOf", contextWith("costBook.defaults.0.asOf", "01/01/2026", CTX_WITH_DEFAULT)],
+    ["a NaN default price", "costBook.defaults.0.unitPriceCents", contextWith("costBook.defaults.0.unitPriceCents", NaN, CTX_WITH_DEFAULT)],
+    ["a null default price", "costBook.defaults.0.unitPriceCents", contextWith("costBook.defaults.0.unitPriceCents", null, CTX_WITH_DEFAULT)],
+    ["an 11-month seasonal curve", "marketSettings.seasonalFactors", contextWith("marketSettings.seasonalFactors", DEFAULT_MARKET_SETTINGS.seasonalFactors.slice(0, 11))],
+    ["similarity weights adding up to 105", "marketSettings.similarityWeights", contextWith("marketSettings.similarityWeights.size", 30)],
+    ["a NaN comp sold price", "comps.0.soldPriceCents", contextWith("comps.0.soldPriceCents", NaN)],
+    ["a NaN quantity rule", "quantityRules.hvac.sfPerTon", contextWith("quantityRules.hvac.sfPerTon", NaN)],
+  ];
+
+  it.each(badContexts)("is incomplete, naming the setting, for %s, and does not throw", (_name, path, ctx) => {
+    let ev: DealEvaluation | undefined;
+    expect(() => {
+      ev = evaluateDeal(GOLDEN_DEAL, ctx);
+    }).not.toThrow();
+    if (!ev) return;
+    expect(ev.verdict.kind).toBe("incomplete");
+    const items = ev.verdict.missing ?? [];
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ code: "invalidContext", step: "settings" });
+    expect(items[0]?.message.startsWith(`${path}: `)).toBe(true);
+  });
+
+  it("blocks like an invalid deal: every step incomplete with the same items, nothing computed, no scored comps", () => {
+    const ev = evaluateDeal(GOLDEN_DEAL, contextWith("marketSettings.elasticity", -1));
+    expectBlocked(ev);
+    const expected: MissingItem[] = [
+      { code: "invalidContext", message: "marketSettings.elasticity: Must be 0 or more", step: "settings" },
+    ];
+    expect(ev.verdict.missing).toEqual(expected);
+    const steps: Result<unknown>[] = [ev.quantities, ev.estimate, ev.price, ev.dom, ev.scenarios];
+    for (const r of steps) expect(missingOf(r)).toEqual(expected);
+    // The deal itself is fine, so there are no deal validation issues.
+    expect(ev.validation).toEqual([]);
+    expect(ev.scoredComps).toEqual([]);
+  });
+
+  it("reports one item per issue, each with the path in front of the message", () => {
+    const ctx = contextWith("today", "soon");
+    ctx.marketSettings = { ...ctx.marketSettings, elasticity: -1, assumedClosingDays: 400 };
+    const ev = evaluateDeal(GOLDEN_DEAL, ctx);
+    const items = ev.verdict.missing ?? [];
+    expect(items.every((m) => m.code === "invalidContext" && m.step === "settings")).toBe(true);
+    expect(items.map((m) => m.message.split(":")[0]).sort()).toEqual(
+      ["marketSettings.assumedClosingDays", "marketSettings.elasticity", "today"].sort(),
+    );
+  });
+
+  it("reports a comp date off the calendar instead of throwing from the days-on-market step", () => {
+    const ctx = contextWith("comps.2.listDate", "2026-02-30");
+    expect(() => evaluateDeal(GOLDEN_DEAL, ctx)).not.toThrow();
+    expect(evaluateDeal(GOLDEN_DEAL, ctx).verdict.missing?.[0]?.message.startsWith("comps.2.listDate: ")).toBe(true);
+  });
+
+  it("reports a seasonal curve with a zero instead of throwing from the days-on-market step", () => {
+    const factors = [...DEFAULT_MARKET_SETTINGS.seasonalFactors];
+    factors[4] = 0;
+    const ctx = contextWith("marketSettings.seasonalFactors", factors);
+    expect(() => evaluateDeal(GOLDEN_DEAL, ctx)).not.toThrow();
+    expect(evaluateDeal(GOLDEN_DEAL, ctx).verdict.missing?.map((m) => m.message.split(":")[0])).toEqual([
+      "marketSettings.seasonalFactors.4",
+    ]);
+  });
+
+  it("reports a zero divisor in the quantity rules instead of putting an infinite quantity in the estimate", () => {
+    const ctx = contextWith("quantityRules.windows.sfPerWindow", 0);
+    const ev = evaluateDeal(GOLDEN_DEAL, ctx);
+    expect(ev.verdict.kind).toBe("incomplete");
+    expect(ev.verdict.missing?.map((m) => m.message.split(":")[0])).toEqual(["quantityRules.windows.sfPerWindow"]);
+  });
+
+  it("checks the deal first: a bad deal reports its own issues and not the context's", () => {
+    const deal: DealInputs = { ...GOLDEN_DEAL, lot: { ...GOLDEN_DEAL.lot, priceCents: -1 } };
+    const ev = evaluateDeal(deal, contextWith("today", ""));
+    expect(ev.validation.map((i) => i.path)).toEqual(["lot.priceCents"]);
+    expect(ev.verdict.missing?.every((m) => m.code === "invalidDeal")).toBe(true);
+    expect(ev.scoredComps).toEqual([]);
+  });
+
+  it("reports a context that is not an object instead of throwing", () => {
+    const ctx = null as unknown as EngineContext;
+    expect(() => evaluateDeal(GOLDEN_DEAL, ctx)).not.toThrow();
+    const ev = evaluateDeal(GOLDEN_DEAL, ctx);
+    expect(ev.verdict.kind).toBe("incomplete");
+    expect(ev.verdict.missing?.every((m) => m.code === "invalidContext" && m.step === "settings")).toBe(true);
+  });
+});
+
+describe("evaluateDeal scored comps", () => {
+  const scoreOf = (s: ScoredComp): number => s.score;
+
+  it("lists the golden context's 8 comps, best score first", () => {
+    const { scoredComps } = golden();
+    expect(scoredComps).toHaveLength(8);
+    expect(scoredComps.map(scoreOf)).toEqual([...scoredComps.map(scoreOf)].sort((a, b) => b - a));
+    expect(new Set(scoredComps.map((s) => s.comp.id))).toEqual(new Set(GOLDEN_COMPS.map((c) => c.id)));
+  });
+
+  it("carries the score and inclusion that priced the sale", () => {
+    const { scoredComps, price } = golden();
+    const included = scoredComps.filter((s) => s.included).map((s) => s.comp.id);
+    expect(included.length).toBeGreaterThan(0);
+    expect(new Set(unwrap(price).comps.map((c) => c.id))).toEqual(new Set(included));
+    for (const c of unwrap(price).comps) {
+      expect(c.weight).toBe(scoredComps.find((s) => s.comp.id === c.id)?.score);
+    }
+  });
+
+  it("applies the owner's selections to the list", () => {
+    const first = golden().scoredComps[0]!.comp.id;
+    const ev = evaluateDeal({ ...GOLDEN_DEAL, compSelections: { [first]: false } }, CTX);
+    expect(ev.scoredComps.find((s) => s.comp.id === first)?.included).toBe(false);
+  });
+
+  it("is still listed when the estimate is incomplete, since the market step ran", () => {
+    const ev = evaluateDeal({ ...GOLDEN_DEAL, bids: [] }, CTX);
+    expect(ev.estimate.status).toBe("incomplete");
+    expect(ev.scoredComps).toEqual(golden().scoredComps);
+  });
+
+  it("is empty when there are no comps", () => {
+    expect(evaluateDeal(GOLDEN_DEAL, { ...CTX, comps: [] }).scoredComps).toEqual([]);
   });
 });
 
@@ -349,12 +603,32 @@ describe("evaluateDeal performance", () => {
   });
 });
 
+describe("failedEvaluation", () => {
+  it("is an evaluation where nothing ran: every step incomplete with one engineError item, at the pro forma", () => {
+    const ev = failedEvaluation("Couldn't calculate this deal");
+    const item: MissingItem = { code: "engineError", message: "Couldn't calculate this deal", step: "proforma" };
+    expect(ev.validation).toEqual([]);
+    expectBlocked(ev);
+    expect(ev.verdict.missing).toEqual([item]);
+    const steps: Result<unknown>[] = [ev.quantities, ev.estimate, ev.price, ev.dom, ev.scenarios];
+    for (const r of steps) expect(missingOf(r)).toEqual([item]);
+    expect(ev.scoredComps).toEqual([]);
+  });
+
+  it("carries the message it is given", () => {
+    expect(failedEvaluation("boom").verdict.missing).toEqual([{ code: "engineError", message: "boom", step: "proforma" }]);
+  });
+});
+
 describe("public API (index.ts)", () => {
   it("re-exports exactly the documented values", () => {
     expect(Object.keys(engine).sort()).toEqual(
       [
         "evaluateDeal",
+        "failedEvaluation",
+        "LIMITS",
         "validateDeal",
+        "listYearMonth",
         "DEFAULT_RULES",
         "DEFAULT_SCENARIO_DEFS",
         "DEFAULT_MARKET_SETTINGS",
@@ -376,6 +650,15 @@ describe("public API (index.ts)", () => {
         "UtilityStatusSchema",
         "HouseModelSchema",
         "FinishTierSchema",
+        "CompSchema",
+        "MarketSettingsSchema",
+        "DefaultPriceSchema",
+        "PriceBookEntrySchema",
+        "CostBookViewSchema",
+        "QuantityRulesSchema",
+        "EngineContextSchema",
+        "validateContext",
+        "compDomDays",
       ].sort(),
     );
   });
@@ -383,6 +666,17 @@ describe("public API (index.ts)", () => {
   it("evaluates through the barrel the same as directly", () => {
     expect(engine.evaluateDeal(GOLDEN_DEAL, CTX)).toEqual(golden());
     expect(engine.validateDeal(GOLDEN_DEAL)).toEqual([]);
+  });
+
+  it("validates a context through the barrel", () => {
+    expect(engine.validateContext(CTX)).toEqual([]);
+    expect(engine.EngineContextSchema.safeParse(CTX).success).toBe(true);
+    expect(engine.validateContext({ ...CTX, today: "" }).map((i) => i.path)).toEqual(["today"]);
+  });
+
+  it("exposes days on market to contract for a comp", () => {
+    // Listed 2026-04-15 and sold 2026-06-15 with no contract date: 61 days, less 35 assumed closing days.
+    expect(engine.compDomDays(GOLDEN_COMPS[0]!, DEFAULT_MARKET_SETTINGS)).toBe(26);
   });
 
   it("exposes the input and result types (checked by tsc)", () => {
@@ -406,10 +700,11 @@ describe("public API (index.ts)", () => {
     const grid: engine.GridCell[][] | null = ev.grid;
     const verdict: engine.Verdict = ev.verdict;
     const levers: engine.LeverResult[] | null = ev.goalSeek;
+    const scored: engine.ScoredComp[] = ev.scoredComps;
     const missing: engine.MissingItem[] | undefined = verdict.missing;
     const cents: engine.Cents = metrics.profitCents;
     const today: engine.ISODate = ctx.today;
     const all = [house, comps, settings, rules, book, issues, quantities, lines, price, dom, cashFlow, grid, levers];
-    expect([...all, missing, cents, today]).toHaveLength(16);
+    expect([...all, missing, cents, today, scored]).toHaveLength(17);
   });
 });

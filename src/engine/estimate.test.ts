@@ -475,7 +475,7 @@ describe("missing prices", () => {
     expect(r.status).toBe("incomplete");
     if (r.status !== "incomplete") return;
     expect(r.missing).toHaveLength(1);
-    expect(r.missing[0]).toMatchObject({ code: "missingPrice", step: "estimate" });
+    expect(r.missing[0]).toMatchObject({ code: "missingPrice", step: "estimate", ref: "windows" });
     expect(r.missing[0]?.message).toContain("windows");
     expect(r.missing[0]?.message).toContain("window");
     expect(r.missing[0]?.message).toContain("upgraded");
@@ -487,6 +487,7 @@ describe("missing prices", () => {
     if (r.status !== "incomplete") return;
     expect(r.missing).toHaveLength(3);
     expect(r.missing.every((m) => m.code === "missingPrice" && m.step === "estimate")).toBe(true);
+    expect(r.missing.map((m) => m.ref)).toEqual(["plans", "windows", "hvac"]);
     expect(r.missing.map((m) => ["plans", "windows", "hvac"].findIndex((c) => m.message.includes(c)))).toEqual([
       0, 1, 2,
     ]);

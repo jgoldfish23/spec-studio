@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+/* Design tokens from the mockups. Each becomes a Tailwind utility: `bg-paper`, `text-muted`, ... */
+@theme {
+  --color-ink: #1a1d1b;
+  --color-paper: #f4f5f2;
+  --color-surface: #ffffff;
+  --color-line: #dcdfd9;
+  --color-muted: #4f5a55;
+  --color-spruce: #1f4b3f;
+  --color-spruce-dark: #16241f;
+  --color-clay: #e9a06a;
+
+  /* Verdict pairs: text on tint. A verdict always also carries an icon and a word. */
+  --color-go: #155c34;
+  --color-go-bg: #e3f2e8;
+  --color-marginal: #7a4f00;
+  --color-marginal-bg: #fff1d6;
+  --color-no-go: #8f2323;
+  --color-no-go-bg: #fbe4e2;
+
+  /* Shades used only on the dark header bar. */
+  --color-nav-text: #c9d3ce;
+  --color-nav-active: #2a3d36;
+  --color-nav-off: #8e9c96;
+  --color-nav-line: #4a5c55;
+
+  /* System fallback only: no web font is downloaded. */
+  --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  /* Digits line up in columns of money and percentages. */
+  font-variant-numeric: tabular-nums;
+}

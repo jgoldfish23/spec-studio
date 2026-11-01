@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_RULES, DEFAULT_SCENARIO_DEFS, validateDeal } from "../deal";
-import { GOLDEN_COMPS, GOLDEN_DEAL, GOLDEN_EXPECTED } from "./golden";
+import { GOLDEN_COMPS, GOLDEN_DEAL, GOLDEN_EXPECTED, GOLDEN_FINANCED_DEAL } from "./golden";
 import { SAMPLE_HOUSE, SAMPLE_LOT } from "./sampleHouse";
 
 describe("golden deal fixture", () => {
@@ -28,6 +28,19 @@ describe("golden deal fixture", () => {
     expect(GOLDEN_EXPECTED.scenarios.base.extensions).toBe(1);
     expect(GOLDEN_EXPECTED.scenarios.stress.extensions).toBe(4); // saleClose ≈ 25.301, maturity 14
     expect(GOLDEN_EXPECTED.scenarios.base.metrics.maxDomWithoutExtension).toBe(56);
+  });
+
+  it("has a financed scenario that runs the land loan and capitalized interest without an extension", () => {
+    expect(validateDeal(GOLDEN_FINANCED_DEAL)).toEqual([]);
+    const f = GOLDEN_EXPECTED.scenarios.financed;
+    expect(f.periods).toHaveLength(13); // list 9, saleClose ≈ 12.189
+    expect(f.extensions).toBe(0); // maturity 14
+    expect(f.metrics.maxDomWithoutExtension).toBe(117); // floor(5 × 365/12 − 35)
+    expect(f.periods.some((p) => p.landLoanInterestCents > 0)).toBe(true);
+    // Capitalized: the sale repays every draw and every month's interest, plus the $206,500 land loan.
+    const sum = (field: keyof (typeof f.periods)[number]) => f.periods.reduce((t, p) => t + p[field], 0);
+    expect(sum("interestCents")).toBeGreaterThan(0);
+    expect(f.sale.loanPayoffCents).toBe(sum("loanDrawCents") + sum("interestCents") + 20_650_000);
   });
 
   it("has internally consistent expected values for every scenario", () => {

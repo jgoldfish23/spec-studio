@@ -1,9 +1,20 @@
 /**
- * The engine's public API: `evaluateDeal`, the deal input schemas and defaults, and the types of
- * everything it takes and returns.
+ * The engine's public API: `evaluateDeal` (and `failedEvaluation`, what stands in for it when it throws), the deal
+ * input schemas and defaults, and the types of everything it takes and returns.
  */
-export { evaluateDeal } from "./evaluate";
+export { evaluateDeal, failedEvaluation } from "./evaluate";
 export type { DealEvaluation, EngineContext } from "./evaluate";
+
+export {
+  CompSchema,
+  CostBookViewSchema,
+  DefaultPriceSchema,
+  EngineContextSchema,
+  MarketSettingsSchema,
+  PriceBookEntrySchema,
+  QuantityRulesSchema,
+  validateContext,
+} from "./context";
 
 export {
   BidSchema,
@@ -12,6 +23,7 @@ export {
   DealInputsSchema,
   DEFAULT_RULES,
   DEFAULT_SCENARIO_DEFS,
+  listYearMonth,
   LotSchema,
   RulesSchema,
   ScenarioDefSchema,
@@ -38,6 +50,8 @@ export type {
 } from "./deal";
 
 export { FinishTierSchema, HouseModelSchema } from "./house";
+
+export { LIMITS } from "./limits";
 export type { FinishTier, HouseModel, TierArea } from "./house";
 
 export { DEFAULT_MARKET_SETTINGS } from "./market";
@@ -73,7 +87,7 @@ export type {
 export { formatUsd } from "./money";
 export type { Cents } from "./money";
 
-export { fitSeasonalFactors } from "./dom";
+export { compDomDays, fitSeasonalFactors } from "./dom";
 export type { DomConfidence, DomEstimate } from "./dom";
 
 export type { ISODate, YearMonth } from "./dates";

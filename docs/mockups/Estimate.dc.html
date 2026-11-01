@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Deal · Estimate</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F4F5F2;font-family:'Inter',system-ui,sans-serif;color:#1A1D1B;font-variant-numeric:tabular-nums}
+a{color:#1F4B3F}a:hover{color:#0F2F27}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #F4F5F2; font-family: 'Inter', system-ui, sans-serif; color: #1A1D1B">
+
+<header style="background: #16241F; color: #F4F5F2; padding: 0 32px">
+<div style="max-width: 1320px; margin: 0 auto; min-height: 60px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap">
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 10px; color: #F4F5F2; text-decoration: none">
+<svg aria-hidden="true" width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="#E9A06A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12 13 4l10 8"></path><path d="M6 10v12h14V10"></path><path d="M11 22v-6h4v6"></path></svg>
+<span style="font-weight: 700; font-size: 17px; letter-spacing: -0.01em">Spec Studio</span>
+</a>
+<nav aria-label="Main" style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 14px">
+<a href="Main.dc.html" aria-current="page" style="color: #FFFFFF; text-decoration: none; padding: 8px 12px; border-radius: 6px; background: #2A3D36; font-weight: 600">Deals</a>
+<a href="#" style="color: #C9D3CE; text-decoration: none; padding: 8px 12px; border-radius: 6px">Cost book</a>
+<a href="#" style="color: #C9D3CE; text-decoration: none; padding: 8px 12px; border-radius: 6px">Comps</a>
+<span style="color: #8E9C96; padding: 8px 12px; display: flex; align-items: center; gap: 6px">Plans <span style="font-size: 11px; border: 1px solid #4A5C55; border-radius: 4px; padding: 1px 5px">Later</span></span>
+<span style="color: #8E9C96; padding: 8px 12px; display: flex; align-items: center; gap: 6px">Builds <span style="font-size: 11px; border: 1px solid #4A5C55; border-radius: 4px; padding: 1px 5px">Later</span></span>
+</nav>
+</div>
+</header>
+
+<section style="background: #FFFFFF; border-bottom: 1px solid #DCDFD9; padding: 20px 32px 0">
+<div style="max-width: 1320px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<a href="Main.dc.html" style="font-size: 13px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 4px"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3 5 7l4 4"></path></svg>Deals</a>
+<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+<h1 style="margin: 0; font-size: 26px; letter-spacing: -0.02em">Kaysville lot · 3,800 sf rambler</h1>
+<span style="font-size: 12px; font-weight: 600; color: #7A4F00; background: #FFF1D6; border: 1px solid #F0D9A8; padding: 3px 8px; border-radius: 999px">Sample numbers</span>
+</div>
+<p style="margin: 0; color: #4F5A55; font-size: 14px">Davis County · 0.33 ac · finished basement · 3-car garage</p>
+</div>
+<span style="display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; color: #7A4F00; background: #FFF1D6; border: 1px solid #F0D9A8; padding: 8px 14px; border-radius: 999px"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3.5 7h7"></path></svg>Marginal</span>
+</div>
+<dl style="margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px">
+<div style="background: #F7F8F6; border-radius: 10px; padding: 12px 14px"><dt style="font-size: 12px; color: #4F5A55">Sale price (base)</dt><dd style="margin: 4px 0 0; font-size: 20px; font-weight: 700">$1,350,000</dd></div>
+<div style="background: #F7F8F6; border-radius: 10px; padding: 12px 14px"><dt style="font-size: 12px; color: #4F5A55">Total project cost</dt><dd style="margin: 4px 0 0; font-size: 20px; font-weight: 700">$1,092,500</dd></div>
+<div style="background: #F7F8F6; border-radius: 10px; padding: 12px 14px"><dt style="font-size: 12px; color: #4F5A55">Profit</dt><dd style="margin: 4px 0 0; font-size: 20px; font-weight: 700">$161,500</dd></div>
+<div style="background: #F7F8F6; border-radius: 10px; padding: 12px 14px"><dt style="font-size: 12px; color: #4F5A55">Margin on sale</dt><dd style="margin: 4px 0 0; font-size: 20px; font-weight: 700">12.0%</dd></div>
+<div style="background: #F7F8F6; border-radius: 10px; padding: 12px 14px"><dt style="font-size: 12px; color: #4F5A55">Days on market</dt><dd style="margin: 4px 0 0; font-size: 20px; font-weight: 700">45–90</dd></div>
+</dl>
+<nav aria-label="Deal steps" style="display: flex; gap: 4px; flex-wrap: wrap">
+<a href="Lot.dc.html" style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 3px solid transparent; color: #4F5A55; font-weight: 500; text-decoration: none; font-size: 15px"><span style="width: 22px; height: 22px; border-radius: 50%; background: #E7E9E4; color: #33403A; font-size: 12px; display: inline-flex; align-items: center; justify-content: center">1</span>Lot</a>
+<a href="House.dc.html" style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 3px solid transparent; color: #4F5A55; font-weight: 500; text-decoration: none; font-size: 15px"><span style="width: 22px; height: 22px; border-radius: 50%; background: #E7E9E4; color: #33403A; font-size: 12px; display: inline-flex; align-items: center; justify-content: center">2</span>House</a>
+<a href="Estimate.dc.html" aria-current="step" style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 3px solid #1F4B3F; color: #1A1D1B; font-weight: 600; text-decoration: none; font-size: 15px"><span style="width: 22px; height: 22px; border-radius: 50%; background: #1F4B3F; color: #FFFFFF; font-size: 12px; display: inline-flex; align-items: center; justify-content: center">3</span>Estimate</a>
+<a href="Market.dc.html" style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 3px solid transparent; color: #4F5A55; font-weight: 500; text-decoration: none; font-size: 15px"><span style="width: 22px; height: 22px; border-radius: 50%; background: #E7E9E4; color: #33403A; font-size: 12px; display: inline-flex; align-items: center; justify-content: center">4</span>Market</a>
+<a href="ProForma.dc.html" style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 3px solid transparent; color: #4F5A55; font-weight: 500; text-decoration: none; font-size: 15px"><span style="width: 22px; height: 22px; border-radius: 50%; background: #E7E9E4; color: #33403A; font-size: 12px; display: inline-flex; align-items: center; justify-content: center">5</span>Pro forma</a>
+</nav>
+</div>
+</section>
+
+<main style="max-width: 1320px; margin: 0 auto; padding: 28px 32px 48px; display: flex; flex-direction: column; gap: 24px">
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px">
+
+<section style="background: #16241F; color: #F4F5F2; border-radius: 12px; padding: 22px; display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-size: 14px; font-weight: 600; color: #C9D3CE">Build estimate</h2>
+<div style="font-size: 36px; font-weight: 700; letter-spacing: -0.02em">$736,000</div>
+<div style="font-size: 14px; color: #C9D3CE">$194 per finished sf · Upgraded finishes</div>
+<div style="display: flex; flex-direction: column; gap: 6px; border-top: 1px solid #2E433B; padding-top: 12px; font-size: 14px">
+<div style="display: flex; justify-content: space-between; gap: 8px"><span style="color: #C9D3CE">Subtotal (25 lines)</span><span>$700,950</span></div>
+<div style="display: flex; justify-content: space-between; gap: 8px"><span style="color: #C9D3CE">Contingency 5%</span><span>$35,050</span></div>
+</div>
+</section>
+
+<section style="background: #FFFFFF; border: 1px solid #DCDFD9; border-radius: 12px; padding: 22px; display: flex; flex-direction: column; gap: 14px">
+<h2 style="margin: 0; font-size: 15px">How solid is this number?</h2>
+<div style="font-size: 28px; font-weight: 700; letter-spacing: -0.02em">33% <span style="font-size: 15px; font-weight: 500; color: #4F5A55">backed by real bids</span></div>
+<div style="display: flex; height: 12px; border-radius: 6px; overflow: hidden" role="img" aria-label="33% bids, 17% your price book, 50% regional defaults">
+<div style="width: 33%; background: #1F4B3F"></div>
+<div style="width: 17%; background: #6E9C8C"></div>
+<div style="width: 50%; background: #DCE5E1"></div>
+</div>
+<ul style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 14px">
+<li style="display: flex; justify-content: space-between; gap: 8px"><span style="display: inline-flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; background: #1F4B3F"></span>Bids for this job</span><strong>$232,500</strong></li>
+<li style="display: flex; justify-content: space-between; gap: 8px"><span style="display: inline-flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; background: #6E9C8C"></span>Your price book</span><strong>$118,300</strong></li>
+<li style="display: flex; justify-content: space-between; gap: 8px"><span style="display: inline-flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; background: #DCE5E1; border: 1px solid #B8C6C0"></span>Regional defaults (Oct 2026)</span><strong>$350,150</strong></li>
+</ul>
+</section>
+
+<section style="background: #FFFFFF; border: 1px solid #DCDFD9; border-radius: 12px; padding: 22px; display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font-size: 15px">Get bids here next</h2>
+<p style="margin: 0; font-size: 13px; color: #4F5A55">Biggest lines still on defaults.</p>
+<ol style="margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 14px">
+<li><span style="display: flex; justify-content: space-between; gap: 8px"><span>Exterior cladding</span><strong>$38,000</strong></span></li>
+<li><span style="display: flex; justify-content: space-between; gap: 8px"><span>Windows &amp; exterior doors</span><strong>$31,000</strong></span></li>
+<li><span style="display: flex; justify-content: space-between; gap: 8px"><span>Flooring</span><strong>$31,000</strong></span></li>
+<li><span style="display: flex; justify-content: space-between; gap: 8px"><span>Electrical</span><strong>$29,700</strong></span></li>
+</ol>
+<p style="margin: 0; font-size: 13px; color: #155C34; font-weight: 600">Bidding these four cuts defaults from 50% to 31%.</p>
+</section>
+
+</div>
+
+<section style="background: #FFFFFF; border: 1px solid #DCDFD9; border-radius: 12px; overflow: hidden">
+<div style="padding: 16px 20px; border-bottom: 1px solid #DCDFD9; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap">
+<h2 style="margin: 0; font-size: 17px">Cost lines</h2>
+<div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center">
+<div role="group" aria-label="Show lines" style="display: flex; border: 1px solid #C9CEC8; border-radius: 8px; overflow: hidden">
+<button type="button" aria-pressed="true" style="font: inherit; font-size: 14px; min-height: 40px; padding: 0 14px; border: 0; background: #1F4B3F; color: #FFFFFF; font-weight: 600; cursor: pointer">All lines</button>
+<button type="button" aria-pressed="false" style="font: inherit; font-size: 14px; min-height: 40px; padding: 0 14px; border: 0; border-left: 1px solid #C9CEC8; background: #FFFFFF; color: #33403A; cursor: pointer">Defaults only</button>
+</div>
+<button type="button" style="font: inherit; font-size: 14px; font-weight: 600; min-height: 40px; padding: 0 14px; border: 1px solid #C9CEC8; border-radius: 8px; background: #FFFFFF; color: #1A1D1B; cursor: pointer">Add line</button>
+<button type="button" style="font: inherit; font-size: 14px; font-weight: 600; min-height: 40px; padding: 0 14px; border: 1px solid #C9CEC8; border-radius: 8px; background: #FFFFFF; color: #1A1D1B; cursor: pointer">Export for lender</button>
+</div>
+</div>
+<div style="overflow-x: auto">
+<table style="width: 100%; border-collapse: collapse; font-size: 14px; min-width: 860px">
+<thead>
+<tr style="text-align: left; color: #4F5A55; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; background: #F7F8F6">
+<th scope="col" style="padding: 10px 20px; font-weight: 600">Line</th>
+<th scope="col" style="padding: 10px 12px; font-weight: 600">Quantity</th>
+<th scope="col" style="padding: 10px 12px; font-weight: 600; text-align: right">Unit cost</th>
+<th scope="col" style="padding: 10px 12px; font-weight: 600; text-align: right">Total</th>
+<th scope="col" style="padding: 10px 12px; font-weight: 600">Price source</th>
+<th scope="col" style="padding: 10px 20px; font-weight: 600; text-align: right"><span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Action</span></th>
+</tr>
+</thead>
+<sc-for list="{{divisions}}" as="div" hint-placeholder-count="8">
+<tbody>
+<tr style="background: #F1F3EF; border-top: 1px solid #DCDFD9">
+<th scope="rowgroup" colspan="3" style="padding: 10px 20px; text-align: left; font-size: 13px; font-weight: 700; color: #33403A">{{div.name}}</th>
+<td style="padding: 10px 12px; text-align: right; font-size: 13px; font-weight: 700; color: #33403A">{{div.subtotal}}</td>
+<td colspan="2"></td>
+</tr>
+<sc-for list="{{div.lines}}" as="l" hint-placeholder-count="3">
+<tr style="border-top: 1px solid #EEF0EC">
+<td style="padding: 12px 20px; font-weight: 500">{{l.name}}</td>
+<td style="padding: 12px 12px; color: #4F5A55">{{l.qty}}</td>
+<td style="padding: 12px 12px; text-align: right; color: #4F5A55">{{l.unit}}</td>
+<td style="padding: 12px 12px; text-align: right; font-weight: 600">{{l.total}}</td>
+<td style="padding: 12px 12px">
+<sc-if value="{{l.isBid}}" hint-placeholder-val="{{ false }}"><span style="font-size: 12px; font-weight: 600; color: #FFFFFF; background: #1F4B3F; padding: 3px 9px; border-radius: 999px">Bid</span></sc-if>
+<sc-if value="{{l.isBook}}" hint-placeholder-val="{{ false }}"><span style="font-size: 12px; font-weight: 600; color: #1F4B3F; background: #E5EFEB; border: 1px solid #9FC0B3; padding: 3px 9px; border-radius: 999px">Price book</span></sc-if>
+<sc-if value="{{l.isDefault}}" hint-placeholder-val="{{ true }}"><span style="font-size: 12px; font-weight: 600; color: #4F5A55; background: #EEF0EC; border: 1px solid #D5D9D3; padding: 3px 9px; border-radius: 999px">Default</span></sc-if>
+</td>
+<td style="padding: 12px 20px; text-align: right"><a href="#" style="font-size: 13px; font-weight: 600">{{l.action}}</a></td>
+</tr>
+</sc-for>
+</tbody>
+</sc-for>
+<tfoot>
+<tr style="border-top: 2px solid #1A1D1B">
+<th scope="row" colspan="3" style="padding: 12px 20px; text-align: left">Subtotal</th>
+<td style="padding: 12px 12px; text-align: right; font-weight: 700">$700,950</td>
+<td colspan="2"></td>
+</tr>
+<tr>
+<th scope="row" colspan="3" style="padding: 4px 20px 12px; text-align: left; font-weight: 500; color: #4F5A55">Contingency (5%, editable)</th>
+<td style="padding: 4px 12px 12px; text-align: right; font-weight: 600">$35,050</td>
+<td colspan="2"></td>
+</tr>
+<tr style="background: #F1F3EF">
+<th scope="row" colspan="3" style="padding: 14px 20px; text-align: left; font-size: 16px">Build estimate</th>
+<td style="padding: 14px 12px; text-align: right; font-size: 16px; font-weight: 700">$736,000</td>
+<td colspan="2"></td>
+</tr>
+</tfoot>
+</table>
+</div>
+</section>
+
+<div style="display: flex; justify-content: flex-end">
+<a href="Market.dc.html" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: #1F4B3F; color: #FFFFFF; text-decoration: none; font-weight: 600; font-size: 15px; padding: 14px 22px; border-radius: 8px; min-height: 48px; box-sizing: border-box">Next: check the market
+<svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3l5 5-5 5"></path></svg></a>
+</div>
+
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2050}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const L = (name, qty, unit, total, src) => ({
+      name, qty, unit, total,
+      isBid: src === 'bid', isBook: src === 'book', isDefault: src === 'default',
+      action: src === 'bid' ? 'View bid' : src === 'book' ? 'Edit' : 'Add bid'
+    });
+    return {
+      divisions: [
+        { name: 'Soft costs', subtotal: '$38,500', lines: [
+          L('Plans & engineering', 'Lump sum', '—', '$8,500', 'bid'),
+          L('Permits & impact fees', 'Kaysville schedule', '—', '$26,800', 'default'),
+          L('Survey & soils report', 'Lump sum', '—', '$3,200', 'default')
+        ] },
+        { name: 'Site', subtotal: '$37,500', lines: [
+          L('Excavation & grading', '880 yd³', '$25.00', '$22,000', 'book'),
+          L('Utility connections', '4 ea', '$3,875', '$15,500', 'default')
+        ] },
+        { name: 'Structure', subtotal: '$194,000', lines: [
+          L('Foundation & waterproofing', '214 LF', 'Bid', '$62,000', 'bid'),
+          L('Framing (labor + material)', 'Lump sum', 'Bid', '$108,000', 'bid'),
+          L('Roofing', '40 squares', '$600', '$24,000', 'default')
+        ] },
+        { name: 'Envelope', subtotal: '$79,500', lines: [
+          L('Windows & exterior doors', '28 windows · 3 doors', 'Allowance', '$31,000', 'default'),
+          L('Exterior cladding', '3,040 sf', '$12.50', '$38,000', 'default'),
+          L('Insulation', '4,375 sf', '$2.40', '$10,500', 'default')
+        ] },
+        { name: 'Plumbing, electrical & HVAC', subtotal: '$89,200', lines: [
+          L('Plumbing', '22 fixtures', '$1,500', '$33,000', 'book'),
+          L('Electrical', '4,400 sf', '$6.75', '$29,700', 'default'),
+          L('HVAC', '5 tons', '$5,300', '$26,500', 'default')
+        ] },
+        { name: 'Interior', subtotal: '$181,500', lines: [
+          L('Drywall', '15,000 sf', '$2.00', '$30,000', 'book'),
+          L('Interior trim & doors', 'Upgraded', 'Allowance', '$24,500', 'default'),
+          L('Cabinets & countertops', '46 LF', 'Bid', '$54,000', 'bid'),
+          L('Flooring', '3,800 sf · 3 types', 'Mixed', '$31,000', 'default'),
+          L('Paint', '15,000 sf', '$1.20', '$18,000', 'default'),
+          L('Fixtures & appliances', 'Upgraded', 'Allowance', '$24,000', 'default')
+        ] },
+        { name: 'Exterior finish', subtotal: '$43,300', lines: [
+          L('Garage doors', '2 doors', 'Allowance', '$6,800', 'default'),
+          L('Concrete flatwork', '1,500 sf', '$11.00', '$16,500', 'default'),
+          L('Landscaping & fencing', 'Upgraded · 240 LF', 'Allowance', '$20,000', 'default')
+        ] },
+        { name: 'General', subtotal: '$37,450', lines: [
+          L('Final cleaning', 'Lump sum', '—', '$4,150', 'default'),
+          L('Supervision & overhead', '9 months', '$3,700', '$33,300', 'book')
+        ] }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

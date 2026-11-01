@@ -82,7 +82,7 @@ describe("equityFlows", () => {
 });
 
 describe("computeMetrics: golden deal", () => {
-  describe.each(["base", "stress"] as const)("%s scenario", (name) => {
+  describe.each(["base", "stress", "financed"] as const)("%s scenario", (name) => {
     const expected = GOLDEN_EXPECTED.scenarios[name];
     const input = goldenProFormaInput(name);
     const metrics = metricsFor(input);

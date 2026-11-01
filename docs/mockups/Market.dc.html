@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Deal · Market</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F4F5F2;font-family:'Inter',system-ui,sans-serif;color:#1A1D1B;font-variant-numeric:tabular-nums}
+a{color:#1F4B3F}a:hover{color:#0F2F27}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #F4F5F2; font-family: 'Inter', system-ui, sans-serif; color: #1A1D1B">
+
+<header style="background: #16241F; color: #F4F5F2; padding: 0 32px">
+<div style="max-width: 1320px; margin: 0 auto; min-height: 60px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap">
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 10px; color: #F4F5F2; text-decoration: none">
+<svg aria-hidden="true" width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="#E9A06A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12 13 4l10 8"></path><path d="M6 10v12h14V10"></path><path d="M11 22v-6h4v6"></path></svg>
+<span style="font-weight: 700; font-size: 17px; letter-spacing: -0.01em">Spec Studio</span>
+</a>
+<nav aria-label="Main" style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 14px">
+<a href="Main.dc.html" aria-current="page" style="color: #FFFFFF; text-decoration: none; padding: 8px 12px; border-radius: 6px; background: #2A3D36; font-weight: 600">Deals</a>
+<a href="#" style="color: #C9D3CE; text-decoration: none; padding: 8px 12px; border-radius: 6px">Cost book</a>
+<a href="#" style="color: #C9D3CE; text-decoration: none; padding: 8px 12px; border-radius: 6px">Comps</a>
+<span style="color: #8E9C96; padding: 8px 12px; display: flex; align-items: center; gap: 6px">Plans <span style="font-size: 11px; border: 1px solid #4A5C55; border-radius: 4px; padding: 1px 5px">Later</span></span>
+<span style="color: #8E9C96; padding: 8px 12px; display: flex; align-items: center; gap: 6px">Builds <span style="font-size: 11px; border: 1px solid #4A5C55; border-radius: 4px; padding: 1px 5px">Later</span></span>
+</nav>
+</div>
+</header>
+
+<section style="background: #FFFFFF; border-bottom: 1px solid #DCDFD9; padding: 20px 32px 0">
+<div style="max-width: 1320px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<a href="Main.dc.html" style="font-size: 13px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 4px"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3 5 7l4 4"></path></svg>Deals</a>
+<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+<h1 style="margin: 0; font-size: 26px; letter-spacing: -0.02em">Kaysville lot · 3,800 sf rambler</h1>
+<span style="font-size: 12px; font-weight: 600; color: #7A4F00; background: #FFF1D6; border: 1px solid #F0D9A8; padding: 3px 8px; border-radius: 999px">Sample numbers</span>
+</div>
+<p style="margin: 0; color: #4F5A55; font-size: 14px">Davis County · 0.33 ac · finished basement · 3-car garage</p>
+</div>
+<span style="display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; color: #7A4F00; background: #FFF1D6; border: 1px solid #F0D9A8; padding: 8px 14px; border-radius: 999px"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3.5 7h7"></path></svg>Marginal</span>
+</div>
+<dl style="margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px">
+<div style="background: #F7F8F6; border-radius: 10px; padding: 12px 14px"><dt style="font-size: 12px; color: #4F5A55">Sale price (base)</dt><dd style="margin: 4px 0 0; font-size: 20px; font-weight: 700">$1,350,000</dd></div>
+<div style="background: #F7F8F6; border-radius: 10px; padding: 12px 14px"><dt style="font-size: 12px; color: #4F5A55">Total project cost</dt><dd style="margin: 4px 0 0; font-size: 20px; font-weight: 700">$1,092,500</dd></div>
+<div style="background: #F7F8F6; border-radius: 10px; padding: 12px 14px"><dt style="font-size: 12px; color: #4F5A55">Profit</dt><dd style="margin: 4px 0 0; font-size: 20px; font-weight: 700">$161,500</dd></div>
+<div style="background: #F7F8F6; border-radius: 10px; padding: 12px 14px"><dt style="font-size: 12px; color: #4F5A55">Margin on sale</dt><dd style="margin: 4px 0 0; font-size: 20px; font-weight: 700">12.0%</dd></div>
+<div style="background: #F7F8F6; border-radius: 10px; padding: 12px 14px"><dt style="font-size: 12px; color: #4F5A55">Days on market</dt><dd style="margin: 4px 0 0; font-size: 20px; font-weight: 700">45–90</dd></div>
+</dl>
+<nav aria-label="Deal steps" style="display: flex; gap: 4px; flex-wrap: wrap">
+<a href="Lot.dc.html" style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 3px solid transparent; color: #4F5A55; font-weight: 500; text-decoration: none; font-size: 15px"><span style="width: 22px; height: 22px; border-radius: 50%; background: #E7E9E4; color: #33403A; font-size: 12px; display: inline-flex; align-items: center; justify-content: center">1</span>Lot</a>
+<a href="House.dc.html" style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 3px solid transparent; color: #4F5A55; font-weight: 500; text-decoration: none; font-size: 15px"><span style="width: 22px; height: 22px; border-radius: 50%; background: #E7E9E4; color: #33403A; font-size: 12px; display: inline-flex; align-items: center; justify-content: center">2</span>House</a>
+<a href="Estimate.dc.html" style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 3px solid transparent; color: #4F5A55; font-weight: 500; text-decoration: none; font-size: 15px"><span style="width: 22px; height: 22px; border-radius: 50%; background: #E7E9E4; color: #33403A; font-size: 12px; display: inline-flex; align-items: center; justify-content: center">3</span>Estimate</a>
+<a href="Market.dc.html" aria-current="step" style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 3px solid #1F4B3F; color: #1A1D1B; font-weight: 600; text-decoration: none; font-size: 15px"><span style="width: 22px; height: 22px; border-radius: 50%; background: #1F4B3F; color: #FFFFFF; font-size: 12px; display: inline-flex; align-items: center; justify-content: center">4</span>Market</a>
+<a href="ProForma.dc.html" style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 3px solid transparent; color: #4F5A55; font-weight: 500; text-decoration: none; font-size: 15px"><span style="width: 22px; height: 22px; border-radius: 50%; background: #E7E9E4; color: #33403A; font-size: 12px; display: inline-flex; align-items: center; justify-content: center">5</span>Pro forma</a>
+</nav>
+</div>
+</section>
+
+<main style="max-width: 1320px; margin: 0 auto; padding: 28px 32px 48px; display: flex; flex-direction: column; gap: 24px">
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px">
+
+<section style="background: #FFFFFF; border: 1px solid #DCDFD9; border-radius: 12px; padding: 22px; display: flex; flex-direction: column; gap: 16px">
+<h2 style="margin: 0; font-size: 15px">Sale price estimate</h2>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px">
+<div style="border: 1px solid #DCDFD9; border-radius: 10px; padding: 12px"><div style="font-size: 12px; color: #4F5A55">Low · downside</div><div style="font-size: 20px; font-weight: 700; margin-top: 4px">$1,255,500</div></div>
+<div style="border: 2px solid #1F4B3F; border-radius: 10px; padding: 12px; background: #F1F6F4"><div style="font-size: 12px; color: #1F4B3F; font-weight: 600">Mid · base</div><div style="font-size: 20px; font-weight: 700; margin-top: 4px">$1,350,000</div></div>
+<div style="border: 1px solid #DCDFD9; border-radius: 10px; padding: 12px"><div style="font-size: 12px; color: #4F5A55">High · upside</div><div style="font-size: 20px; font-weight: 700; margin-top: 4px">$1,404,000</div></div>
+</div>
+<div style="display: flex; flex-direction: column">
+<div style="display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid #EEF0EC; font-size: 14px"><span>Comp-weighted value <span style="color: #5B625E">(basement finished sf at 60%)</span></span><strong>$1,332,000</strong></div>
+<div style="display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid #EEF0EC; font-size: 14px"><span>3rd garage bay vs. comps</span><strong style="color: #155C34">+$12,000</strong></div>
+<div style="display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid #EEF0EC; font-size: 14px"><span>Larger lot (0.33 vs. 0.25 ac avg.)</span><strong style="color: #155C34">+$15,000</strong></div>
+<div style="display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid #EEF0EC; font-size: 14px"><span>No walkout basement</span><strong style="color: #8F2323">−$9,000</strong></div>
+<div style="display: flex; justify-content: space-between; gap: 12px; padding: 10px 0 0; font-size: 15px"><strong>Base estimate · $355 / finished sf</strong><strong>$1,350,000</strong></div>
+</div>
+<p style="margin: 0; font-size: 12px; color: #5B625E">Every adjustment is editable. Low and high come from the weakest and strongest similar comps.</p>
+</section>
+
+<section style="background: #FFFFFF; border: 1px solid #DCDFD9; border-radius: 12px; padding: 22px; display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap">
+<h2 style="margin: 0; font-size: 15px">Days on market</h2>
+<span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: #7A4F00; background: #FFF1D6; border: 1px solid #F0D9A8; padding: 4px 10px; border-radius: 999px">Medium confidence</span>
+</div>
+<div>
+<div style="font-size: 40px; font-weight: 700; letter-spacing: -0.02em">45–90 days</div>
+<div style="font-size: 14px; color: #4F5A55; margin-top: 4px">Typical: <strong style="color: #1A1D1B">62 days</strong> · 7 comps · 4 sold in the last 6 months · listing in May</div>
+</div>
+<div role="img" aria-label="Range bar: 45 to 90 days, typical 62" style="position: relative; height: 34px">
+<div style="position: absolute; left: 0; right: 0; top: 14px; height: 6px; background: #EEF0EC; border-radius: 3px"></div>
+<div style="position: absolute; left: 25%; width: 25%; top: 10px; height: 14px; background: #9FC0B3; border-radius: 7px"></div>
+<div style="position: absolute; left: 34.4%; top: 4px; width: 4px; height: 26px; background: #1F4B3F; border-radius: 2px"></div>
+</div>
+<div style="display: flex; justify-content: space-between; font-size: 12px; color: #5B625E; margin-top: -10px"><span>0</span><span>45</span><span>90</span><span>135</span><span>180 days</span></div>
+<h3 style="margin: 4px 0 0; font-size: 14px">What drove it</h3>
+<ol style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column">
+<li style="display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid #EEF0EC; font-size: 14px"><span>Similar comps, weighted by match</span><strong>66 days</strong></li>
+<li style="display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid #EEF0EC; font-size: 14px"><span>Listing in May (spring)</span><strong style="color: #155C34">−6% → 62 days</strong></li>
+<li style="display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid #EEF0EC; font-size: 14px"><span>Priced at comp median ($355 / sf)</span><strong>No change</strong></li>
+<li style="display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; font-size: 14px; flex-wrap: wrap"><span>Months of supply, $1M–$1.5M</span><a href="#" style="font-weight: 600">Not set — add from realtor</a></li>
+</ol>
+</section>
+
+</div>
+
+<section style="background: #FFFFFF; border: 1px solid #DCDFD9; border-radius: 12px; overflow: hidden">
+<div style="padding: 16px 20px; border-bottom: 1px solid #DCDFD9; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap">
+<div>
+<h2 style="margin: 0; font-size: 17px">Comps</h2>
+<p style="margin: 4px 0 0; font-size: 13px; color: #4F5A55">New construction, Davis County, $1M–$1.6M, last 12 months · ranked by match</p>
+</div>
+<div style="display: flex; gap: 10px; flex-wrap: wrap">
+<button type="button" style="font: inherit; font-size: 14px; font-weight: 600; min-height: 40px; padding: 0 14px; border: 1px solid #C9CEC8; border-radius: 8px; background: #FFFFFF; color: #1A1D1B; cursor: pointer">Add comp</button>
+<button type="button" style="font: inherit; font-size: 14px; font-weight: 600; min-height: 40px; padding: 0 14px; border: 1px solid #C9CEC8; border-radius: 8px; background: #FFFFFF; color: #1A1D1B; cursor: pointer">Import spreadsheet</button>
+<button type="button" style="font: inherit; font-size: 14px; font-weight: 600; min-height: 40px; padding: 0 14px; border: 1px solid #1F4B3F; border-radius: 8px; background: #F1F6F4; color: #1F4B3F; cursor: pointer">Pull facts with Claude</button>
+</div>
+</div>
+<div style="overflow-x: auto">
+<table style="width: 100%; border-collapse: collapse; font-size: 14px; min-width: 1000px">
+<thead>
+<tr style="text-align: left; color: #4F5A55; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; background: #F7F8F6">
+<th scope="col" style="padding: 10px 20px; font-weight: 600">Comp</th>
+<th scope="col" style="padding: 10px 12px; font-weight: 600">Built</th>
+<th scope="col" style="padding: 10px 12px; font-weight: 600; text-align: right">Fin. sf</th>
+<th scope="col" style="padding: 10px 12px; font-weight: 600; text-align: right">Sold price</th>
+<th scope="col" style="padding: 10px 12px; font-weight: 600; text-align: right">$ / fin sf</th>
+<th scope="col" style="padding: 10px 12px; font-weight: 600; text-align: right">Days on mkt</th>
+<th scope="col" style="padding: 10px 12px; font-weight: 600">Listed → sold</th>
+<th scope="col" style="padding: 10px 12px; font-weight: 600; text-align: right">Match</th>
+<th scope="col" style="padding: 10px 12px; font-weight: 600">Source</th>
+<th scope="col" style="padding: 10px 20px; font-weight: 600">Use</th>
+</tr>
+</thead>
+<tbody>
+<sc-for list="{{comps}}" as="c" hint-placeholder-count="8">
+<tr style="border-top: 1px solid #EEF0EC">
+<td style="padding: 12px 20px"><div style="font-weight: 600">{{c.name}}</div><div style="font-size: 13px; color: #5B625E">{{c.city}}</div></td>
+<td style="padding: 12px 12px">{{c.built}}</td>
+<td style="padding: 12px 12px; text-align: right">{{c.sf}}</td>
+<td style="padding: 12px 12px; text-align: right; font-weight: 600">{{c.price}}</td>
+<td style="padding: 12px 12px; text-align: right">{{c.psf}}</td>
+<td style="padding: 12px 12px; text-align: right; font-weight: 600">{{c.dom}}</td>
+<td style="padding: 12px 12px; color: #4F5A55">{{c.dates}}</td>
+<td style="padding: 12px 12px; text-align: right">{{c.match}}</td>
+<td style="padding: 12px 12px; color: #4F5A55">{{c.source}}</td>
+<td style="padding: 12px 20px">
+<sc-if value="{{c.included}}" hint-placeholder-val="{{ true }}"><span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #155C34; background: #E3F2E8; padding: 4px 10px; border-radius: 999px"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5 6 10l5-6"></path></svg>Included</span></sc-if>
+<sc-if value="{{c.excluded}}" hint-placeholder-val="{{ false }}"><span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #4F5A55; background: #EEF0EC; border: 1px dashed #B8BEB9; padding: 4px 10px; border-radius: 999px">Excluded</span></sc-if>
+</td>
+</tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+<p style="margin: 0; padding: 14px 20px; font-size: 13px; color: #4F5A55; border-top: 1px solid #EEF0EC">Notice the slow ones (83, 95, 112 days) all listed Oct–Dec. That's where the seasonality factor comes from once you have enough comps.</p>
+</section>
+
+<div style="display: flex; justify-content: flex-end">
+<a href="ProForma.dc.html" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: #1F4B3F; color: #FFFFFF; text-decoration: none; font-weight: 600; font-size: 15px; padding: 14px 22px; border-radius: 8px; min-height: 48px; box-sizing: border-box">Next: see the pro forma
+<svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3l5 5-5 5"></path></svg></a>
+</div>
+
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1750}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const C = (name, city, built, sf, price, psf, dom, dates, match, source, included) => ({
+      name, city, built, sf, price, psf, dom, dates, match, source, included, excluded: !included
+    });
+    return {
+      comps: [
+        C('Sample comp 1', 'Kaysville', '2025', '3,950', '$1,365,000', '$346', '48', 'Apr → Jun 2026', '94%', 'Manual', true),
+        C('Sample comp 2', 'Kaysville', '2024', '3,600', '$1,249,000', '$347', '71', 'Sep → Dec 2025', '91%', 'Manual', true),
+        C('Sample comp 3', 'Fruit Heights', '2025', '4,100', '$1,425,000', '$348', '39', 'May → Jul 2026', '88%', 'Claude', true),
+        C('Sample comp 4', 'Farmington', '2024', '3,700', '$1,310,000', '$354', '83', 'Oct 2025 → Feb 2026', '86%', 'Spreadsheet', true),
+        C('Sample comp 5', 'Kaysville', '2024', '4,300', '$1,489,000', '$346', '57', 'Mar → May 2026', '84%', 'Manual', true),
+        C('Sample comp 6', 'Centerville', '2025', '3,500', '$1,215,000', '$347', '66', 'Jun → Sep 2026', '81%', 'Claude', true),
+        C('Sample comp 7', 'Layton', '2025', '3,850', '$1,195,000', '$310', '95', 'Nov 2025 → Mar 2026', '79%', 'Spreadsheet', true),
+        C('Sample comp 8', 'Layton', '2024', '3,400', '$1,085,000', '$319', '112', 'Dec 2025 → Apr 2026', '72%', 'Spreadsheet', false)
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

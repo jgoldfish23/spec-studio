@@ -1,4 +1,5 @@
 import { buildProFormaInput, type ScenarioInputs } from "./cashflow";
+import { validateContext } from "./context";
 import type { CostBookView, Division } from "./costbook";
 import { calendarMonth, type ISODate } from "./dates";
 import { listYearMonth, validateDeal, type DealInputs } from "./deal";
@@ -12,6 +13,7 @@ import {
   type Comp,
   type MarketSettings,
   type PriceEstimate,
+  type ScoredComp,
 } from "./market";
 import { breakEvenDomDays } from "./metrics";
 import { mulRate, roundCents, sumCents } from "./money";
@@ -40,12 +42,17 @@ export interface EngineContext {
 
 /** One deal, evaluated end to end. A step that could not run is `incomplete` with what it needs. */
 export interface DealEvaluation {
-  /** Empty when the deal is valid. When it is not, nothing else runs. */
+  /**
+   * Empty when the deal is valid. When it is not, nothing else runs. These are the deal's own issues; an
+   * unusable context is reported in the incomplete results' items instead (code `invalidContext`, step `settings`).
+   */
   validation: ValidationIssue[];
   quantities: Result<Quantities>;
   estimate: Result<Estimate>;
   price: Result<PriceEstimate>;
   dom: Result<DomEstimate>;
+  /** Every context comp scored against the subject, best first, with whether it feeds the estimates. Empty when nothing ran that far. */
+  scoredComps: ScoredComp[];
   scenarios: Result<Record<ScenarioName, ScenarioResult>>;
   /** Null unless the scenarios ran. */
   grid: GridCell[][] | null;
@@ -64,40 +71,86 @@ const missingOf = <T>(r: Result<T>): MissingItem[] => (r.status === "incomplete"
 function distinct(items: readonly MissingItem[]): MissingItem[] {
   const seen = new Set<string>();
   return items.filter((m) => {
-    const key = JSON.stringify([m.code, m.message, m.step]);
+    const key = JSON.stringify([m.code, m.message, m.step, m.ref]);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 }
 
-/** The wizard step that fixes a validation issue, from the top of its path. */
+/**
+ * The wizard step that fixes a validation issue, from the top of its path: the step whose screen edits that part of
+ * the deal. The timeline is set with the lot; the contingency and the bids with the estimate; the owner's own price,
+ * days on market, list price and comp choices with the market; the loan, selling, carry and rules on the pro forma.
+ */
 function stepFor(path: string): MissingItem["step"] {
-  const top = path.split(".")[0];
-  if (top === "house") return "house";
-  if (top === "lot") return "lot";
-  return "proforma";
+  switch (path.split(".")[0]) {
+    case "house":
+      return "house";
+    case "lot":
+    case "timeline":
+      return "lot";
+    case "contingencyPct":
+    case "bids":
+      return "estimate";
+    case "overrides":
+    case "plannedListPriceCents":
+    case "compSelections":
+      return "market";
+    default:
+      return "proforma";
+  }
 }
 
-/** An invalid deal: every step is incomplete with one item per issue, and nothing is computed. */
-function invalidEvaluation(validation: ValidationIssue[]): DealEvaluation {
-  const missing: MissingItem[] = validation.map((issue) => ({
-    code: "invalidDeal",
-    message: `${issue.path}: ${issue.message}`,
-    step: stepFor(issue.path),
-  }));
+/** Nothing could run: every step is incomplete with the same items, and there is nothing to show past them. */
+function blockedEvaluation(validation: ValidationIssue[], missing: MissingItem[]): DealEvaluation {
   return {
     validation,
     quantities: incomplete(missing),
     estimate: incomplete(missing),
     price: incomplete(missing),
     dom: incomplete(missing),
+    scoredComps: [],
     scenarios: incomplete(missing),
     grid: null,
     verdict: incompleteVerdict(missing),
     goalSeek: null,
     breakEvenDomDays: null,
   };
+}
+
+/** An invalid deal: every step is incomplete with one item per issue (its `ref` the issue's path), and nothing is computed. */
+function invalidEvaluation(validation: ValidationIssue[]): DealEvaluation {
+  return blockedEvaluation(
+    validation,
+    validation.map((issue) => ({
+      code: "invalidDeal",
+      message: `${issue.path}: ${issue.message}`,
+      step: stepFor(issue.path),
+      ref: issue.path,
+    })),
+  );
+}
+
+/**
+ * What stands in for an evaluation when `evaluateDeal` itself threw (a bug in the engine): the same shape as a blocked
+ * deal, every step incomplete with one `engineError` item at the pro forma, and no validation issues, so a screen
+ * draws it as it draws any deal that cannot be worked out yet, rather than going blank.
+ */
+export function failedEvaluation(message: string): DealEvaluation {
+  return blockedEvaluation([], [{ code: "engineError", message, step: "proforma" }]);
+}
+
+/** An unusable context (comps, cost book, settings, rules or today): blocked like an invalid deal, at the `settings` step. */
+function invalidContextEvaluation(issues: ValidationIssue[]): DealEvaluation {
+  return blockedEvaluation(
+    [],
+    issues.map((issue) => ({
+      code: "invalidContext",
+      message: `${issue.path}: ${issue.message}`,
+      step: "settings",
+    })),
+  );
 }
 
 /**
@@ -132,19 +185,29 @@ function judge(
   inputs: ScenarioInputSet,
 ): { results: Record<ScenarioName, ScenarioResult>; verdict: Verdict } {
   const results = runScenarios(d, e, inputs);
-  const verdict = evaluateVerdict(results.base.metrics, results.downside.metrics, d.rules, inputs.base.domDays);
+  const verdict = evaluateVerdict(
+    results.base.metrics,
+    results.downside.metrics,
+    d.rules,
+    inputs.base.domDays,
+    results.base.cashFlow.extensions,
+  );
   return { results, verdict };
 }
 
 /**
  * Evaluates a deal end to end (spec §5): validate → quantities → estimate → comps → sale price →
  * days on market → scenarios → sensitivity grid → verdict → goal seek (marginal or no-go only) →
- * base break-even days on market. An invalid deal stops after validation. Missing inputs from any
- * step roll up into an `incomplete` verdict, and nothing past the scenarios is computed then.
+ * base break-even days on market. An invalid deal stops after validation, and so does an unusable
+ * context (checked once the deal is valid), so bad context data never throws or reaches a result.
+ * Missing inputs from any step roll up into an `incomplete` verdict, and nothing past the
+ * scenarios is computed then.
  */
 export function evaluateDeal(d: DealInputs, ctx: EngineContext): DealEvaluation {
   const validation = validateDeal(d);
   if (validation.length > 0) return invalidEvaluation(validation);
+  const contextIssues = validateContext(ctx);
+  if (contextIssues.length > 0) return invalidContextEvaluation(contextIssues);
 
   const quantities = computeQuantities(d.house, d.lot, ctx.quantityRules);
   const estimate: Result<Estimate> =
@@ -182,6 +245,7 @@ export function evaluateDeal(d: DealInputs, ctx: EngineContext): DealEvaluation 
       estimate,
       price,
       dom,
+      scoredComps: scored,
       scenarios: incomplete(missing),
       grid: null,
       verdict: incompleteVerdict(missing),
@@ -216,6 +280,7 @@ export function evaluateDeal(d: DealInputs, ctx: EngineContext): DealEvaluation 
     estimate,
     price,
     dom,
+    scoredComps: scored,
     scenarios: ok(results, resolved.warnings),
     grid,
     verdict,

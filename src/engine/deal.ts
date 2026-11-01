@@ -1,20 +1,33 @@
 import { z } from "zod";
 import { addMonths, type YearMonth } from "./dates";
 import { HouseModelSchema, validateHouse, zodIssues } from "./house";
+import { LIMITS, withCommas } from "./limits";
 import type { ValidationIssue } from "./result";
 
-const cents = z.number().int("Must be a whole number of cents").min(0, "Must be 0 or more");
+// Every money amount is capped at $100 million: far past any spec home, so a larger figure is a typing slip (an extra
+// zero or two).
+const cents = z
+  .number()
+  .int("Must be a whole number of cents")
+  .min(0, "Must be 0 or more")
+  .max(LIMITS.moneyCents, `Must be $${withCommas(LIMITS.moneyCents / 100)} or less`);
 const months = z.number().int("Must be a whole number of months").min(0, "Must be 0 or more");
 const rate = z
   .number()
   .min(0, "Must be 0 or more")
-  .max(1, "Must be 1 or less (use a decimal, e.g. 0.09 for 9%)");
-const nonNegative = z.number().min(0, "Must be 0 or more");
-const days = z.number().int("Must be a whole number of days").min(0, "Must be 0 or more");
-// Fields with a tighter range get their own schema: chaining onto `months` or `rate` would
-// run both ranges and report two issues for one bad value.
-const atLeastOneMonth = z.number().int("Must be a whole number of months").min(1, "Must be at least 1");
-const loanToCost = z.number().min(0, "Must be 0 or more").max(0.95, "Must be 0.95 or less");
+  .max(LIMITS.rate, "Must be 1 or less (use a decimal, e.g. 0.09 for 9%)");
+/** A number from 0 to `max`, in one schema so a bad value raises one issue. */
+const nonNegativeUpTo = (max: number) => z.number().min(0, "Must be 0 or more").max(max, `Must be ${withCommas(max)} or less`);
+// A field with a range of its own gets its own schema: chaining `.min(1)` onto `months` would run both minimums
+// and report two issues for one bad value. The upper bounds below sit in the same schema as the minimum for the
+// same reason. A fractional value stops at the whole-number check (Zod skips the range checks after it).
+const monthsUpTo = (max: number) =>
+  z.number().int("Must be a whole number of months").min(0, "Must be 0 or more").max(max, `Must be ${max} or less`);
+const monthsFrom1UpTo = (max: number) =>
+  z.number().int("Must be a whole number of months").min(1, "Must be at least 1").max(max, `Must be ${max} or less`);
+const daysUpTo = (max: number) =>
+  z.number().int("Must be a whole number of days").min(0, "Must be 0 or more").max(max, `Must be ${max} or less`);
+const loanToCost = z.number().min(0, "Must be 0 or more").max(LIMITS.loanToCost, `Must be ${LIMITS.loanToCost} or less`);
 // A year before 1900 is almost always a two-digit year typed into a date field, which stores "26" as
 // 0026. Checked only once the field's format check has passed, so one bad value raises one issue.
 const isFrom1900 = (yearFirst: string): boolean => Number(yearFirst.slice(0, 4)) >= 1900;
@@ -22,6 +35,15 @@ const from1900 = {
   message: "Year must be 1900 or later",
   when: (payload: z.core.ParsePayload) => payload.issues.length === 0,
 };
+// The engine reads dates from its context too; a year past 2100 is as much a typing slip as one before 1900.
+const isThrough2100 = (yearFirst: string): boolean => Number(yearFirst.slice(0, 4)) <= 2100;
+const through2100 = { message: "Year must be 2100 or earlier", when: from1900.when };
+
+/** A real calendar date as `YYYY-MM-DD`, in year 1900 or later. A bad value raises one issue. */
+export const DateFrom1900Schema = z.iso.date("Must be a real date as YYYY-MM-DD").refine(isFrom1900, from1900);
+
+/** A real calendar date as `YYYY-MM-DD`, in years 1900 to 2100. A bad value raises one issue. */
+export const DateIn1900To2100Schema = DateFrom1900Schema.refine(isThrough2100, through2100);
 
 const UTILITIES = ["water", "sewer", "gas", "power", "secondaryWater"] as const;
 export const UtilitySchema = z.enum(UTILITIES);
@@ -34,8 +56,8 @@ export const LotSchema = z.object({
   city: z.string().min(1, "Required"),
   county: z.string().min(1, "Required"),
   region: z.string().min(1, "Required"),
-  acres: nonNegative,
-  frontageFt: nonNegative.optional(),
+  acres: nonNegativeUpTo(LIMITS.acres),
+  frontageFt: nonNegativeUpTo(LIMITS.frontageFt).optional(),
   priceCents: cents,
   closingCents: cents,
   financing: z.discriminatedUnion("kind", [
@@ -53,11 +75,12 @@ export const TimelineSchema = z
     landClose: z
       .string()
       .regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Must be a month as YYYY-MM")
-      .refine(isFrom1900, from1900),
-    preConMonths: months,
-    buildMonths: atLeastOneMonth,
+      .refine(isFrom1900, from1900)
+      .refine(isThrough2100, through2100),
+    preConMonths: monthsUpTo(LIMITS.preConMonths),
+    buildMonths: monthsFrom1UpTo(LIMITS.buildMonths),
     listEarlyMonths: months,
-    closingDays: days,
+    closingDays: daysUpTo(LIMITS.closingDays),
   })
   // Skipped while `buildMonths` is itself invalid, so one bad value does not raise a second issue.
   .refine((t) => t.buildMonths < 1 || t.listEarlyMonths <= t.buildMonths, {
@@ -71,10 +94,10 @@ export const ConstructionLoanSchema = z.object({
   rate,
   points: rate,
   drawFeeCents: cents,
-  termMonths: months,
+  termMonths: monthsFrom1UpTo(LIMITS.loanTermMonths),
   extensionPct: rate,
   // The extension count divides by this, so a loan always extends by at least a month.
-  extensionMonths: atLeastOneMonth,
+  extensionMonths: monthsFrom1UpTo(LIMITS.extensionMonths),
   interestMode: z.enum(["paid", "capitalized"]),
 });
 export type ConstructionLoan = z.infer<typeof ConstructionLoanSchema>;
@@ -89,6 +112,9 @@ export const CarrySchema = z.object({
 export type Carry = z.infer<typeof CarrySchema>;
 
 const isRate = (r: number): boolean => r >= 0 && r <= 1;
+// Rates are decimals, so a total of 0.7 + 0.2 + 0.1 comes out at 0.9999999999999999 and would pass a plain
+// `< 1` check although it is 100%. Anything within a billionth of 1 counts as 100%.
+const SELLING_TOTAL_LIMIT = 1 - 1e-9;
 
 export const SellingSchema = z
   .object({
@@ -101,7 +127,8 @@ export const SellingSchema = z
   // is itself out of range, so one bad value does not raise a second issue.
   .refine(
     (s) =>
-      ![s.listingPct, s.buyerPct, s.closingPct].every(isRate) || s.listingPct + s.buyerPct + s.closingPct < 1,
+      ![s.listingPct, s.buyerPct, s.closingPct].every(isRate) ||
+      s.listingPct + s.buyerPct + s.closingPct < SELLING_TOTAL_LIMIT,
     { message: "Listing, buyer and closing costs must total less than 100% of the sale price" },
   );
 export type Selling = z.infer<typeof SellingSchema>;
@@ -131,7 +158,7 @@ export const BidSchema = z.object({
   code: z.string().min(1, "Required"),
   amountCents: cents,
   vendor: z.string().min(1, "Required"),
-  receivedOn: z.iso.date("Must be a real date as YYYY-MM-DD").refine(isFrom1900, from1900),
+  receivedOn: DateIn1900To2100Schema,
   notes: z.string().optional(),
 });
 export type Bid = z.infer<typeof BidSchema>;
@@ -148,7 +175,7 @@ export const DealInputsSchema = z.object({
   contingencyPct: rate,
   overrides: z.object({
     basePriceCents: cents.optional(),
-    baseDomDays: days.optional(),
+    baseDomDays: daysUpTo(LIMITS.domDays).optional(),
   }),
   plannedListPriceCents: cents.optional(),
   bids: z.array(BidSchema),

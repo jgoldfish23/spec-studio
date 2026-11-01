@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Deals</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F4F5F2;font-family:'Inter',system-ui,sans-serif;color:#1A1D1B;font-variant-numeric:tabular-nums}
+a{color:#1F4B3F}a:hover{color:#0F2F27}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #F4F5F2; font-family: 'Inter', system-ui, sans-serif; color: #1A1D1B">
+
+<header style="background: #16241F; color: #F4F5F2; padding: 0 32px">
+<div style="max-width: 1320px; margin: 0 auto; min-height: 60px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap">
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 10px; color: #F4F5F2; text-decoration: none">
+<svg aria-hidden="true" width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="#E9A06A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12 13 4l10 8"></path><path d="M6 10v12h14V10"></path><path d="M11 22v-6h4v6"></path></svg>
+<span style="font-weight: 700; font-size: 17px; letter-spacing: -0.01em">Spec Studio</span>
+</a>
+<nav aria-label="Main" style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 14px">
+<a href="Main.dc.html" aria-current="page" style="color: #FFFFFF; text-decoration: none; padding: 8px 12px; border-radius: 6px; background: #2A3D36; font-weight: 600">Deals</a>
+<a href="#" style="color: #C9D3CE; text-decoration: none; padding: 8px 12px; border-radius: 6px">Cost book</a>
+<a href="#" style="color: #C9D3CE; text-decoration: none; padding: 8px 12px; border-radius: 6px">Comps</a>
+<span style="color: #8E9C96; padding: 8px 12px; display: flex; align-items: center; gap: 6px">Plans <span style="font-size: 11px; border: 1px solid #4A5C55; border-radius: 4px; padding: 1px 5px">Later</span></span>
+<span style="color: #8E9C96; padding: 8px 12px; display: flex; align-items: center; gap: 6px">Builds <span style="font-size: 11px; border: 1px solid #4A5C55; border-radius: 4px; padding: 1px 5px">Later</span></span>
+</nav>
+</div>
+</header>
+
+<main style="max-width: 1320px; margin: 0 auto; padding: 32px; display: flex; flex-direction: column; gap: 24px">
+
+<div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 30px; letter-spacing: -0.02em">Deals</h1>
+<p style="margin: 0; color: #4F5A55; font-size: 15px">Every lot you're sizing up, with its go/no-go verdict.</p>
+</div>
+<a href="Lot.dc.html" style="display: inline-flex; align-items: center; gap: 8px; background: #1F4B3F; color: #FFFFFF; text-decoration: none; font-weight: 600; font-size: 15px; padding: 12px 18px; border-radius: 8px; min-height: 44px; box-sizing: border-box">
+<svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 3v10M3 8h10"></path></svg>
+New deal</a>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px">
+
+<section style="background: #FFFFFF; border: 1px solid #DCDFD9; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 8px">
+<h2 style="margin: 0; font-size: 15px">Your go/no-go rules</h2>
+<a href="#" style="font-size: 14px; font-weight: 600">Edit</a>
+</div>
+<ul style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 14px; color: #33403A">
+<li style="display: flex; justify-content: space-between; gap: 8px"><span>Margin on sale price</span><strong>≥ 15%</strong></li>
+<li style="display: flex; justify-content: space-between; gap: 8px"><span>Annualized return on cash</span><strong>≥ 25%</strong></li>
+<li style="display: flex; justify-content: space-between; gap: 8px"><span>Downside case profit</span><strong>≥ $0</strong></li>
+</ul>
+<p style="margin: 0; font-size: 12px; color: #5B625E">Starting defaults — change them anytime.</p>
+</section>
+
+<section style="background: #FFFFFF; border: 1px solid #DCDFD9; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 8px">
+<h2 style="margin: 0; font-size: 15px">Cost book</h2>
+<a href="#" style="font-size: 14px; font-weight: 600">Open</a>
+</div>
+<p style="margin: 0; font-size: 14px; color: #33403A; line-height: 1.5">Northern Utah defaults, as of Oct 2026. Replaced line by line as your bids and price book come in.</p>
+<div style="display: flex; height: 10px; border-radius: 5px; overflow: hidden" role="img" aria-label="Cost book sources: 33% bids, 17% price book, 50% defaults">
+<div style="width: 33%; background: #1F4B3F"></div>
+<div style="width: 17%; background: #6E9C8C"></div>
+<div style="width: 50%; background: #DCE5E1"></div>
+</div>
+<p style="margin: 0; font-size: 12px; color: #5B625E">Latest deal: 33% bids · 17% price book · 50% defaults</p>
+</section>
+
+<section style="background: #FFFFFF; border: 1px solid #DCDFD9; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 8px">
+<h2 style="margin: 0; font-size: 15px">Comps library</h2>
+<a href="#" style="font-size: 14px; font-weight: 600">Open</a>
+</div>
+<p style="margin: 0; font-size: 14px; color: #33403A; line-height: 1.5">[N] sold comps across Davis &amp; Weber. Add by form, spreadsheet import, or with Claude in a session.</p>
+<p style="margin: 0; font-size: 12px; color: #5B625E">Your own sales get added automatically.</p>
+</section>
+
+</div>
+
+<section style="background: #FFFFFF; border: 1px solid #DCDFD9; border-radius: 12px; overflow: hidden">
+<div style="padding: 16px 20px; border-bottom: 1px solid #DCDFD9; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap">
+<h2 style="margin: 0; font-size: 17px">Active deals</h2>
+<span style="font-size: 12px; font-weight: 600; color: #7A4F00; background: #FFF1D6; border: 1px solid #F0D9A8; padding: 3px 8px; border-radius: 999px">Sample numbers</span>
+</div>
+<div style="overflow-x: auto">
+<table style="width: 100%; border-collapse: collapse; font-size: 14px; min-width: 900px">
+<thead>
+<tr style="text-align: left; color: #4F5A55; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em">
+<th scope="col" style="padding: 12px 20px; font-weight: 600">Deal</th>
+<th scope="col" style="padding: 12px 12px; font-weight: 600">Verdict</th>
+<th scope="col" style="padding: 12px 12px; font-weight: 600; text-align: right">Profit</th>
+<th scope="col" style="padding: 12px 12px; font-weight: 600; text-align: right">Margin</th>
+<th scope="col" style="padding: 12px 12px; font-weight: 600; text-align: right">Annualized</th>
+<th scope="col" style="padding: 12px 12px; font-weight: 600; text-align: right">Days on market</th>
+<th scope="col" style="padding: 12px 20px; font-weight: 600; text-align: right">Updated</th>
+</tr>
+</thead>
+<tbody>
+<sc-for list="{{deals}}" as="d" hint-placeholder-count="4">
+<tr style="border-top: 1px solid #E7E9E4">
+<td style="padding: 16px 20px">
+<a href="Lot.dc.html" style="font-weight: 600; font-size: 15px; text-decoration: none">{{d.name}}</a>
+<div style="color: #5B625E; font-size: 13px; margin-top: 3px">{{d.house}}</div>
+</td>
+<td style="padding: 16px 12px">
+<sc-if value="{{d.isGo}}" hint-placeholder-val="{{ false }}">
+<span style="display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px; color: #155C34; background: #E3F2E8; border: 1px solid #B9DEC7; padding: 4px 10px; border-radius: 999px"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5 6 10l5-6"></path></svg>Go</span>
+</sc-if>
+<sc-if value="{{d.isMarginal}}" hint-placeholder-val="{{ true }}">
+<span style="display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px; color: #7A4F00; background: #FFF1D6; border: 1px solid #F0D9A8; padding: 4px 10px; border-radius: 999px"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3.5 7h7"></path></svg>Marginal</span>
+</sc-if>
+<sc-if value="{{d.isNoGo}}" hint-placeholder-val="{{ false }}">
+<span style="display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px; color: #8F2323; background: #FBE4E2; border: 1px solid #F2C2BE; padding: 4px 10px; border-radius: 999px"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m4 4 6 6M10 4l-6 6"></path></svg>No-go</span>
+</sc-if>
+<sc-if value="{{d.isDraft}}" hint-placeholder-val="{{ false }}">
+<span style="display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px; color: #4F5A55; background: #F0F1EE; border: 1px dashed #B8BEB9; padding: 4px 10px; border-radius: 999px">Needs a house</span>
+</sc-if>
+</td>
+<td style="padding: 16px 12px; text-align: right; font-weight: 600">{{d.profit}}</td>
+<td style="padding: 16px 12px; text-align: right">{{d.margin}}</td>
+<td style="padding: 16px 12px; text-align: right">{{d.annualized}}</td>
+<td style="padding: 16px 12px; text-align: right">{{d.dom}}</td>
+<td style="padding: 16px 20px; text-align: right; color: #5B625E">{{d.updated}}</td>
+</tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+</section>
+
+<section style="border: 1px dashed #B8BEB9; border-radius: 12px; padding: 18px 20px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; color: #4F5A55; font-size: 14px">
+<strong style="color: #1A1D1B">Coming in later phases:</strong>
+<span>Floor-plan sketcher</span><span aria-hidden="true">·</span>
+<span>3D walkthrough &amp; finish swaps</span><span aria-hidden="true">·</span>
+<span>Plan library with options</span><span aria-hidden="true">·</span>
+<span>Build cost tracking &amp; draws</span>
+</section>
+
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1150}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const deals = [
+      { name: 'Kaysville lot', house: '3,800 sf rambler · finished basement · 3-car', verdict: 'marginal', profit: '$161,500', margin: '12.0%', annualized: '31%', dom: '45–90 days', updated: 'Today' },
+      { name: 'Fruit Heights infill', house: '4,600 sf two-story · basement ADU', verdict: 'go', profit: '$268,000', margin: '17.6%', annualized: '38%', dom: '30–60 days', updated: '2 days ago' },
+      { name: 'North Ogden view lot', house: '3,200 sf rambler · unfinished basement', verdict: 'nogo', profit: '$41,000', margin: '4.6%', annualized: '9%', dom: '75–140 days', updated: 'Last week' },
+      { name: 'Farmington corner lot', house: 'No house described yet', verdict: 'draft', profit: '—', margin: '—', annualized: '—', dom: '—', updated: 'Last week' }
+    ];
+    return {
+      deals: deals.map((d) => ({
+        ...d,
+        isGo: d.verdict === 'go',
+        isMarginal: d.verdict === 'marginal',
+        isNoGo: d.verdict === 'nogo',
+        isDraft: d.verdict === 'draft'
+      }))
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -57,6 +57,23 @@ describe("seekMax", () => {
     expect(() => seekMax(() => true, 0, 10, -1)).toThrow(RangeError);
   });
 
+  it("refuses a grid it could not search: bounds that are not finite, or more than 100,000 points", () => {
+    expect(() => seekMax(() => true, 0, 1e12, 1)).toThrow(RangeError);
+    expect(() => seekMax(() => true, 0, 100_000, 1)).toThrow(RangeError); // 100,001 points
+    expect(seekMax(() => true, 0, 99_999, 1)).toBe(99_999); // 100,000 points
+    expect(() => seekMax(() => true, 0, 99_999.5, 1)).toThrow(RangeError); // 100,000 on the grid, plus the end
+    // A grid this big is refused before anything is probed.
+    let probes = 0;
+    expect(() => seekMax(() => (probes++, true), 0, 1e20, 10_000)).toThrow(RangeError);
+    expect(probes).toBe(0);
+    // Unbounded or unknown ends would never finish walking the grid; they are refused, not walked.
+    expect(() => seekMax(() => true, 0, Number.POSITIVE_INFINITY, 10_000)).toThrow(RangeError);
+    expect(() => seekMax(() => true, Number.NEGATIVE_INFINITY, 0, 10_000)).toThrow(RangeError);
+    expect(() => seekMax(() => true, 0, Number.NaN, 10_000)).toThrow(RangeError);
+    expect(() => seekMin(() => true, 0, Number.POSITIVE_INFINITY, 10_000)).toThrow(RangeError);
+    expect(() => seekMin(() => true, 0, 1e12, 1)).toThrow(RangeError);
+  });
+
   it("bisects instead of scanning: a 2,950-point range takes at most 14 probes", () => {
     let probes = 0;
     const answer = seekMax(
@@ -216,6 +233,22 @@ describe("goalSeek", () => {
       { lever: "salePrice", reachable: false },
       { lever: "buildCost", reachable: false },
     ]);
+  });
+
+  it("reports a lever whose range is too wide to search as not reachable, and still answers the others", () => {
+    // A $20 billion lot is 200 million $100 steps: past what is searched, so that lever cannot say.
+    const results = goalSeek({ ...CURRENT, lotPriceCents: 2_000_000_000_000 }, isGoAt);
+    expect(lever(results, "lotPrice")).toEqual({ lever: "lotPrice", reachable: false });
+    expect(lever(results, "salePrice")).toMatchObject({ reachable: true });
+    expect(lever(results, "buildCost")).toMatchObject({ reachable: true });
+  });
+
+  it("lets any other error from the rule check go on up, a RangeError included", () => {
+    expect(() =>
+      goalSeek(CURRENT, () => {
+        throw new RangeError("Invalid time value");
+      }),
+    ).toThrow("Invalid time value");
   });
 
   it("reports only the levers that can get there within bounds", () => {

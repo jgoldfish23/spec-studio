@@ -10,7 +10,7 @@ number of period rows (N = ceil(saleClose)), which the sheet re-derives and chec
 Steps:
 1. Read src/engine/__fixtures__/golden-deal.inputs.json (money in cents).
 2. Write docs/golden-deal.xlsx: an `Inputs` sheet (labeled cells, money in dollars) and one
-   schedule sheet per scenario (`base`, `stress`).
+   schedule sheet per scenario (`base`, `stress`, `financed`).
 3. Recalculate with headless LibreOffice (throwaway profile, temp output dir) and read the
    recalculated values back with openpyxl.
 4. Write src/engine/__fixtures__/golden-deal.expected.json, converting dollars to integer cents
@@ -44,8 +44,24 @@ XLSX = ROOT / "docs" / "golden-deal.xlsx"
 MONTH_DAYS = 365 / 12
 SOFT_CODES = ("plans", "permits", "surveySoils")
 
+# A scenario is a sale price, days on market and overrun, plus any of the deal terms in
+# SCENARIO_TERMS it changes (`landLoan`, `interestMode`, `listEarlyMonths`); the rest are the deal's.
 # Stress: 93% of the base price, a very long 400 days on market, and the downside 5% overrun.
 STRESS = {"priceCents": 125_550_000, "domDays": 400, "overrunPct": 0.05}
+# Financed: the base price and days on market with a 70% land loan, capitalized construction
+# interest, and listing 2 months before completion, so the land-loan and capitalized-interest
+# formulas carry money. The engine tests apply the same overrides (GOLDEN_FINANCED_DEAL in golden.ts).
+FINANCED = {
+    "priceCents": 135_000_000,
+    "domDays": 62,
+    "overrunPct": 0,
+    "landLoan": {"ltv": 0.7, "rate": 0.10, "points": 0.015},
+    "interestMode": "capitalized",
+    "listEarlyMonths": 2,
+}
+
+# Times within this many months of a whole month are that month (the engine's snapToWholeMonth).
+WHOLE_MONTH_TOLERANCE = 1e-9
 
 MONEY = "#,##0.00"
 MONTHS = "0.000000"
@@ -53,7 +69,7 @@ RATE = "0.0000"
 BOLD = Font(bold=True)
 
 # Schedule sheet layout: summary block in A:B, period table from TABLE_FIRST_ROW down.
-TABLE_HEADER_ROW = 64
+TABLE_HEADER_ROW = 69
 TABLE_FIRST_ROW = TABLE_HEADER_ROW + 1
 
 
@@ -72,13 +88,52 @@ def to_cents(value: object, what: str) -> int:
     return -magnitude if x < 0 else magnitude
 
 
-def period_count(timeline: dict, dom_days: float) -> int:
+def snap_to_whole_month(months: float) -> float:
+    """The sheet's Contract and SaleClose snap (snap_formula), for counting the period rows."""
+    whole = math.floor(months + 0.5)
+    return whole if abs(months - whole) < WHOLE_MONTH_TOLERANCE else months
+
+
+def period_count(timeline: dict, list_early_months: int, dom_days: float) -> int:
     """N = ceil(saleClose): the only thing this script decides (how many period rows to write)."""
     completion = timeline["preConMonths"] + timeline["buildMonths"]
-    list_at = completion - timeline["listEarlyMonths"]
-    contract = list_at + dom_days / MONTH_DAYS
-    sale_close = max(contract + timeline["closingDays"] / MONTH_DAYS, completion)
+    list_at = completion - list_early_months
+    contract = snap_to_whole_month(list_at + dom_days / MONTH_DAYS)
+    sale_close = snap_to_whole_month(max(contract + timeline["closingDays"] / MONTH_DAYS, completion))
     return math.ceil(sale_close)
+
+
+# Deal terms a scenario may change: (key, Inputs sheet name of the deal's own value, header, format).
+# Each schedule sheet names its scenario's value with the key, so its formulas read the scenario's terms.
+SCENARIO_TERMS: list[tuple[str, str, str, str | None]] = [
+    ("LandLtv", "DealLandLtv", "Land loan LTV", RATE),
+    ("LandRate", "DealLandRate", "Land loan rate", RATE),
+    ("LandPointsPct", "DealLandPointsPct", "Land loan points", RATE),
+    ("InterestMode", "DealInterestMode", "Interest mode", None),
+    ("ListEarlyMonths", "DealListEarlyMonths", "List early months", None),
+]
+
+
+# Scenario table columns on the Inputs sheet: A-D price, DOM, overrun; the deal terms from E.
+SCENARIO_TERM_FIRST_COL = 5
+
+
+def snap_formula(x: str) -> str:
+    """Sheet formula (no leading =) for x snapped to a whole month when within 1e-9 of one."""
+    return f"IF(ABS(({x})-ROUND({x},0))<1E-9,ROUND({x},0),{x})"
+
+
+def scenario_overrides(s: dict) -> dict[str, object]:
+    """The SCENARIO_TERMS values a scenario sets itself; any term not here is the deal's own."""
+    out: dict[str, object] = {}
+    if "landLoan" in s:
+        land = s["landLoan"]
+        out.update(LandLtv=land["ltv"], LandRate=land["rate"], LandPointsPct=land["points"])
+    if "interestMode" in s:
+        out["InterestMode"] = s["interestMode"]
+    if "listEarlyMonths" in s:
+        out["ListEarlyMonths"] = s["listEarlyMonths"]
+    return out
 
 
 # ---------------------------------------------------------------------------------------------
@@ -122,9 +177,9 @@ def write_inputs_sheet(wb: Workbook, d: dict, scenarios: list[tuple[str, dict]])
     value("Land price", "LandPrice", dollars(lot["priceCents"]), MONEY)
     value("Land closing costs", "LandClosing", dollars(lot["closingCents"]), MONEY)
     value("Land financing", None, fin["kind"])
-    value("Land loan LTV", "LandLtv", fin["ltv"] if land_loan else 0, RATE, "0 when bought for cash")
-    value("Land loan rate (annual)", "LandRate", fin["rate"] if land_loan else 0, RATE)
-    value("Land loan points", "LandPointsPct", fin["points"] if land_loan else 0, RATE)
+    value("Land loan LTV", "DealLandLtv", fin["ltv"] if land_loan else 0, RATE, "0 = cash; per scenario below")
+    value("Land loan rate (annual)", "DealLandRate", fin["rate"] if land_loan else 0, RATE, "per scenario below")
+    value("Land loan points", "DealLandPointsPct", fin["points"] if land_loan else 0, RATE, "per scenario below")
     value("Property tax rate (annual)", "TaxRate", lot["propertyTaxRate"], RATE)
     value("HOA per month", "HoaMonthly", dollars(lot["hoaMonthlyCents"]), MONEY)
     row += 1
@@ -132,7 +187,7 @@ def write_inputs_sheet(wb: Workbook, d: dict, scenarios: list[tuple[str, dict]])
     section("Timeline (months from land close)")
     value("Pre-construction months (P)", "PreConMonths", tl["preConMonths"])
     value("Build months (B)", "BuildMonths", tl["buildMonths"])
-    value("List early months (L)", "ListEarlyMonths", tl["listEarlyMonths"])
+    value("List early months (L)", "DealListEarlyMonths", tl["listEarlyMonths"], None, "per scenario below")
     value("Closing days after contract", "ClosingDays", tl["closingDays"])
     value("Days per month", "MonthDays", "=365/12", MONTHS)
     row += 1
@@ -145,7 +200,7 @@ def write_inputs_sheet(wb: Workbook, d: dict, scenarios: list[tuple[str, dict]])
     value("Term months (from build start)", "TermMonths", loan["termMonths"])
     value("Extension fee", "ExtensionPct", loan["extensionPct"], RATE, "of the commitment, per extension")
     value("Extension months", "ExtensionMonths", loan["extensionMonths"])
-    value("Interest mode", "InterestMode", loan["interestMode"], None, "paid | capitalized")
+    value("Interest mode", "DealInterestMode", loan["interestMode"], None, "paid | capitalized; per scenario below")
     row += 1
 
     section("Carry")
@@ -163,8 +218,9 @@ def write_inputs_sheet(wb: Workbook, d: dict, scenarios: list[tuple[str, dict]])
     value("Concessions", "Concessions", dollars(selling["concessionsCents"]), MONEY)
     row += 1
 
-    section("Scenarios")
-    for col, head in enumerate(("Scenario", "Sale price", "Days on market", "Overrun"), start=1):
+    section("Scenarios (deal terms are the deal's own unless the scenario sets them)")
+    heads = ("Scenario", "Sale price", "Days on market", "Overrun", *(head for _, _, head, _ in SCENARIO_TERMS))
+    for col, head in enumerate(heads, start=1):
         ws.cell(row=row, column=col, value=head).font = BOLD
     row += 1
     scenario_rows: dict[str, str] = {}
@@ -173,6 +229,11 @@ def write_inputs_sheet(wb: Workbook, d: dict, scenarios: list[tuple[str, dict]])
         ws.cell(row=row, column=2, value=dollars(s["priceCents"])).number_format = MONEY
         ws.cell(row=row, column=3, value=s["domDays"])
         ws.cell(row=row, column=4, value=s["overrunPct"]).number_format = RATE
+        overrides = scenario_overrides(s)
+        for col, (key, deal_name, _, fmt) in enumerate(SCENARIO_TERMS, start=SCENARIO_TERM_FIRST_COL):
+            cell = ws.cell(row=row, column=col, value=overrides.get(key, f"={deal_name}"))
+            if fmt:
+                cell.number_format = fmt
         scenario_rows[name] = str(row)
         row += 1
 
@@ -268,12 +329,17 @@ SUMMARY: list[tuple[str | None, str, str | None]] = [
     ("SalePrice", "Sale price", MONEY),
     ("DomDays", "Days on market", None),
     ("Overrun", "Cost overrun", RATE),
+    ("LandLtv", "Land loan LTV (0 = cash)", RATE),
+    ("LandRate", "Land loan rate (annual)", RATE),
+    ("LandPointsPct", "Land loan points", RATE),
+    ("InterestMode", "Interest mode", None),
+    ("ListEarlyMonths", "List early months (L)", None),
     (None, "Times (months) - Reference step 1", None),
     ("BuildStart", "Build start = P", MONTHS),
     ("Completion", "Completion = P + B", MONTHS),
     ("ListMonth", "List = completion - L", MONTHS),
-    ("Contract", "Contract = list + DOM / MONTH_DAYS", MONTHS),
-    ("SaleClose", "Sale close = max(contract + closingDays / MONTH_DAYS, completion)", MONTHS),
+    ("Contract", "Contract = list + DOM / MONTH_DAYS, snapped to a whole month within 1e-9", MONTHS),
+    ("SaleClose", "Sale close = max(contract + closingDays / MONTH_DAYS, completion), snapped likewise", MONTHS),
     ("Maturity", "Loan maturity = build start + term", MONTHS),
     ("PeriodCount", "Periods N = ceil(sale close)", None),
     ("RowsInSchedule", "Period rows in this sheet", None),
@@ -338,11 +404,15 @@ def write_schedule_sheet(wb: Workbook, name: str, n: int, scenario_row: str) -> 
         "SalePrice": f"=Inputs!$B${scenario_row}",
         "DomDays": f"=Inputs!$C${scenario_row}",
         "Overrun": f"=Inputs!$D${scenario_row}",
+        **{
+            key: f"=Inputs!${get_column_letter(col)}${scenario_row}"
+            for col, (key, _, _, _) in enumerate(SCENARIO_TERMS, start=SCENARIO_TERM_FIRST_COL)
+        },
         "BuildStart": "=PreConMonths",
         "Completion": "=BuildStart+BuildMonths",
         "ListMonth": "=Completion-ListEarlyMonths",
-        "Contract": "=ListMonth+DomDays/MonthDays",
-        "SaleClose": "=MAX(Contract+ClosingDays/MonthDays,Completion)",
+        "Contract": "=" + snap_formula("ListMonth+DomDays/MonthDays"),
+        "SaleClose": "=" + snap_formula("MAX(Contract+ClosingDays/MonthDays,Completion)"),
         "Maturity": "=BuildStart+TermMonths",
         "PeriodCount": "=CEILING(SaleClose,1)",
         "RowsInSchedule": f"=COUNT({col('k')})",
@@ -386,7 +456,8 @@ def write_schedule_sheet(wb: Workbook, name: str, n: int, scenario_row: str) -> 
             "+ROUND(TaxRate/12*(LandPrice+BuildSpent),2)+ROUND(InsuranceRate/12*EstimateTotal,2)"
             "+UtilAfter+StagingMonthly+UpkeepMonthly+HoaMonthly"
         ),
-        "MaxDomNoExt": '=IF(Commitment=0,"",MAX(0,INT((Maturity-ListMonth)*MonthDays-ClosingDays)))',
+        # + 1E-9 so a whole number of days that floating point puts a hair below is not floored a day short.
+        "MaxDomNoExt": '=IF(Commitment=0,"",MAX(0,INT((Maturity-ListMonth)*MonthDays-ClosingDays+1E-9)))',
         "CheckRows": "=PeriodCount-RowsInSchedule",
         "CheckSpend": f"=SUM({col('spend')})-BuildSpent",
         "CheckFunding": f"=SUM({col('equitySpend')})+SUM({col('loanDraw')})-BuildSpent",
@@ -657,13 +728,14 @@ def main() -> None:
         "domDays": deal["overrides"]["baseDomDays"],
         "overrunPct": deal["scenarioDefs"]["base"]["overrunPct"],
     }
-    scenarios = [("base", base), ("stress", STRESS)]
+    scenarios = [("base", base), ("stress", STRESS), ("financed", FINANCED)]
 
     wb = Workbook()
     scenario_rows = write_inputs_sheet(wb, deal, scenarios)
     layout: dict[str, tuple[int, dict[str, str]]] = {}
     for name, s in scenarios:
-        n = period_count(deal["timeline"], s["domDays"])
+        list_early = s.get("listEarlyMonths", deal["timeline"]["listEarlyMonths"])
+        n = period_count(deal["timeline"], list_early, s["domDays"])
         layout[name] = (n, write_schedule_sheet(wb, name, n, scenario_rows[name]))
     XLSX.parent.mkdir(parents=True, exist_ok=True)
     wb.save(XLSX)

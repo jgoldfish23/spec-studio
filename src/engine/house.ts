@@ -1,17 +1,22 @@
 import { z } from "zod";
+import { LIMITS, withCommas } from "./limits";
 import type { ValidationIssue } from "./result";
 
-const nonNegative = z.number().min(0, "Must be 0 or more");
-const count = z.number().int("Must be a whole number").min(0, "Must be 0 or more");
-const percent = z.number().min(0, "Must be 0 or more").max(100, "Must be 100 or less");
+// Upper bounds sit in the same single-range schema as the minimum, so a value raises one issue, not two.
+// A figure past these is a typing slip (an extra zero), not a house.
+const upTo = (max: number) => z.number().min(0, "Must be 0 or more").max(max, `Must be ${withCommas(max)} or less`);
+const area = upTo(LIMITS.areaSf);
+const countUpTo = (max: number) =>
+  z.number().int("Must be a whole number").min(0, "Must be 0 or more").max(max, `Must be ${max} or less`);
+const percent = upTo(LIMITS.exteriorPct);
 
 export const FinishTierSchema = z.enum(["standard", "upgraded", "luxury"]);
 export type FinishTier = z.infer<typeof FinishTierSchema>;
 
 const LevelSchema = z.object({
-  finishedSf: nonNegative,
-  unfinishedSf: nonNegative,
-  ceilingFt: nonNegative,
+  finishedSf: area,
+  unfinishedSf: area,
+  ceilingFt: upTo(LIMITS.ceilingFt),
 });
 
 /**
@@ -27,21 +32,21 @@ export const HouseModelSchema = z.object({
     main: LevelSchema,
     upper: LevelSchema.optional(),
     basement: z
-      .object({ totalSf: nonNegative, finishedSf: nonNegative, walkout: z.boolean() })
+      .object({ totalSf: area, finishedSf: area, walkout: z.boolean() })
       .optional(),
   }),
   footprint: z.object({
-    widthFt: nonNegative,
-    depthFt: nonNegative,
+    widthFt: area,
+    depthFt: area,
     complexity: z.enum(["simple", "moderate", "complex"]),
   }),
-  garage: z.object({ bays: count, tandem: z.boolean(), rvBay: z.boolean() }),
-  roof: z.object({ style: z.enum(["gable", "hip", "mixed"]), pitchPer12: nonNegative }),
+  garage: z.object({ bays: countUpTo(LIMITS.garageBays), tandem: z.boolean(), rvBay: z.boolean() }),
+  roof: z.object({ style: z.enum(["gable", "hip", "mixed"]), pitchPer12: upTo(LIMITS.roofPitchPer12) }),
   rooms: z.object({
-    bedrooms: count,
-    fullBaths: count,
-    halfBaths: count,
-    fireplaces: count,
+    bedrooms: countUpTo(LIMITS.rooms),
+    fullBaths: countUpTo(LIMITS.rooms),
+    halfBaths: countUpTo(LIMITS.rooms),
+    fireplaces: countUpTo(LIMITS.rooms),
   }),
   exterior: z.object({
     stonePct: percent,
@@ -59,7 +64,7 @@ export const HouseModelSchema = z.object({
   }),
   adu: z.object({
     type: z.enum(["none", "basement", "detached"]),
-    finishedSf: nonNegative.optional(),
+    finishedSf: area.optional(),
   }),
   pool: z.object({
     type: z.enum(["none", "fiberglass", "gunite"]),
@@ -67,9 +72,9 @@ export const HouseModelSchema = z.object({
     heated: z.boolean(),
   }),
   outside: z.object({
-    coveredPatioSf: nonNegative,
-    flatworkSf: nonNegative,
-    fenceLf: nonNegative,
+    coveredPatioSf: area,
+    flatworkSf: area,
+    fenceLf: upTo(LIMITS.fenceLf),
     landscapingTier: FinishTierSchema,
   }),
 });
