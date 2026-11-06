@@ -194,7 +194,16 @@ describe("updated_at", () => {
         where not t.tgisinternal and c.relnamespace = 'public'::regnamespace
         order by c.relname`,
     );
-    expect(withColumn.rows.map((r) => r.table_name)).toEqual(["companies", "comps", "deals"]);
+    expect(withColumn.rows.map((r) => r.table_name)).toEqual([
+      "companies",
+      "company_settings",
+      "comps",
+      "deals",
+      "default_prices",
+      "market_settings",
+      "memberships",
+      "price_book_entries",
+    ]);
     expect(withTrigger.rows).toEqual(withColumn.rows);
   });
 });
