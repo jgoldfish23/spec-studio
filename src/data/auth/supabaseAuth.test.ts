@@ -206,6 +206,22 @@ describe("supabase auth gateway", () => {
   });
 });
 
+describe("signOut", () => {
+  it("maps a thrown network TypeError to offline", async () => {
+    const { auth } = setup(() => json(sessionBody));
+    await auth.verifyCode("pat@example.com", "123456");
+    const { auth: offline } = setup(() => {
+      throw new TypeError("Failed to fetch");
+    });
+    // signOut with no session never reaches the network, so give the gateway a client whose auth call throws.
+    const broken = createSupabaseAuth({
+      auth: { signOut: () => Promise.reject(new TypeError("Failed to fetch")) },
+    } as unknown as Parameters<typeof createSupabaseAuth>[0]);
+    expect(await reasonOf(broken.signOut())).toBe("offline");
+    await expect(offline.signOut()).resolves.toBeUndefined();
+  });
+});
+
 describe("authErrorFrom", () => {
   const cases: [string, unknown, AuthErrorReason][] = [
     ["429", new AuthApiError("slow", 429, undefined), "rateLimited"],

@@ -1,4 +1,5 @@
 import { act, render, screen } from "@testing-library/react";
+import { useEffect } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { AuthGateway, AuthUser } from "../../data/auth/authGateway";
 import { createFakeAuth } from "../../data/testing/fakeAuth";
@@ -84,5 +85,31 @@ describe("AuthProvider", () => {
   it("useAuth outside the provider throws a clear error", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     expect(() => render(<Probe />)).toThrow(/AuthProvider/);
+  });
+});
+
+describe("AuthProvider re-renders", () => {
+  it("skips a change that reports the same user", async () => {
+    const auth = createFakeAuth({ user: PAT });
+    const commits = { count: 0 };
+    function Counting() {
+      const state = useAuth();
+      useEffect(() => {
+        commits.count += 1;
+      }, [state]);
+      return <p>{state.status}</p>;
+    }
+    render(
+      <AuthProvider auth={auth}>
+        <Counting />
+      </AuthProvider>,
+    );
+    await screen.findByText("signedIn");
+    const settled = commits.count;
+    await act(() => auth.verifyCode(PAT.email, "123456")); // a different id: a real change
+    const afterChange = commits.count;
+    expect(afterChange).toBeGreaterThan(settled);
+    await act(() => auth.verifyCode(PAT.email, "123456")); // the same user again
+    expect(commits.count).toBe(afterChange);
   });
 });

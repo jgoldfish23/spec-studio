@@ -141,3 +141,17 @@ function at(requests: Recorded[], index: number): Recorded {
   if (!request) throw new Error(`no request #${index}`);
   return request;
 }
+
+describe("a lost connection on a read", () => {
+  it("myCompany is offline at once, without retrying", async () => {
+    let calls = 0;
+    const { gateway } = setup(() => {
+      calls += 1;
+      throw new TypeError("Failed to fetch");
+    });
+    await expect(gateway.myCompany()).rejects.toMatchObject({
+      kind: "offline",
+    });
+    expect(calls).toBe(1);
+  });
+});

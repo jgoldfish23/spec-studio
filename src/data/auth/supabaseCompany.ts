@@ -16,7 +16,9 @@ export function createSupabaseCompany(client: SupabaseClient): CompanyGateway {
     const { data, error, status } = await client
       .from("memberships")
       .select("company_id,companies(id,name,default_region)")
-      .limit(1);
+      .limit(1)
+      // A failed read would otherwise retry for several seconds before the app can say it is offline.
+      .retry(false);
     if (error) throw toDataError(error, "load your company", undefined, status);
     const rows = (data ?? []) as unknown as MembershipRow[];
     if (rows.length > 1)

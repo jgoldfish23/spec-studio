@@ -10,6 +10,9 @@ export interface AuthState {
 
 const AuthContext = createContext<AuthState | null>(null);
 
+const sameUser = (a: AuthUser | null, b: AuthUser | null): boolean =>
+  a === b || (a !== null && b !== null && a.id === b.id && a.email === b.email);
+
 /** Reads the stored session once, then follows sign-ins and sign-outs. */
 export function AuthProvider({
   auth,
@@ -28,7 +31,11 @@ export function AuthProvider({
     let changed = false;
     const unsubscribe = auth.onChange((user) => {
       changed = true;
-      if (live) setCurrent({ user });
+      if (!live) return;
+      // A token refresh reports the same user again; keep the state so consumers do not re-render.
+      setCurrent((prev) =>
+        prev && sameUser(prev.user, user) ? prev : { user },
+      );
     });
     auth.currentUser().then(
       (user) => {

@@ -8,6 +8,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export function createSupabase(
   config: { url: string; anonKey: string },
   storage: Storage,
+  /** Tests only: replaces the client's `fetch`. */
+  fetchOverride?: typeof fetch,
 ): SupabaseClient {
   return createClient(config.url, config.anonKey, {
     auth: {
@@ -17,5 +19,6 @@ export function createSupabase(
       detectSessionInUrl: false,
       storage,
     },
+    ...(fetchOverride ? { global: { fetch: fetchOverride } } : {}),
   });
 }

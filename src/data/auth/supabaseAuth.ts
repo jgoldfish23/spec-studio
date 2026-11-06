@@ -58,8 +58,9 @@ export function createSupabaseAuth(client: SupabaseClient): AuthGateway {
     exchangeLinkCode: (code) =>
       signedIn(() => auth.exchangeCodeForSession(code)),
     async signOut() {
-      const { error } = await auth.signOut();
-      if (error) throw authErrorFrom(error);
+      await call(() =>
+        auth.signOut().then((result) => ({ data: null, error: result.error })),
+      );
     },
   };
 }
