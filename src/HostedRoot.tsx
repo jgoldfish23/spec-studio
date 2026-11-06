@@ -446,11 +446,13 @@ function SignedInApp({
   const [signOutFailed, setSignOutFailed] = useState(false);
   const signOut = useCallback(async () => {
     setSignOutFailed(false);
+    // An explicit sign-out takes this owner's copy of reads off the device; their outbox stays, as it holds work.
+    repository.forgetDeviceCopy();
     const ended = await endSession(auth);
     // When the session did end, this page has already gone; when it did not, the owner must hear it.
     if (!ended) setSignOutFailed(true);
     return ended;
-  }, [auth]);
+  }, [auth, repository]);
   const hosted = useMemo<HostedShell>(
     () => ({
       account: (

@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_MARKET_SETTINGS, DEFAULT_RULES } from "@engine";
+import { testSampleComps } from "../../testing/sampleIds";
 import { sampleDealInputs } from "../sample";
+import { createLocalRepository } from "../local/localRepository";
 import { MemoryStorage } from "../local/memoryStorage";
 import { DataError } from "../types";
-import type { DealListResult, Repository, StoredDeal } from "../types";
+import type { DataErrorKind, DealListResult, Repository, StoredDeal } from "../types";
 import { createOfflineRepository, isOfflineRepository } from "./offlineRepository";
 
 const SCOPE = "user-a";
@@ -565,5 +568,213 @@ describe("storage", () => {
     expect(remote.getCompanySettings).toHaveBeenCalled();
     expect(isOfflineRepository(repo)).toBe(true);
     expect(isOfflineRepository(remote as unknown as Repository)).toBe(false);
+  });
+});
+
+describe("the device copy of reads", () => {
+  const REGION = "utah-north";
+  const CACHE = "spec-studio:cache:user-a:";
+
+  /** A real server (a local repository) behind a network the test can cut, as each kind of failure. */
+  function online() {
+    const server = createLocalRepository(new MemoryStorage());
+    const network: { down: DataErrorKind | null } = { down: null };
+    const reached = {} as Record<string, unknown>;
+    for (const [name, method] of Object.entries(server) as [string, (...args: unknown[]) => Promise<unknown>][]) {
+      reached[name] = async (...args: unknown[]) => {
+        if (network.down) throw new DataError("down", { kind: network.down });
+        return method(...args);
+      };
+    }
+    const device = new MemoryStorage();
+    const outbox = createOfflineRepository(reached as unknown as Repository, device, SCOPE);
+    return { server, network, device, outbox };
+  }
+  const cacheKeys = (storage: Storage) =>
+    Array.from({ length: storage.length }, (_, i) => storage.key(i) ?? "").filter((k) => k.startsWith(CACHE));
+
+  async function seeded() {
+    const world = online();
+    for (const comp of testSampleComps()) await world.server.saveComp(comp);
+    const first = await world.server.createDeal({ name: "Maple Street", inputs: sampleDealInputs() });
+    const second = await world.server.createDeal({ name: "Oak Hollow", inputs: sampleDealInputs() });
+    return { ...world, first, second };
+  }
+
+  it("serves each read's last good copy when the server can't be reached", async () => {
+    const { outbox, network, first } = await seeded();
+    const live = {
+      deals: await outbox.listDeals(),
+      deal: await outbox.getDeal(first.id),
+      comps: await outbox.listComps(REGION),
+      costBook: await outbox.getCostBook(REGION),
+      market: await outbox.getMarketSettings(REGION),
+      company: await outbox.getCompanySettings(),
+    };
+    network.down = "offline";
+    const list = await outbox.listDeals();
+    expect(list.deals).toEqual(live.deals.deals);
+    expect(list.notice).toBe(NOTICE);
+    expect(await outbox.getDeal(first.id)).toEqual(live.deal);
+    expect(await outbox.listComps(REGION)).toEqual(live.comps);
+    expect(await outbox.getCostBook(REGION)).toEqual(live.costBook);
+    expect(await outbox.getMarketSettings(REGION)).toEqual(live.market);
+    expect(await outbox.getCompanySettings()).toEqual(live.company);
+  });
+
+  it.each(["signedOut", "failed"] as const)("never stands in for a %s failure", async (kind) => {
+    const { outbox, network, first } = await seeded();
+    await outbox.listDeals();
+    await outbox.getDeal(first.id);
+    await outbox.listComps(REGION);
+    await outbox.getCompanySettings();
+    network.down = kind;
+    await expect(outbox.listDeals()).rejects.toMatchObject({ kind });
+    await expect(outbox.getDeal(first.id)).rejects.toMatchObject({ kind });
+    await expect(outbox.listComps(REGION)).rejects.toMatchObject({ kind });
+    await expect(outbox.getCompanySettings()).rejects.toMatchObject({ kind });
+  });
+
+  it("with no copy, fails offline as before", async () => {
+    const { outbox, network, first } = await seeded();
+    network.down = "offline";
+    await expect(outbox.getDeal(first.id)).rejects.toMatchObject({ kind: "offline" });
+    await expect(outbox.listComps(REGION)).rejects.toMatchObject({ kind: "offline" });
+    await expect(outbox.getCostBook(REGION)).rejects.toMatchObject({ kind: "offline" });
+  });
+
+  it("lets the outbox win over the copy, for the deal and its row in the list", async () => {
+    const { outbox, network, first, second } = await seeded();
+    await outbox.listDeals();
+    await outbox.getDeal(first.id);
+    network.down = "offline";
+    await outbox.saveDeal({ ...first, name: "Maple Street, renamed" }).catch(() => {});
+    const unlisted = { ...first, id: "33333333-3333-4333-8333-333333333333", name: "Made offline" };
+    outbox.queue(unlisted);
+    expect((await outbox.getDeal(first.id))?.name).toBe("Maple Street, renamed");
+    const list = await outbox.listDeals();
+    expect(list.deals.map((d) => d.name).sort()).toEqual(["Made offline", "Maple Street, renamed", "Oak Hollow"]);
+    expect(list.deals.find((d) => d.id === second.id)?.name).toBe("Oak Hollow");
+    expect(list.notice).toBe(NOTICE);
+  });
+
+  describe("stays in step with writes, so going offline right after one still opens", () => {
+    it("saveDeal and createDeal", async () => {
+      const { outbox, network, first } = await seeded();
+      await outbox.listDeals();
+      const saved = await outbox.saveDeal({ ...first, name: "Saved online" });
+      const created = await outbox.createDeal({ name: "Created online", inputs: sampleDealInputs() });
+      network.down = "offline";
+      expect(await outbox.getDeal(first.id)).toEqual(saved);
+      expect(await outbox.getDeal(created.id)).toEqual(created);
+      const names = (await outbox.listDeals()).deals.map((d) => d.name);
+      expect(names).toContain("Saved online");
+      expect(names).toContain("Created online");
+      expect(names).not.toContain("Maple Street");
+    });
+
+    it("a sync replay", async () => {
+      const { outbox, network, first } = await seeded();
+      await outbox.listDeals();
+      network.down = "offline";
+      await outbox.saveDeal({ ...first, name: "Synced later" }).catch(() => {});
+      network.down = null;
+      await outbox.syncNow();
+      network.down = "offline";
+      expect(outbox.pending()).toEqual([]);
+      expect((await outbox.getDeal(first.id))?.name).toBe("Synced later");
+    });
+
+    it("deleteDeal and resetDeals", async () => {
+      const { outbox, network, first, second } = await seeded();
+      await outbox.listDeals();
+      await outbox.getDeal(first.id);
+      await outbox.deleteDeal(first.id);
+      network.down = "offline";
+      await expect(outbox.getDeal(first.id)).rejects.toMatchObject({ kind: "offline" });
+      expect((await outbox.listDeals()).deals.map((d) => d.id)).toEqual([second.id]);
+      network.down = null;
+      await outbox.resetDeals();
+      network.down = "offline";
+      expect((await outbox.listDeals()).deals).toEqual([]);
+    });
+
+    it("saveComp and deleteComp", async () => {
+      const { outbox, network } = await seeded();
+      const before = await outbox.listComps(REGION);
+      const [first, second] = before;
+      await outbox.saveComp({ ...first!, address: "1 Changed Street" });
+      await outbox.deleteComp(second!.id);
+      network.down = "offline";
+      const copied = await outbox.listComps(REGION);
+      expect(copied).toHaveLength(before.length - 1);
+      expect(copied.find((c) => c.id === first!.id)?.address).toBe("1 Changed Street");
+      expect(copied.some((c) => c.id === second!.id)).toBe(false);
+    });
+
+    it("saveCompanySettings and saveMarketSettings", async () => {
+      const { outbox, network } = await seeded();
+      await outbox.getCompanySettings();
+      await outbox.getMarketSettings(REGION);
+      const company = { rules: DEFAULT_RULES, contingencyPct: 0.07 };
+      const market = { ...DEFAULT_MARKET_SETTINGS, marketCondition: "slow" as const };
+      await outbox.saveCompanySettings(company);
+      await outbox.saveMarketSettings(market);
+      network.down = "offline";
+      expect(await outbox.getCompanySettings()).toEqual(company);
+      expect((await outbox.getMarketSettings(REGION)).marketCondition).toBe("slow");
+    });
+  });
+
+  it("ignores a copy that does not read back, and says so once", async () => {
+    const { outbox, network, device } = await seeded();
+    await outbox.listComps(REGION);
+    device.setItem(`${CACHE}comps:${REGION}`, JSON.stringify({ version: 1, comps: [{ id: 3 }] }));
+    network.down = "offline";
+    await expect(outbox.listComps(REGION)).rejects.toMatchObject({ kind: "offline" });
+    await expect(outbox.listComps(REGION)).rejects.toMatchObject({ kind: "offline" });
+    expect(logged).toHaveBeenCalledTimes(1);
+  });
+
+  it("still answers from the server when the device is full, and says so once", async () => {
+    class Full extends MemoryStorage {
+      override setItem(key: string, value: string): void {
+        if (key.startsWith(CACHE)) throw new DOMException("full", "QuotaExceededError");
+        super.setItem(key, value);
+      }
+    }
+    const server = createLocalRepository(new MemoryStorage());
+    for (const comp of testSampleComps()) await server.saveComp(comp);
+    const outbox = createOfflineRepository(server, new Full(), SCOPE);
+    expect(await outbox.listComps(REGION)).toHaveLength(testSampleComps().length);
+    expect(await outbox.getCostBook(REGION)).toEqual(await server.getCostBook(REGION));
+    expect(logged).toHaveBeenCalledTimes(1);
+  });
+
+  it("forgetDeviceCopy removes this owner's copy and nothing else, the outbox included", async () => {
+    const { outbox, network, device, first } = await seeded();
+    await outbox.listDeals();
+    await outbox.listComps(REGION);
+    network.down = "offline";
+    await outbox.saveDeal({ ...first, name: "Waiting" }).catch(() => {});
+    expect(cacheKeys(device).length).toBeGreaterThan(0);
+
+    outbox.forgetDeviceCopy();
+    expect(cacheKeys(device)).toEqual([]);
+    expect(outbox.pending().map((p) => p.dealName)).toEqual(["Waiting"]);
+    await expect(outbox.listComps(REGION)).rejects.toMatchObject({ kind: "offline" });
+  });
+
+  it("serves one owner's copy to that owner only", async () => {
+    const { outbox, network, device, server } = await seeded();
+    await outbox.listDeals();
+    await outbox.listComps(REGION);
+    network.down = "offline";
+    const other = createOfflineRepository(
+      { ...server, listDeals: () => Promise.reject(new DataError("down", { kind: "offline" })) },
+      device,
+      "user-b",
+    );
+    await expect(other.listDeals()).rejects.toMatchObject({ kind: "offline" });
   });
 });

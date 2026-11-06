@@ -45,6 +45,12 @@ export interface DealEditor {
   status: "loading" | "notFound" | "error" | "ready";
   /** Set when `status` is `"error"`. */
   error?: DataError;
+  /**
+   * True when the error is the deal's own record not reading back (or having no region): the one failure that deleting
+   * the deal can fix. A failure to reach the server, or to read what the deal needs besides itself (its comps, cost
+   * book, settings), is not.
+   */
+  recordUnreadable?: boolean;
   /** The deal as the owner sees it now: the latest name and inputs on top of what was last stored. Set when ready. */
   deal?: StoredDeal;
   /** The inputs being edited. Set when ready. */
@@ -405,7 +411,8 @@ export function useDealEditor(dealId: string): DealEditor {
 
   // Once seeded, the editor owns the deal: a later failed or empty read of it is not the editor's problem. The
   // context is different: if it fails, the evaluation can no longer be trusted.
-  const failure = (seeded ? null : dealQuery.error) ?? engine.error;
+  const dealFailure = seeded ? null : dealQuery.error;
+  const failure = dealFailure ?? engine.error;
   const noRegion = region === "";
   const error = useMemo(() => {
     if (failure) return toDataError(failure);
@@ -423,11 +430,16 @@ export function useDealEditor(dealId: string): DealEditor {
   else if (missing) status = "notFound";
   else if (seeded && context !== undefined && evaluation !== undefined) status = "ready";
   const isReady = status === "ready";
+  // Only the deal's own read can show the record is bad (the editor makes any other thrown value a DataError too).
+  const recordUnreadable =
+    status === "error" &&
+    ((dealFailure instanceof DataError && dealFailure.kind === "unreadable") || (!failure && noRegion));
 
   return useMemo<DealEditor>(
     () => ({
       status,
       error,
+      recordUnreadable,
       deal: isReady ? deal : undefined,
       inputs: isReady ? present : undefined,
       evaluation: isReady ? evaluation : undefined,
@@ -452,6 +464,7 @@ export function useDealEditor(dealId: string): DealEditor {
     [
       status,
       error,
+      recordUnreadable,
       isReady,
       deal,
       present,

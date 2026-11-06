@@ -1,5 +1,6 @@
 import { DataError } from "../types";
 import type { DealListResult, Repository, StoredDeal } from "../types";
+import { createDeviceCopy } from "./deviceCopy";
 
 /** One deal waiting on this device to reach the server. `problem` is set when the server refused it. */
 export interface PendingSave {
@@ -28,6 +29,8 @@ export interface OfflineRepository extends Repository {
    * is closing while a save is still running.
    */
   queue(deal: StoredDeal, options?: { overwrite?: boolean }): void;
+  /** Removes this owner's copy of reads from the device (on an explicit sign-out). The outbox stays: it holds work. */
+  forgetDeviceCopy(): void;
 }
 
 export function isOfflineRepository(repository: Repository): repository is OfflineRepository {
@@ -73,15 +76,32 @@ const isEntry = (value: unknown): value is Entry => {
   );
 };
 
+const isOffline = (error: unknown): boolean => error instanceof DataError && error.kind === "offline";
+
 /**
  * Wraps `remote` so every deal save lands in a per-user outbox in `storage` before the network call. The outbox is
  * best effort: if the browser refuses the write, the save still goes to the server.
+ *
+ * It also keeps a device copy of the owner's reads (`deviceCopy.ts`): each successful read, and what each successful
+ * write returns, is kept, and served only when the server can't be reached (`DataError` `offline`), so a returning
+ * owner can open the app, a deal and its figures offline. Any other failure throws as before. For deals the outbox
+ * still wins: an outbox copy overlays the copied deal and its row in the list.
  */
 export function createOfflineRepository(remote: Repository, storage: Storage, scope: string): OfflineRepository {
   const key = `spec-studio:outbox:${scope}`;
   const listeners = new Set<() => void>();
   let reportedUnreadable = false;
   let reportedWrite = false;
+  /** A store that refuses writes is said once, whether the outbox or the device copy hit it first. */
+  function reportWrite(error: unknown): void {
+    if (reportedWrite) return;
+    reportedWrite = true;
+    console.error(
+      "This device's storage could not be written; edits are only sent to the server, and nothing is kept for offline use.",
+      error,
+    );
+  }
+  const copy = createDeviceCopy(storage, scope, { reportWrite });
   let reportedListener = false;
   /** Tells this instance's entries from another tab's: another tab's entry is not ours to rebase. */
   const writer = crypto.randomUUID();
@@ -126,10 +146,7 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
       if (entries.length === 0) storage.removeItem(key);
       else storage.setItem(key, JSON.stringify({ version: 1, entries }));
     } catch (error) {
-      if (!reportedWrite) {
-        reportedWrite = true;
-        console.error("The offline outbox could not be written; edits are only sent to the server.", error);
-      }
+      reportWrite(error);
     }
   }
 
@@ -153,6 +170,7 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
   }
 
   function succeeded(entry: Entry, saved: StoredDeal): void {
+    copy.putDeal(saved);
     advanced.set(entry.deal.id, { from: entry.base, to: saved.updatedAt });
     update((entries) =>
       entries.flatMap((e) => {
@@ -182,6 +200,34 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
     ...(e.problem ? { problem: e.problem } : {}),
   });
   const localCopy = (e: Entry): StoredDeal => ({ ...e.deal, updatedAt: e.base });
+
+  /** `deals` with each outbox copy in place of its row, and the outbox's other deals after them. */
+  function withOutbox(deals: StoredDeal[], entries: Entry[]): StoredDeal[] {
+    if (entries.length === 0) return deals;
+    const byId = new Map(entries.map((e) => [e.deal.id, e]));
+    const seen = new Set<string>();
+    const merged = deals.map((d) => {
+      const e = byId.get(d.id);
+      if (e) seen.add(d.id);
+      return e ? localCopy(e) : d;
+    });
+    for (const e of entries) if (!seen.has(e.deal.id)) merged.push(localCopy(e));
+    return merged;
+  }
+
+  /** Reads from the server and keeps what it says; when the server can't be reached, the copy answers if there is one. */
+  async function readThrough<T>(read: () => Promise<T>, keep: (value: T) => void, copied: () => T | null): Promise<T> {
+    let value: T;
+    try {
+      value = await read();
+    } catch (error) {
+      const fallback = isOffline(error) ? copied() : null;
+      if (fallback !== null) return fallback;
+      throw error;
+    }
+    keep(value);
+    return value;
+  }
 
   /** Writes the deal's entry, replacing any older one. Synchronous, so a closing page keeps the edit. */
   function enqueue(deal: StoredDeal, options?: { overwrite?: boolean }): Entry {
@@ -289,53 +335,99 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
     queue(deal, options) {
       enqueue(deal, options);
     },
+    forgetDeviceCopy: () => copy.forget(),
     saveDeal,
     async getDeal(id) {
       const entry = read().find((e) => e.deal.id === id);
-      return entry ? localCopy(entry) : remote.getDeal(id);
+      if (entry) return localCopy(entry);
+      let found: StoredDeal | null;
+      try {
+        found = await remote.getDeal(id);
+      } catch (error) {
+        const copied = isOffline(error) ? copy.deal(id) : undefined;
+        if (copied) return copied;
+        throw error;
+      }
+      if (found) copy.refreshDeal(found);
+      else copy.removeDeal(id);
+      return found;
     },
     async listDeals(): Promise<DealListResult> {
-      const entries = read();
       let list: DealListResult;
       try {
         list = await remote.listDeals();
       } catch (error) {
-        if (error instanceof DataError && error.kind === "offline" && entries.length > 0) {
-          return { deals: entries.map(localCopy), problems: [], notice: LIST_NOTICE };
+        const entries = read();
+        const copied = isOffline(error) ? copy.deals() : null;
+        if (isOffline(error) && (copied !== null || entries.length > 0)) {
+          return { deals: withOutbox(copied ?? [], entries), problems: [], notice: LIST_NOTICE };
         }
         throw error;
       }
-      // Read again: a save may have been queued while the list was on its way.
+      copy.putDealList(list.deals);
+      // Read the outbox after the list: a save may have been queued while the list was on its way.
       const current = read();
-      if (current.length === 0) return list;
-      const byId = new Map(current.map((e) => [e.deal.id, e]));
-      const seen = new Set<string>();
-      const deals = list.deals.map((d) => {
-        const e = byId.get(d.id);
-        if (e) seen.add(d.id);
-        return e ? localCopy(e) : d;
-      });
-      for (const e of current) if (!seen.has(e.deal.id)) deals.push(localCopy(e));
-      return { ...list, deals };
+      return current.length === 0 ? list : { ...list, deals: withOutbox(list.deals, current) };
     },
-    createDeal: (input) => remote.createDeal(input),
+    async createDeal(input) {
+      const created = await remote.createDeal(input);
+      copy.putDeal(created);
+      return created;
+    },
     async deleteDeal(id) {
       await remote.deleteDeal(id);
+      copy.removeDeal(id);
       advanced.delete(id);
       if (read().some((e) => e.deal.id === id)) update((entries) => entries.filter((e) => e.deal.id !== id));
     },
     async resetDeals() {
       await remote.resetDeals();
+      copy.removeAllDeals();
       advanced.clear();
       update(() => []);
     },
-    listComps: (region) => remote.listComps(region),
-    saveComp: (comp) => remote.saveComp(comp),
-    deleteComp: (id) => remote.deleteComp(id),
-    getCostBook: (region) => remote.getCostBook(region),
-    getMarketSettings: (region) => remote.getMarketSettings(region),
-    getCompanySettings: () => remote.getCompanySettings(),
-    saveCompanySettings: (settings) => remote.saveCompanySettings(settings),
-    saveMarketSettings: (settings) => remote.saveMarketSettings(settings),
+    listComps: (region) =>
+      readThrough(
+        () => remote.listComps(region),
+        (comps) => copy.putComps(region, comps),
+        () => copy.comps(region),
+      ),
+    async saveComp(comp) {
+      const saved = await remote.saveComp(comp);
+      copy.putComp(saved);
+      return saved;
+    },
+    async deleteComp(id) {
+      await remote.deleteComp(id);
+      copy.removeComp(id);
+    },
+    getCostBook: (region) =>
+      readThrough(
+        () => remote.getCostBook(region),
+        (book) => copy.putCostBook(region, book),
+        () => copy.costBook(region),
+      ),
+    getMarketSettings: (region) =>
+      readThrough(
+        () => remote.getMarketSettings(region),
+        (settings) => copy.putMarketSettings(region, settings),
+        () => copy.marketSettings(region),
+      ),
+    getCompanySettings: () =>
+      readThrough(
+        () => remote.getCompanySettings(),
+        (settings) => copy.putCompanySettings(settings),
+        () => copy.companySettings(),
+      ),
+    async saveCompanySettings(settings) {
+      const saved = await remote.saveCompanySettings(settings);
+      copy.putCompanySettings(saved);
+      return saved;
+    },
+    async saveMarketSettings(settings) {
+      const saved = await remote.saveMarketSettings(settings);
+      copy.putMarketSettings(saved.region, saved);
+      return saved;
+    },
   };
 }

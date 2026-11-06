@@ -407,6 +407,73 @@ describe("DealLayout when there is nothing to show", () => {
   });
 });
 
+describe("DealLayout when the deal can't be opened right now", () => {
+  const offline = () => new DataError("Can't reach the server — check your connection.", { kind: "offline" });
+
+  it("offers Try again and Back to Deals, never Delete, when the deal can't be read offline; Try again opens it", async () => {
+    const user = userEvent.setup();
+    const { harness, deal } = await sampleSetup();
+    vi.spyOn(harness.repository, "getDeal").mockRejectedValueOnce(offline());
+    renderDeal(harness, deal.id);
+    expect(await screen.findByRole("heading", { name: "Can't open this deal right now" })).toBeVisible();
+    expect(screen.getByText("Can't reach the server — check your connection.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Delete this deal" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to Deals" })).toHaveAttribute("href", "/deals");
+
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByLabelText("Deal name")).toHaveValue(SAMPLE_DEAL_NAME);
+  });
+
+  it.each([
+    ["the cost book", "getCostBook"],
+    ["the comps", "listComps"],
+    ["the market settings", "getMarketSettings"],
+  ] as const)("is calm when %s can't be read, and Try again opens the deal", async (_name, method) => {
+    const user = userEvent.setup();
+    const { harness, deal } = await sampleSetup();
+    vi.spyOn(harness.repository, method).mockRejectedValueOnce(offline());
+    renderDeal(harness, deal.id);
+    expect(await screen.findByRole("heading", { name: "Can't open this deal right now" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Delete this deal" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByLabelText("Deal name")).toHaveValue(SAMPLE_DEAL_NAME);
+  });
+
+  it.each([
+    ["signed out", new DataError("You've been signed out.", { kind: "signedOut" })],
+    ["refused by the server", new DataError("Couldn't load — the server said no. Try again in a minute.", { kind: "failed" })],
+    ["not a DataError", new Error("Something broke")],
+  ])("offers no Delete when the deal's read is %s", async (_name, error) => {
+    const { harness, deal } = await sampleSetup();
+    vi.spyOn(harness.repository, "getDeal").mockRejectedValueOnce(error);
+    renderDeal(harness, deal.id);
+    expect(await screen.findByRole("heading", { name: "Can't open this deal right now" })).toBeVisible();
+    expect(screen.getByText(error.message)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Delete this deal" })).not.toBeInTheDocument();
+  });
+
+  it("offers no Delete when what can't be read is the comps, not the deal", async () => {
+    const { harness, deal } = await sampleSetup();
+    vi.spyOn(harness.repository, "listComps").mockRejectedValueOnce(
+      new DataError("Your saved comps couldn't be read.", { recordId: "*" }),
+    );
+    renderDeal(harness, deal.id);
+    expect(await screen.findByRole("heading", { name: "Can't open this deal right now" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Delete this deal" })).not.toBeInTheDocument();
+  });
+
+  it("still offers Delete when the deal's own record is unreadable", async () => {
+    const { harness, deal } = await sampleSetup();
+    vi.spyOn(harness.repository, "getDeal").mockRejectedValueOnce(
+      new DataError(`Deal ${deal.id} is unreadable: inputs.loan: expected object`, { recordId: deal.id }),
+    );
+    renderDeal(harness, deal.id);
+    expect(await screen.findByText(/^This deal couldn't be read: /)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Delete this deal" })).toBeEnabled();
+    expect(screen.queryByRole("heading", { name: "Can't open this deal right now" })).not.toBeInTheDocument();
+  });
+});
+
 describe("one editor per deal", () => {
   it("does not carry one deal's edits into the next", async () => {
     const user = userEvent.setup();

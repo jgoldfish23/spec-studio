@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { flushSync } from "react-dom";
@@ -98,6 +99,45 @@ function DealUnreadable({ dealId, message }: { dealId: string; message: string }
           onCancel={() => setConfirming(false)}
         />
       ) : null}
+    </section>
+  );
+}
+
+/**
+ * A deal that can't be opened right now: the server can't be reached, the session ended, or something the deal needs
+ * besides itself (its comps, cost book or settings) could not be read. Nothing is wrong with the deal, so nothing is
+ * offered that would change it: Try again reads what failed again.
+ */
+function DealUnavailable({ message }: { message: string }) {
+  const queryClient = useQueryClient();
+  const [retrying, setRetrying] = useState(false);
+
+  async function retry() {
+    setRetrying(true);
+    try {
+      await queryClient.refetchQueries({ type: "active", predicate: (query) => query.state.status === "error" });
+    } finally {
+      setRetrying(false);
+    }
+  }
+
+  return (
+    <section className="flex flex-col items-start gap-3">
+      <h1 className="text-xl font-bold tracking-[-0.01em]">Can't open this deal right now</h1>
+      <p className="m-0 text-[15px]">{message}</p>
+      <div className="flex flex-wrap gap-3">
+        <button
+          type="button"
+          onClick={() => void retry()}
+          disabled={retrying}
+          className={`inline-flex min-h-11 items-center rounded-lg bg-spruce px-4.5 font-semibold text-white hover:bg-spruce-dark disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`}
+        >
+          Try again
+        </button>
+        <Link to="/deals" className={`${SMALL_BUTTON} no-underline`}>
+          Back to Deals
+        </Link>
+      </div>
     </section>
   );
 }
@@ -371,7 +411,10 @@ export function DealLayout({ dealId }: { dealId: string }) {
 
   if (status === "notFound") return <DealNotFound />;
   if (status === "error") {
-    return <DealUnreadable dealId={dealId} message={editor.error?.message ?? "Unknown error"} />;
+    const message = editor.error?.message ?? "Unknown error";
+    // Delete is for a record that will never read back, not for a failure that passes (offline, signed out, a
+    // dependent read).
+    return editor.recordUnreadable ? <DealUnreadable dealId={dealId} message={message} /> : <DealUnavailable message={message} />;
   }
   if (status !== "ready" || !deal || !inputs || !evaluation || !context) return <DealSkeleton />;
   return (

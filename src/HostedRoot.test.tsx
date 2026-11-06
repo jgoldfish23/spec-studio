@@ -1,4 +1,11 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { UserEvent } from "@testing-library/user-event";
 import { StrictMode } from "react";
@@ -646,6 +653,10 @@ describe("HostedGate on a device that remembers its owner", () => {
     window.history.replaceState(null, "", `/#/deals/${deal.id}/lot`);
     const before = world.mount();
     await screen.findByLabelText("Deal name", undefined, { timeout: 3000 });
+    // What the deal works out to with the server's comps, cost book and settings.
+    const figures = screen.getByRole("region", {
+      name: "Deal summary",
+    }).textContent;
     world.network.down = "offline";
     await rename(user, "Renamed on site");
     expect(
@@ -674,6 +685,18 @@ describe("HostedGate on a device that remembers its owner", () => {
     ).toBeVisible();
     expect(screen.queryByText(UNREACHABLE)).not.toBeInTheDocument();
 
+    // The deal opens from the outbox copy, and works out the same from the copies of its comps, cost book and settings.
+    await user.click(screen.getByRole("link", { name: "Renamed on site" }));
+    expect(
+      await screen.findByLabelText("Deal name", undefined, { timeout: 3000 }),
+    ).toHaveValue("Renamed on site");
+    expect(
+      screen.getByRole("region", { name: "Deal summary" }).textContent,
+    ).toBe(figures);
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Lot" }),
+    ).toBeVisible();
+
     // Back online: the browser says so, and the edit syncs.
     world.network.down = null;
     await act(async () => {
@@ -686,6 +709,100 @@ describe("HostedGate on a device that remembers its owner", () => {
       expect(screen.queryByText(/waiting to sync/)).not.toBeInTheDocument(),
     );
     expect(world.device.getItem(outboxKey(ANA))).toBeNull();
+  });
+
+  /** The keys of `user`'s copy of reads on this device. */
+  const copyKeys = (world: World, user: AuthUser) =>
+    Array.from(
+      { length: world.device.length },
+      (_, i) => world.device.key(i) ?? "",
+    ).filter((key) => key.startsWith(`spec-studio:cache:${user.id}:`));
+
+  async function twoOwners() {
+    const world = createWorld({
+      user: ANA,
+      companies: [
+        [ANA, ANA_CO],
+        [BEN, BEN_CO],
+      ],
+    });
+    await world
+      .server(ANA_CO.id)
+      .createDeal({ name: "Maple Street", inputs: sampleDealInputs() });
+    await world
+      .server(BEN_CO.id)
+      .createDeal({ name: "Ben's corner lot", inputs: sampleDealInputs() });
+    return world;
+  }
+
+  /** Ben signs in, sees his list, and the page is reloaded offline. */
+  async function benReloadsOffline(world: World, user: UserEvent) {
+    await signIn(user, BEN.email);
+    expect(
+      await screen.findByText("Ben's corner lot", undefined, { timeout: 3000 }),
+    ).toBeVisible();
+    cleanup();
+    goOffline(world);
+    world.mount();
+    expect(
+      await screen.findByText("Ben's corner lot", undefined, { timeout: 3000 }),
+    ).toBeVisible();
+    expect(screen.getByText(NOTICE)).toBeVisible();
+    expect(screen.queryByText("Maple Street")).not.toBeInTheDocument();
+  }
+
+  it("clears an owner's copy on an explicit sign-out, keeping their outbox, and the next owner never sees it", async () => {
+    const user = userEvent.setup();
+    const world = await twoOwners();
+    // An edit of Ana's that the server keeps refusing, so it is still waiting when she signs out.
+    const maple = (await world.server(ANA_CO.id).listDeals()).deals[0]!;
+    createOfflineRepository(
+      world.server(ANA_CO.id),
+      world.device,
+      ANA.id,
+    ).queue({ ...maple, name: "Maple Street, edited" });
+    vi.spyOn(world.server(ANA_CO.id), "saveDeal").mockRejectedValue(
+      offlineError(),
+    );
+    world.mount();
+    expect(
+      await screen.findByText("Maple Street, edited", undefined, {
+        timeout: 3000,
+      }),
+    ).toBeVisible();
+    expect(copyKeys(world, ANA).length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: ANA.email }));
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    await user.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", {
+        name: "Sign out",
+      }),
+    );
+    expect(await signInPage()).toBeVisible();
+    expect(copyKeys(world, ANA)).toEqual([]);
+    expect(world.outbox(ANA).map((d) => d.name)).toEqual([
+      "Maple Street, edited",
+    ]);
+
+    await benReloadsOffline(world, user);
+  });
+
+  it("keeps the copy when the server ends the session, and still serves each owner only their own", async () => {
+    const user = userEvent.setup();
+    const world = await twoOwners();
+    world.mount();
+    expect(
+      await screen.findByText("Maple Street", undefined, { timeout: 3000 }),
+    ).toBeVisible();
+    const anaKeys = copyKeys(world, ANA);
+
+    await act(() => world.auth.signOut());
+    expect(await signInPage()).toBeVisible();
+    expect(copyKeys(world, ANA)).toEqual(anaKeys);
+
+    await benReloadsOffline(world, user);
+    expect(copyKeys(world, ANA)).toEqual(anaKeys);
   });
 
   it("still says it can't reach the server for a remembered owner whose company was never loaded here", async () => {
