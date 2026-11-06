@@ -161,8 +161,9 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
         // A newer save of ours is waiting: the server now holds `saved`, so that is what it is based on. The owner's
         // "keep mine" applied to the version that just landed, not to later ones.
         if (e.writer !== writer) return [e];
-        const { overwrite: _applied, ...rest } = e;
-        return [{ ...rest, base: saved.updatedAt }];
+        const rebased: Entry = { ...e, base: saved.updatedAt };
+        delete rebased.overwrite;
+        return [rebased];
       }),
     );
   }
