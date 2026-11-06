@@ -108,7 +108,7 @@ function DealUnreadable({ dealId, message }: { dealId: string; message: string }
  * besides itself (its comps, cost book or settings) could not be read. Nothing is wrong with the deal, so nothing is
  * offered that would change it: Try again reads what failed again.
  */
-function DealUnavailable({ message }: { message: string }) {
+function DealUnavailable({ message, signedOut }: { message: string; signedOut: boolean }) {
   const queryClient = useQueryClient();
   const [retrying, setRetrying] = useState(false);
 
@@ -134,6 +134,12 @@ function DealUnavailable({ message }: { message: string }) {
         >
           Try again
         </button>
+        {/* A session the server ended is signed in again from there, as a signed-out save is. */}
+        {signedOut ? (
+          <Link to="/sign-in" className={`${SMALL_BUTTON} no-underline`}>
+            Sign in
+          </Link>
+        ) : null}
         <Link to="/deals" className={`${SMALL_BUTTON} no-underline`}>
           Back to Deals
         </Link>
@@ -414,7 +420,11 @@ export function DealLayout({ dealId }: { dealId: string }) {
     const message = editor.error?.message ?? "Unknown error";
     // Delete is for a record that will never read back, not for a failure that passes (offline, signed out, a
     // dependent read).
-    return editor.recordUnreadable ? <DealUnreadable dealId={dealId} message={message} /> : <DealUnavailable message={message} />;
+    return editor.recordUnreadable ? (
+      <DealUnreadable dealId={dealId} message={message} />
+    ) : (
+      <DealUnavailable message={message} signedOut={editor.error?.kind === "signedOut"} />
+    );
   }
   if (status !== "ready" || !deal || !inputs || !evaluation || !context) return <DealSkeleton />;
   return (

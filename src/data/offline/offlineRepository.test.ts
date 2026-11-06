@@ -143,14 +143,17 @@ describe("saveDeal", () => {
     expect(repo.pending()).toEqual([expect.objectContaining({ dealId: ID, problem: kind })]);
   });
 
-  it("carries on to the remote when storage refuses the write, and reports once", async () => {
+  it("carries on to the remote when storage refuses the write, and reports the outbox and the device copy once each", async () => {
     storage.setItem = () => {
       throw new Error("quota");
     };
     await repo.saveDeal(deal());
     await repo.saveDeal(deal());
     expect(remote.saveDeal).toHaveBeenCalledTimes(2);
-    expect(logged).toHaveBeenCalledTimes(1);
+    const said: string[] = logged.mock.calls.map((call: unknown[]) => String(call[0]));
+    expect(said).toHaveLength(2);
+    expect(said.filter((m) => m.startsWith("The offline outbox could not be written"))).toHaveLength(1);
+    expect(said.filter((m) => m.startsWith("The copy of your data on this device could not be saved"))).toHaveLength(1);
   });
 
   it("passes the overwrite option through", async () => {
@@ -580,10 +583,11 @@ describe("the device copy of reads", () => {
     const server = createLocalRepository(new MemoryStorage());
     const network: { down: DataErrorKind | null } = { down: null };
     const reached = {} as Record<string, unknown>;
-    for (const [name, method] of Object.entries(server) as [string, (...args: unknown[]) => Promise<unknown>][]) {
+    for (const name of Object.keys(server)) {
+      // Looked up at call time, so a test can spy on the server after this is made.
       reached[name] = async (...args: unknown[]) => {
         if (network.down) throw new DataError("down", { kind: network.down });
-        return method(...args);
+        return (server as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>)[name]!(...args);
       };
     }
     const device = new MemoryStorage();
@@ -633,6 +637,18 @@ describe("the device copy of reads", () => {
     await expect(outbox.getDeal(first.id)).rejects.toMatchObject({ kind });
     await expect(outbox.listComps(REGION)).rejects.toMatchObject({ kind });
     await expect(outbox.getCompanySettings()).rejects.toMatchObject({ kind });
+  });
+
+  it("reads from the server only when asked: no outbox copy, no device copy", async () => {
+    const { outbox, network, first } = await seeded();
+    await outbox.getDeal(first.id);
+    network.down = "offline";
+    await outbox.saveDeal({ ...first, name: "Mine, waiting" }).catch(() => {});
+    expect((await outbox.getDeal(first.id))?.name).toBe("Mine, waiting");
+    await expect(outbox.getDeal(first.id, { fromServer: true })).rejects.toMatchObject({ kind: "offline" });
+    network.down = null;
+    expect((await outbox.getDeal(first.id, { fromServer: true }))?.name).toBe("Maple Street");
+    expect(outbox.pending()).toHaveLength(1);
   });
 
   it("with no copy, fails offline as before", async () => {
@@ -749,6 +765,111 @@ describe("the device copy of reads", () => {
     expect(await outbox.listComps(REGION)).toHaveLength(testSampleComps().length);
     expect(await outbox.getCostBook(REGION)).toEqual(await server.getCostBook(REGION));
     expect(logged).toHaveBeenCalledTimes(1);
+  });
+
+  describe("a read that lands after a newer write keeps the newer value", () => {
+    /** Holds `method`'s next answer until the returned release is called. */
+    function held<K extends keyof Repository>(server: Repository, method: K) {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      const real = (server[method] as (...args: unknown[]) => Promise<unknown>).bind(server);
+      vi.spyOn(server, method).mockImplementationOnce((async (...args: unknown[]) => {
+        const answer = await real(...args);
+        await gate;
+        return answer;
+      }) as never);
+      return release;
+    }
+
+    it("for comps", async () => {
+      const { outbox, network, server } = await seeded();
+      const [first] = await outbox.listComps(REGION);
+      const release = held(server, "listComps");
+      const reading = outbox.listComps(REGION);
+      await outbox.saveComp({ ...first!, address: "1 Saved After" });
+      release();
+      await reading;
+      network.down = "offline";
+      expect((await outbox.listComps(REGION)).find((c) => c.id === first!.id)?.address).toBe("1 Saved After");
+    });
+
+    it("for the deals", async () => {
+      const { outbox, network, server } = await seeded();
+      await outbox.listDeals();
+      const release = held(server, "listDeals");
+      const reading = outbox.listDeals();
+      const created = await outbox.createDeal({ name: "Made meanwhile", inputs: sampleDealInputs() });
+      release();
+      await reading;
+      network.down = "offline";
+      expect((await outbox.listDeals()).deals.map((d) => d.id)).toContain(created.id);
+    });
+
+    it("for the company settings", async () => {
+      const { outbox, network, server } = await seeded();
+      await outbox.getCompanySettings();
+      const release = held(server, "getCompanySettings");
+      const reading = outbox.getCompanySettings();
+      await outbox.saveCompanySettings({ rules: DEFAULT_RULES, contingencyPct: 0.09 });
+      release();
+      await reading;
+      network.down = "offline";
+      expect((await outbox.getCompanySettings()).contingencyPct).toBe(0.09);
+    });
+  });
+
+  it("puts the outbox first on a full device: the copy goes, and the edit is kept", async () => {
+    /** A store with a size limit, as a browser's is. */
+    class Limited extends MemoryStorage {
+      limit = Infinity;
+      used(): number {
+        let total = 0;
+        for (let i = 0; i < this.length; i++) {
+          const k = this.key(i) ?? "";
+          total += k.length + (this.getItem(k) ?? "").length;
+        }
+        return total;
+      }
+      override setItem(k: string, value: string): void {
+        const before = this.getItem(k);
+        const grows = k.length + value.length - (before === null ? 0 : k.length + before.length);
+        if (this.used() + grows > this.limit) throw new DOMException("full", "QuotaExceededError");
+        super.setItem(k, value);
+      }
+    }
+    const server = createLocalRepository(new MemoryStorage());
+    const first = await server.createDeal({ name: "Maple Street", inputs: sampleDealInputs() });
+    const device = new Limited();
+    const network: { down: DataErrorKind | null } = { down: null };
+    const remote = {
+      ...server,
+      saveDeal: async (d: StoredDeal) => {
+        if (network.down) throw new DataError("down", { kind: network.down });
+        return server.saveDeal(d);
+      },
+    } as Repository;
+    const outbox = createOfflineRepository(remote, device, SCOPE);
+    await outbox.getCostBook(REGION);
+    expect(cacheKeys(device)).toEqual([`${CACHE}costBook:${REGION}`]);
+    // The device is now full: an outbox entry fits only once the copy is gone.
+    device.limit = device.used() + 100;
+    network.down = "offline";
+    await outbox.saveDeal({ ...first, name: "Edited on a full device" }).catch(() => {});
+    expect(outbox.pending().map((p) => p.dealName)).toEqual(["Edited on a full device"]);
+    expect(cacheKeys(device)).toEqual([]);
+    expect(logged).not.toHaveBeenCalled();
+  });
+
+  it("stopDeviceCopy keeps the copy as it is and adds nothing more", async () => {
+    const { outbox, network, device } = await seeded();
+    await outbox.listDeals();
+    const kept = cacheKeys(device);
+    outbox.stopDeviceCopy();
+    await outbox.listComps(REGION);
+    await outbox.getCompanySettings();
+    expect(cacheKeys(device)).toEqual(kept);
+    network.down = "offline";
+    expect((await outbox.listDeals()).deals.length).toBeGreaterThan(0);
   });
 
   it("forgetDeviceCopy removes this owner's copy and nothing else, the outbox included", async () => {

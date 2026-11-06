@@ -342,24 +342,20 @@ export function useDealEditor(dealId: string): DealEditor {
   const loadTheirs = useCallback(
     () =>
       whileBusy(async () => {
-        const waiting = autosaver.current?.pending();
         const previous = statusRef.current;
         const outbox = isOfflineRepository(repository) ? repository : null;
-        // The outbox copy would be read back as "their version", so it goes before the read.
-        outbox?.discardPending(dealId);
         let fresh: StoredDeal | null;
         try {
-          fresh = await repository.getDeal(dealId);
+          // From the server only: this device's outbox and copy of the deal are the owner's own version, not theirs.
+          fresh = outbox ? await outbox.getDeal(dealId, { fromServer: true }) : await repository.getDeal(dealId);
         } catch (error) {
-          // Nothing was loaded: the local edits are still the owner's, and the choice is still theirs to make.
-          if (outbox && waiting !== undefined) {
-            outbox.queue({ ...waiting, updatedAt: baseline.current.get(dealId) ?? waiting.updatedAt });
-          }
+          // Nothing was loaded, and nothing was dropped: the local edits and their outbox entry are still the owner's,
+          // and the choice is still theirs to make.
           setSaveStatus(previous);
           if (previous.kind === "error") setFailedWith(previous.reason);
           throw error;
         }
-        // Whatever was queued while the read was on its way is the old copy too.
+        // Theirs is in: what waits here (and anything queued while the read was on its way) is the old copy.
         autosaver.current?.discard();
         outbox?.discardPending(dealId);
         queryClient.setQueryData(queryKeys.deal(dealId), fresh);

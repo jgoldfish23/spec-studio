@@ -35,8 +35,19 @@ export interface DeviceCopy {
   putMarketSettings(region: string, settings: MarketSettings): void;
   companySettings(): CompanySettings | null;
   putCompanySettings(settings: CompanySettings): void;
-  /** Removes this owner's whole copy. Nothing is kept after, so a read already on its way cannot bring it back. */
+  /** Removes this owner's whole copy (on an explicit sign-out). Later writes are kept as usual. */
   forget(): void;
+  /**
+   * The owner's session ended: what is kept stays, and nothing more is written, so a read already on its way cannot
+   * add to the copy (or bring a forgotten one back).
+   */
+  stop(): void;
+  /**
+   * Starts a read of `name` (`deals`, `comps:<region>`, `costBook:<region>`, `marketSettings:<region>`,
+   * `companySettings`): the check returned stays true until that copy is written. A read that finishes after a newer
+   * write must not keep its older answer.
+   */
+  since(name: string): () => boolean;
 }
 
 /** Anything with zod's `safeParse`, so each schema keeps its own type. */
@@ -71,12 +82,7 @@ function parseDeals(value: unknown): StoredDeal[] | null {
  * repositories use: a copy that does not read back is ignored (and reported once), never thrown. Writes are best
  * effort: a full or blocked store is reported once, and the app goes on without a copy.
  */
-export function createDeviceCopy(
-  storage: Storage,
-  scope: string,
-  /** Reports a refused write instead of reporting it here: the outbox shares one report for a store that is full. */
-  options: { reportWrite?: (error: unknown) => void } = {},
-): DeviceCopy {
+export function createDeviceCopy(storage: Storage, scope: string): DeviceCopy {
   const base = `${PREFIX}${scope}:`;
   const dealsKey = `${base}deals`;
   const compsKey = (region: string) => `${base}comps:${region}`;
@@ -85,7 +91,10 @@ export function createDeviceCopy(
   const companyKey = `${base}companySettings`;
   let reportedRead = false;
   let reportedWrite = false;
-  let forgotten = false;
+  let stopped = false;
+  /** Writes per key, for `since`. */
+  const writes = new Map<string, number>();
+  const bump = (key: string) => writes.set(key, (writes.get(key) ?? 0) + 1);
 
   function reportRead(error: unknown): void {
     if (reportedRead) return;
@@ -97,7 +106,6 @@ export function createDeviceCopy(
   }
 
   function reportWrite(error: unknown): void {
-    if (options.reportWrite) return options.reportWrite(error);
     if (reportedWrite) return;
     reportedWrite = true;
     console.error(
@@ -132,7 +140,8 @@ export function createDeviceCopy(
   }
 
   function write(key: string, field: string, value: unknown): void {
-    if (forgotten) return;
+    if (stopped) return;
+    bump(key);
     try {
       storage.setItem(
         key,
@@ -140,6 +149,12 @@ export function createDeviceCopy(
       );
     } catch (error) {
       reportWrite(error);
+      // The older value would now be stale: better no copy than a wrong one.
+      try {
+        storage.removeItem(key);
+      } catch {
+        // Nothing more can be done with this store; reads will fail on it too.
+      }
     }
   }
 
@@ -231,14 +246,22 @@ export function createDeviceCopy(
     putCompanySettings: (settings) =>
       write(companyKey, "companySettings", settings),
     forget() {
-      forgotten = true;
       for (const key of keysStarting("")) {
+        bump(key);
         try {
           storage.removeItem(key);
         } catch (error) {
           reportWrite(error);
         }
       }
+    },
+    stop() {
+      stopped = true;
+    },
+    since(name) {
+      const key = base + name;
+      const at = writes.get(key) ?? 0;
+      return () => (writes.get(key) ?? 0) === at;
     },
   };
 }

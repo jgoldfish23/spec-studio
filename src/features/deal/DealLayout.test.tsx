@@ -452,6 +452,24 @@ describe("DealLayout when the deal can't be opened right now", () => {
     expect(screen.queryByRole("button", { name: "Delete this deal" })).not.toBeInTheDocument();
   });
 
+  it("offers Sign in when the session has ended, as a signed-out save does", async () => {
+    const { harness, deal } = await sampleSetup();
+    vi.spyOn(harness.repository, "getDeal").mockRejectedValueOnce(
+      new DataError("You've been signed out.", { kind: "signedOut" }),
+    );
+    renderDeal(harness, deal.id);
+    expect(await screen.findByRole("heading", { name: "Can't open this deal right now" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/sign-in");
+  });
+
+  it("offers no Sign in for a failure that is not about the session", async () => {
+    const { harness, deal } = await sampleSetup();
+    vi.spyOn(harness.repository, "getDeal").mockRejectedValueOnce(offline());
+    renderDeal(harness, deal.id);
+    expect(await screen.findByRole("heading", { name: "Can't open this deal right now" })).toBeVisible();
+    expect(screen.queryByRole("link", { name: "Sign in" })).not.toBeInTheDocument();
+  });
+
   it("offers no Delete when what can't be read is the comps, not the deal", async () => {
     const { harness, deal } = await sampleSetup();
     vi.spyOn(harness.repository, "listComps").mockRejectedValueOnce(

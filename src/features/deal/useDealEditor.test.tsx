@@ -1374,6 +1374,29 @@ describe("useDealEditor save problems", () => {
     expect(s.saveDeal).toHaveBeenCalledTimes(1);
   });
 
+  it("Load their version offline never takes this device's own copy for theirs: it fails and the choice stays", async () => {
+    let remote!: Repository;
+    let offline!: OfflineRepository;
+    const s = await setup({}, (server) => {
+      remote = server;
+      return (offline = createOfflineRepository(server, new MemoryStorage(), "u"));
+    });
+    // Opening the deal keeps a copy of it on the device, through the real outbox.
+    const view = await ready(s);
+    await conflicted(s, view);
+    expect(offline.pending()).toHaveLength(1);
+    vi.spyOn(remote, "getDeal").mockRejectedValue(offlineError());
+
+    await act(async () => {
+      await expect(view.result.current.loadTheirs()).rejects.toMatchObject({ kind: "offline" });
+    });
+    expect(view.result.current.saveStatus).toMatchObject({ kind: "error", reason: "conflict" });
+    expect(view.result.current.inputs?.lot.priceCents).toBe(NEW_PRICE);
+    expect(view.result.current.canUndo).toBe(true);
+    expect(offline.pending().map((p) => p.dealId)).toEqual([s.first.id]);
+    expect((await offline.getDeal(s.first.id))?.inputs.lot.priceCents).toBe(NEW_PRICE);
+  });
+
   it("loadTheirs drops the outbox entry of an offline repository", async () => {
     let offline!: OfflineRepository;
     const s = await setup({}, (remote) => (offline = createOfflineRepository(remote, new MemoryStorage(), "u")));

@@ -1,8 +1,4 @@
-import {
-  QueryClientProvider,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { App } from "./App";
 import type { HostedConfig } from "./config";
@@ -25,6 +21,7 @@ import { createSupabaseRepository } from "./data/supabase/supabaseRepository";
 import { DataError } from "./data/types";
 import type { Repository } from "./data/types";
 import { SyncNote } from "./features/app/AppShell";
+import { useOwnerCompany } from "./features/app/useOwnerCompany";
 import type { HostedShell } from "./features/app/hostedShell";
 import {
   Loading,
@@ -180,11 +177,11 @@ export function HostedGate({
   storage,
   ...rest
 }: HostedGateProps) {
-  const memory = useMemo(() => createOwnerMemory(storage), [storage]);
-  const auth = useMemo(
-    () => rememberingOwner(server, memory),
-    [server, memory],
-  );
+  // Made once: `auth` and `storage` are fixed for the gate's life, and the wrapper keeps state of its own.
+  const [{ memory, auth }] = useState(() => {
+    const remembered = createOwnerMemory(storage);
+    return { memory: remembered, auth: rememberingOwner(server, remembered) };
+  });
   const callback = useLinkCallback(auth);
   return (
     <AuthProvider auth={auth}>
@@ -320,46 +317,18 @@ function OwnerSession(props: OwnerProps) {
 
 function CompanyGate(props: OwnerProps) {
   const { user, auth, companies, memory } = props;
-  const queryClient = useQueryClient();
-  const queryKey = useMemo(() => ["company", user.id] as const, [user.id]);
-  const company = useQuery({
-    queryKey,
-    queryFn: async () => {
-      let found: Company | null;
-      try {
-        found = await companies.myCompany();
-      } catch (error) {
-        // A returning owner opens from the device; with nothing remembered, the error stands.
-        const remembered =
-          error instanceof DataError && error.kind === "offline"
-            ? memory.company(user.id)
-            : null;
-        if (remembered) return remembered;
-        if (!(error instanceof DataError))
-          console.error("Couldn't load the company:", error);
-        throw error;
-      }
-      if (found) memory.rememberCompany(user.id, found);
-      else memory.forgetCompany(user.id);
-      return found;
-    },
-    staleTime: Infinity,
+  const { company, retry, created } = useOwnerCompany({
+    userId: user.id,
+    companies,
+    memory,
   });
-  const { refetch } = company;
-  const retry = useCallback(() => {
-    // A first read that never answered is still "fetching", and a refetch would only wait on it: drop it first.
-    void queryClient.cancelQueries({ queryKey }).then(() => refetch());
-  }, [queryClient, queryKey, refetch]);
 
   if (company.data === null) {
     return (
       <CreateCompanyPage
         companies={companies}
         auth={auth}
-        onCreated={(created) => {
-          memory.rememberCompany(user.id, created);
-          queryClient.setQueryData(queryKey, created);
-        }}
+        onCreated={created}
       />
     );
   }
@@ -433,39 +402,47 @@ function SignedInApp({
       end: server.end,
     };
   });
-  // Ended by the sign-out itself, before the app unmounts: the editor's last save on the way out, and any sync run
-  // still going, then wait in this owner's outbox for them.
+  // The session ending, however it ends, stops this owner's connection and copy before the app unmounts: the
+  // editor's last save on the way out and any sync run still going wait in their outbox, and a late read adds nothing.
+  const sessionEnded = useRef(false);
   useEffect(
     () =>
       auth.onChange((next) => {
-        if (next?.id !== user.id) end();
+        if (next?.id === user.id) return;
+        sessionEnded.current = true;
+        end();
+        repository.stopDeviceCopy();
       }),
-    [auth, user.id, end],
+    [auth, user.id, end, repository],
   );
   const { pendingCount } = useOutboxSync(repository);
   const [signOutFailed, setSignOutFailed] = useState(false);
   const signOut = useCallback(async () => {
     setSignOutFailed(false);
-    // An explicit sign-out takes this owner's copy of reads off the device; their outbox stays, as it holds work.
-    repository.forgetDeviceCopy();
     const ended = await endSession(auth);
     // When the session did end, this page has already gone; when it did not, the owner must hear it.
     if (!ended) setSignOutFailed(true);
     return ended;
-  }, [auth, repository]);
+  }, [auth]);
+  // Leaving from the account menu also takes this owner's copy of reads off the device once the session has ended
+  // (`#/sign-in`, signing in again, keeps it). The outbox stays: it holds work.
+  const leave = useCallback(async () => {
+    const ended = await signOut();
+    if (ended || sessionEnded.current) repository.forgetDeviceCopy();
+  }, [signOut, repository]);
   const hosted = useMemo<HostedShell>(
     () => ({
       account: (
         <AccountMenu
           user={user}
           pendingCount={pendingCount}
-          onSignOut={() => void signOut()}
+          onSignOut={() => void leave()}
         />
       ),
       syncNote: <SyncNote count={pendingCount} />,
       signOut,
     }),
-    [user, pendingCount, signOut],
+    [user, pendingCount, signOut, leave],
   );
   return (
     <RepositoryProvider repository={repository}>

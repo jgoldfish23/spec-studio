@@ -28,6 +28,7 @@ import { DataError } from "./data/types";
 import type { DataErrorKind, Repository, StoredDeal } from "./data/types";
 import type { HostedConfig } from "./config";
 import { createOwnerMemory } from "./data/auth/rememberedOwner";
+import { createDeviceCopy } from "./data/offline/deviceCopy";
 import { UNREACHABLE } from "./features/app/StartupScreens";
 import { reportLostSave } from "./features/deal/lostSaves";
 import { HostedGate, HostedRoot } from "./HostedRoot";
@@ -151,6 +152,13 @@ function createWorld(options: WorldOptions = {}) {
 }
 
 type World = ReturnType<typeof createWorld>;
+
+/** The keys of `user`'s copy of reads on this device. */
+const copyKeys = (world: World, user: AuthUser) =>
+  Array.from(
+    { length: world.device.length },
+    (_, i) => world.device.key(i) ?? "",
+  ).filter((key) => key.startsWith(`spec-studio:cache:${user.id}:`));
 
 async function signIn(user: UserEvent, email: string) {
   await user.type(await screen.findByLabelText("Email"), email);
@@ -437,6 +445,8 @@ describe("HostedGate", () => {
       await screen.findByRole("link", { name: "Sign in" }, { timeout: 3000 }),
     );
     expect(await signInPage()).toBeVisible();
+    // Signing in again after the server ended the session is not leaving: the copy of reads stays.
+    expect(copyKeys(world, ANA).length).toBeGreaterThan(0);
 
     world.network.down = null;
     await signIn(user, ANA.email);
@@ -711,13 +721,6 @@ describe("HostedGate on a device that remembers its owner", () => {
     expect(world.device.getItem(outboxKey(ANA))).toBeNull();
   });
 
-  /** The keys of `user`'s copy of reads on this device. */
-  const copyKeys = (world: World, user: AuthUser) =>
-    Array.from(
-      { length: world.device.length },
-      (_, i) => world.device.key(i) ?? "",
-    ).filter((key) => key.startsWith(`spec-studio:cache:${user.id}:`));
-
   async function twoOwners() {
     const world = createWorld({
       user: ANA,
@@ -886,6 +889,112 @@ describe("HostedGate on a device that remembers its owner", () => {
   });
 });
 
+describe("HostedGate starting on one bar", () => {
+  /** Ana as this device remembers her: her company, and a copy of her deals. */
+  async function remembered(world: World) {
+    const maple = await world
+      .server(ANA_CO.id)
+      .createDeal({ name: "Maple Street", inputs: sampleDealInputs() });
+    const memory = createOwnerMemory(world.device);
+    memory.rememberOwner(ANA);
+    memory.rememberCompany(ANA.id, ANA_CO);
+    createDeviceCopy(world.device, ANA.id).putDealList([maple]);
+  }
+  const never = () => new Promise<never>(() => {});
+
+  it("opens a remembered owner from the device after 5 s, and never shows the 15 s can't-reach screen", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const world = createWorld({ user: ANA, companies: [[ANA, ANA_CO]] });
+    await remembered(world);
+    world.network.down = "offline";
+    vi.spyOn(world.auth, "currentUser").mockImplementation(never);
+    vi.spyOn(world.companies, "myCompany").mockImplementation(never);
+    world.mount();
+
+    await act(() => vi.advanceTimersByTimeAsync(4_000));
+    expect(screen.getByText("Loading…")).toBeVisible();
+    await act(() => vi.advanceTimersByTimeAsync(1_000));
+    expect(await screen.findByText("Maple Street")).toBeVisible();
+    await act(() => vi.advanceTimersByTimeAsync(30_000));
+    expect(screen.queryByText(UNREACHABLE)).not.toBeInTheDocument();
+    expect(screen.getByText("Maple Street")).toBeVisible();
+  });
+
+  it("follows the session read when it answers late with no session: the sign-in page", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const world = createWorld({ user: ANA, companies: [[ANA, ANA_CO]] });
+    await remembered(world);
+    // Every read of the session waits (StrictMode reads twice), until the test answers them all.
+    const answers: ((user: AuthUser | null) => void)[] = [];
+    vi.spyOn(world.auth, "currentUser").mockImplementation(
+      () => new Promise((resolve) => answers.push(resolve)),
+    );
+    vi.spyOn(world.companies, "myCompany").mockImplementation(never);
+    world.mount();
+    await act(() => vi.advanceTimersByTimeAsync(5_000));
+    expect(await screen.findByText("Maple Street")).toBeVisible();
+
+    await act(async () => {
+      for (const answer of answers) answer(null);
+    });
+    expect(await signInPage()).toBeVisible();
+    expect(world.device.getItem(LAST_USER)).toBeNull();
+  });
+
+  it("opens with the remembered company at once and asks the server behind it", async () => {
+    const world = createWorld({ user: ANA, companies: [[ANA, ANA_CO]] });
+    await remembered(world);
+    let answer: (company: Company | null) => void = () => {};
+    const asked = vi
+      .spyOn(world.companies, "myCompany")
+      .mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+    world.mount();
+    expect(
+      await screen.findByText("Maple Street", undefined, { timeout: 3000 }),
+    ).toBeVisible();
+    expect(asked).toHaveBeenCalled();
+    await act(async () => answer({ ...ANA_CO }));
+    expect(screen.getByText("Maple Street")).toBeVisible();
+  });
+
+  it("follows a different company the server answers with, and remembers it", async () => {
+    const world = createWorld({ user: ANA, companies: [[ANA, ANA_CO]] });
+    await remembered(world);
+    const moved: Company = {
+      ...ANA_CO,
+      id: "company-ana-new",
+      name: "Ana Homes II",
+    };
+    await world
+      .server(moved.id)
+      .createDeal({ name: "Oak Hollow", inputs: sampleDealInputs() });
+    vi.spyOn(world.companies, "myCompany").mockResolvedValue(moved);
+    world.mount();
+    expect(
+      await screen.findByText("Oak Hollow", undefined, { timeout: 3000 }),
+    ).toBeVisible();
+    expect(screen.queryByText("Maple Street")).not.toBeInTheDocument();
+    expect(createOwnerMemory(world.device).company(ANA.id)).toEqual(moved);
+  });
+
+  it("asks to set up a company when the server has none for a remembered one, and says so once", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const world = createWorld({ user: ANA, companies: [[ANA, ANA_CO]] });
+    await remembered(world);
+    vi.spyOn(world.companies, "myCompany").mockResolvedValue(null);
+    world.mount();
+    expect(
+      await screen.findByRole(
+        "heading",
+        { level: 1, name: "Name your company" },
+        { timeout: 3000 },
+      ),
+    ).toBeVisible();
+    expect(logged).toHaveBeenCalledTimes(1);
+    expect(createOwnerMemory(world.device).company(ANA.id)).toBeNull();
+  });
+});
+
 describe("HostedGate signing out", () => {
   it("when supabase-js drops the session and then says it couldn't reach the server: the sign-in page, the outbox kept, reported once", async () => {
     const user = userEvent.setup();
@@ -926,6 +1035,8 @@ describe("HostedGate signing out", () => {
     await waitFor(() => expect(logged).toHaveBeenCalledTimes(1));
     expect(String(logged.mock.calls[0]?.[0])).toMatch(/Couldn't sign out/);
     expect(world.outbox(ANA).map((d) => d.name)).toEqual(["Oak Hollow"]);
+    // The session did end here, so the sign-out took the copy of reads with it.
+    expect(copyKeys(world, ANA)).toEqual([]);
   });
 
   it("says so on the page when signing out fails and the session stays", async () => {
@@ -957,6 +1068,42 @@ describe("HostedGate signing out", () => {
       within(alert as HTMLElement).getByRole("button", { name: "Dismiss" }),
     );
     expect(screen.queryByText(/Couldn't sign out/)).not.toBeInTheDocument();
+
+    // Still signed in, so the copy of reads is kept, and kept up to date.
+    const dealsCopy = `spec-studio:cache:${ANA.id}:deals`;
+    expect(world.device.getItem(dealsCopy)).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "New deal" }));
+    await screen.findByLabelText("Deal name", undefined, { timeout: 3000 });
+    expect(
+      (
+        JSON.parse(world.device.getItem(dealsCopy) ?? "{}") as {
+          deals: { name: string }[];
+        }
+      ).deals.map((d) => d.name),
+    ).toContain("Untitled deal");
+  });
+
+  it("a read that lands after a successful sign-out adds nothing to the copy", async () => {
+    const user = userEvent.setup();
+    const world = createWorld({ user: ANA, companies: [[ANA, ANA_CO]] });
+    let answer!: () => void;
+    const answered = new Promise<void>((resolve) => (answer = resolve));
+    const server = world.server(ANA_CO.id);
+    const read = server.getCompanySettings.bind(server);
+    vi.spyOn(server, "getCompanySettings").mockImplementation(async () => {
+      const settings = await read();
+      await answered;
+      return settings;
+    });
+    world.mount();
+    await dealsPage();
+
+    await user.click(screen.getByRole("button", { name: ANA.email }));
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    expect(await signInPage()).toBeVisible();
+    expect(copyKeys(world, ANA)).toEqual([]);
+    await act(async () => answer());
+    expect(copyKeys(world, ANA)).toEqual([]);
   });
 
   it("a sign-out and the same owner's sign-in that land in one render still leave a working connection", async () => {

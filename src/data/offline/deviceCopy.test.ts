@@ -210,21 +210,7 @@ describe("createDeviceCopy", () => {
     expect(logged).toHaveBeenCalledTimes(1);
   });
 
-  it("hands refused writes to a shared reporter when given one", () => {
-    class Full extends MemoryStorage {
-      override setItem(): void {
-        throw new DOMException("full", "QuotaExceededError");
-      }
-    }
-    const reportWrite = vi.fn();
-    const copy = createDeviceCopy(new Full(), SCOPE, { reportWrite });
-    copy.putDealList([deal(1)]);
-    copy.putCompanySettings({ rules: DEFAULT_RULES, contingencyPct: 0.05 });
-    expect(reportWrite).toHaveBeenCalledTimes(2);
-    expect(logged).not.toHaveBeenCalled();
-  });
-
-  it("forget removes this owner's whole copy, leaves the outbox and other owners, and keeps nothing after", () => {
+  it("forget removes this owner's whole copy, leaving the outbox and other owners, and keeps working after", () => {
     const storage = new MemoryStorage();
     storage.setItem("spec-studio:outbox:user-a", "{}");
     createDeviceCopy(storage, "user-ab").putDealList([deal(2)]);
@@ -236,10 +222,62 @@ describe("createDeviceCopy", () => {
       "spec-studio:cache:user-ab:deals",
       "spec-studio:outbox:user-a",
     ]);
-    // A read that was already on its way when the owner signed out must not bring the copy back.
-    copy.putDealList([deal(1)]);
+    // A sign-out that did not happen leaves the copy working.
     copy.putDeal(deal(3));
+    expect(copy.deals()?.map((d) => d.name)).toEqual(["Deal 3"]);
+  });
+
+  it("stop keeps what is there and writes nothing more, so a read that lands after the session ended adds nothing", () => {
+    const storage = new MemoryStorage();
+    const copy = createDeviceCopy(storage, SCOPE);
+    copy.putDealList([deal(1)]);
+    copy.stop();
+    copy.putDeal(deal(3));
+    copy.putComps(REGION, testSampleComps());
+    expect(copy.deals()?.map((d) => d.name)).toEqual(["Deal 1"]);
+    expect(copy.comps(REGION)).toBeNull();
+    copy.forget();
+    copy.putDealList([deal(2)]);
+    expect(keys(storage)).toEqual([]);
+  });
+
+  it("removes a read's copy when writing its newer value fails, so the stale one is never served", () => {
+    let full = false;
+    class FillsUp extends MemoryStorage {
+      override setItem(key: string, value: string): void {
+        if (full) throw new DOMException("full", "QuotaExceededError");
+        super.setItem(key, value);
+      }
+    }
+    const copy = createDeviceCopy(new FillsUp(), SCOPE);
+    copy.putDealList([deal(1)]);
+    copy.putCompanySettings({ rules: DEFAULT_RULES, contingencyPct: 0.05 });
+    full = true;
+    copy.putDeal(deal(1, { name: "Renamed" }));
+    copy.putCompanySettings({ rules: DEFAULT_RULES, contingencyPct: 0.07 });
     expect(copy.deals()).toBeNull();
-    expect(keys(storage)).toHaveLength(2);
+    expect(copy.companySettings()).toBeNull();
+  });
+
+  describe("since", () => {
+    it("is current until that read's copy is written, by anything", () => {
+      const copy = createDeviceCopy(new MemoryStorage(), SCOPE);
+      const deals = copy.since("deals");
+      const comps = copy.since(`comps:${REGION}`);
+      expect(deals()).toBe(true);
+      copy.putDeal(deal(1));
+      expect(deals()).toBe(false);
+      expect(comps()).toBe(true);
+      copy.putComps(REGION, []);
+      expect(comps()).toBe(false);
+    });
+
+    it("counts a removal as a write", () => {
+      const copy = createDeviceCopy(new MemoryStorage(), SCOPE);
+      copy.putDealList([deal(1)]);
+      const deals = copy.since("deals");
+      copy.removeDeal(deal(1).id);
+      expect(deals()).toBe(false);
+    });
   });
 });

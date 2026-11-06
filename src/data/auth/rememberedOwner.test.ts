@@ -4,7 +4,11 @@ import { createFakeAuth, FAKE_CODE } from "../testing/fakeAuth";
 import { AuthError } from "./authGateway";
 import type { AuthUser } from "./authGateway";
 import type { Company } from "./companyGateway";
-import { createOwnerMemory, rememberingOwner } from "./rememberedOwner";
+import {
+  createOwnerMemory,
+  REMEMBERED_OWNER_WAIT_MS,
+  rememberingOwner,
+} from "./rememberedOwner";
 
 const ANA: AuthUser = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -197,5 +201,109 @@ describe("rememberingOwner", () => {
       ANA.email,
     );
     expect((await gateway.exchangeLinkCode(BEN.email)).email).toBe(BEN.email);
+  });
+});
+
+describe("rememberingOwner when the session read is slow", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** A gateway whose session read answers only when the test says, with Ana remembered on the device. */
+  function slow(remembered: AuthUser | null = ANA) {
+    const memory = createOwnerMemory(new MemoryStorage());
+    if (remembered) memory.rememberOwner(remembered);
+    const auth = createFakeAuth({ user: ANA });
+    let answer!: (user: AuthUser | null) => void;
+    let fail!: (error: unknown) => void;
+    vi.spyOn(auth, "currentUser").mockImplementation(
+      () =>
+        new Promise((resolve, reject) => {
+          answer = resolve;
+          fail = reject;
+        }),
+    );
+    const gateway = rememberingOwner(auth, memory);
+    const heard: (string | null)[] = [];
+    gateway.onChange((user) => heard.push(user?.email ?? null));
+    let read: AuthUser | null | undefined;
+    void gateway.currentUser().then((user) => (read = user));
+    return {
+      memory,
+      heard,
+      answer: (user: AuthUser | null) => answer(user),
+      fail: (error: unknown) => fail(error),
+      read: () => read,
+    };
+  }
+
+  it("waits 5 s, then reads as the remembered owner", async () => {
+    const { read } = slow();
+    await vi.advanceTimersByTimeAsync(REMEMBERED_OWNER_WAIT_MS - 1);
+    expect(read()).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(read()).toEqual(ANA);
+  });
+
+  it("then hears nothing when the read later finds the same owner", async () => {
+    const { heard, answer } = slow();
+    await vi.advanceTimersByTimeAsync(REMEMBERED_OWNER_WAIT_MS);
+    answer({ ...ANA });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(heard).toEqual([]);
+  });
+
+  it("then says signed out when the read later finds no session", async () => {
+    const { heard, answer, memory } = slow();
+    await vi.advanceTimersByTimeAsync(REMEMBERED_OWNER_WAIT_MS);
+    answer(null);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(heard).toEqual([null]);
+    expect(memory.owner()).toBeNull();
+  });
+
+  it("then follows a different owner the read later finds", async () => {
+    const { heard, answer, memory } = slow();
+    await vi.advanceTimersByTimeAsync(REMEMBERED_OWNER_WAIT_MS);
+    answer(BEN);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(heard).toEqual([BEN.email]);
+    expect(memory.owner()).toEqual(BEN);
+  });
+
+  it("then stays when the read later fails offline, and says signed out when it fails otherwise", async () => {
+    const offline = slow();
+    await vi.advanceTimersByTimeAsync(REMEMBERED_OWNER_WAIT_MS);
+    offline.fail(new AuthError("offline"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(offline.heard).toEqual([]);
+
+    const failed = slow();
+    await vi.advanceTimersByTimeAsync(REMEMBERED_OWNER_WAIT_MS);
+    failed.fail(new AuthError("failed"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(failed.heard).toEqual([null]);
+  });
+
+  it("answers as the read does when it is in time, leaving no timer behind", async () => {
+    const { read, answer, heard } = slow();
+    answer(BEN);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(read()).toEqual(BEN);
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(REMEMBERED_OWNER_WAIT_MS);
+    expect(heard).toEqual([]);
+  });
+
+  it("waits for the read with no one remembered", async () => {
+    const { read, answer } = slow(null);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(read()).toBeUndefined();
+    answer(ANA);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(read()).toEqual(ANA);
   });
 });
