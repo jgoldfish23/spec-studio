@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
@@ -15,6 +15,7 @@ import type { StoredDeal } from "../../data/types";
 import { createHarness, seedSampleDeal } from "../../testing/renderApp";
 import type { Harness } from "../../testing/renderApp";
 import { sampleSetup } from "../../testing/stepHarness";
+import { PercentField } from "../../ui/fields";
 import { useDealEditorContext } from "./DealEditorContext";
 import { DealRoute } from "./DealRoute";
 
@@ -43,6 +44,17 @@ function Controls() {
       >
         Raise land price
       </button>
+      {editor.inputs ? (
+        <PercentField
+          label="Contingency"
+          value={editor.inputs.contingencyPct}
+          onChange={(value) =>
+            editor.edit((draft) => {
+              draft.contingencyPct = value;
+            })
+          }
+        />
+      ) : null}
       <p>{`Contingency now ${editor.inputs?.contingencyPct}`}</p>
     </div>
   );
@@ -596,5 +608,57 @@ describe("DealLayout save problems", () => {
     expect(offline.pending().map((p) => p.dealId)).toEqual([deal.id]);
     await user.click(within(alert).getByRole("button", { name: "Discard my changes" }));
     await waitFor(() => expect(offline.pending()).toHaveLength(0));
+  });
+
+  describe("while a version is being chosen", () => {
+    /** A conflict on a land-price edit, then Load their version held open on a gated read. */
+    async function loading(outcome: "fail" | "succeed") {
+      const user = userEvent.setup();
+      const { harness, deal } = await sampleSetup();
+      vi.spyOn(harness.repository, "saveDeal").mockRejectedValueOnce(
+        new DataError("This deal was changed on another device or tab.", { kind: "conflict" }),
+      );
+      renderDeal(harness, deal.id);
+      const field = await screen.findByLabelText("Contingency");
+      const before = (field as HTMLInputElement).value;
+      await user.click(screen.getByRole("button", { name: "Raise land price" }));
+      await screen.findByRole("button", { name: "Load their version" }, { timeout: 3000 });
+
+      const real = harness.repository.getDeal.bind(harness.repository);
+      let settle: () => void = () => {};
+      const gate = new Promise<void>((resolve) => (settle = resolve));
+      harness.repository.getDeal = async (id) => {
+        await gate;
+        if (outcome === "fail") throw new Error("no signal");
+        return real(id);
+      };
+      await user.click(screen.getByRole("button", { name: "Load their version" }));
+      return { field, before, settle, harness };
+    }
+
+    it("makes the step inert and busy, and lifts both afterwards", async () => {
+      const { settle } = await loading("succeed");
+      const container = screen.getByLabelText("Contingency").closest("[inert]");
+      expect(container).not.toBeNull();
+      expect(container).toHaveAttribute("aria-busy", "true");
+      settle();
+      await waitFor(() => expect(screen.getByLabelText("Contingency").closest("[inert]")).toBeNull());
+    });
+
+    it("shows the deal's value, not leftover text, after a failed read", async () => {
+      const { before, settle } = await loading("fail");
+      fireEvent.change(screen.getByLabelText("Contingency"), { target: { value: "9" } });
+      settle();
+      await screen.findByText("Couldn't load their version — no signal. Try again.");
+      expect(screen.getByLabelText("Contingency")).toHaveValue(before);
+    });
+
+    it("shows the deal's value after a successful read whose value matches the old one", async () => {
+      const { before, settle } = await loading("succeed");
+      fireEvent.change(screen.getByLabelText("Contingency"), { target: { value: "9" } });
+      settle();
+      await waitFor(() => expect(screen.queryByRole("button", { name: "Load their version" })).not.toBeInTheDocument());
+      expect(screen.getByLabelText("Contingency")).toHaveValue(before);
+    });
   });
 });

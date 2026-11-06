@@ -300,6 +300,15 @@ interface ReadyProps {
 
 function ReadyDeal({ dealId, editor, name, inputs, evaluation, today }: ReadyProps) {
   const { pathname } = useLocation();
+  const { busy } = editor;
+  // When a choice between versions ends (loaded or failed), every field is made to read its value from the deal again:
+  // text typed meanwhile was ignored by the editor and must not stay on screen.
+  const [wasBusy, setWasBusy] = useState(busy);
+  const [round, setRound] = useState(0);
+  if (wasBusy !== busy) {
+    setWasBusy(busy);
+    if (wasBusy) setRound(round + 1);
+  }
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-5 rounded-xl border border-line bg-surface px-5 pt-5 sm:px-[22px]">
@@ -308,7 +317,9 @@ function ReadyDeal({ dealId, editor, name, inputs, evaluation, today }: ReadyPro
             <Link to="/deals" className={`inline-flex min-h-11 items-center self-start text-sm no-underline ${LINK}`}>
               ← Deals
             </Link>
-            <DealNameField name={name} rename={editor.rename} saveNow={editor.saveNow} />
+            <div inert={busy} aria-busy={busy || undefined}>
+              <DealNameField name={name} rename={editor.rename} saveNow={editor.saveNow} />
+            </div>
           </div>
           <CalcErrorBoundary input={inputs} resetOn={evaluation}>
             <VerdictBlock dealId={dealId} evaluation={evaluation} />
@@ -316,12 +327,14 @@ function ReadyDeal({ dealId, editor, name, inputs, evaluation, today }: ReadyPro
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <button type="button" onClick={editor.undo} disabled={!editor.canUndo} className={SMALL_BUTTON}>
-            Undo
-          </button>
-          <button type="button" onClick={editor.redo} disabled={!editor.canRedo} className={SMALL_BUTTON}>
-            Redo
-          </button>
+          <div inert={busy} aria-busy={busy || undefined} className="flex flex-wrap items-center gap-3">
+            <button type="button" onClick={editor.undo} disabled={!editor.canUndo} className={SMALL_BUTTON}>
+              Undo
+            </button>
+            <button type="button" onClick={editor.redo} disabled={!editor.canRedo} className={SMALL_BUTTON}>
+              Redo
+            </button>
+          </div>
           <SaveStatusText status={editor.saveStatus} />
         </div>
 
@@ -338,9 +351,11 @@ function ReadyDeal({ dealId, editor, name, inputs, evaluation, today }: ReadyPro
       {editor.evaluationError ? <CalcFailure error={editor.evaluationError} /> : null}
 
       {/* A step that cannot draw is replaced by the message; the header and the tabs stay, so the owner can move on. */}
-      <CalcErrorBoundary key={pathname} input={inputs} resetOn={evaluation}>
-        <Outlet />
-      </CalcErrorBoundary>
+      <div key={round} inert={busy} aria-busy={busy || undefined}>
+        <CalcErrorBoundary key={pathname} input={inputs} resetOn={evaluation}>
+          <Outlet />
+        </CalcErrorBoundary>
+      </div>
     </div>
   );
 }
