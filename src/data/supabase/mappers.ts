@@ -238,3 +238,14 @@ export function marketSettingsFromRow(row: MarketSettingsRow): MarketSettings {
   // The column decides the region, whatever `settings` says.
   return read(MarketSettingsSchema, { ...row.settings, region: row.region }, "Market settings", row.region);
 }
+
+/** The columns of a `company_settings` row the owner can change; the database keeps the timestamps. */
+export function companySettingsToRow(settings: CompanySettings, companyId: string): CompanySettingsRow {
+  return { company_id: companyId, rules: settings.rules, contingency_pct: settings.contingencyPct };
+}
+
+/** The columns of a `market_settings` row the owner can change. The region is a column, so `settings` leaves it out. */
+export function marketSettingsToRow(settings: MarketSettings, companyId: string): MarketSettingsRow {
+  const { region, ...rest } = settings;
+  return { company_id: companyId, region, settings: rest };
+}

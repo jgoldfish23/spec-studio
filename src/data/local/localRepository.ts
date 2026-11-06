@@ -1,15 +1,24 @@
-import { CompSchema, DEFAULT_MARKET_SETTINGS, DEFAULT_RULES } from "@engine";
+import { CompSchema, DEFAULT_MARKET_SETTINGS, DEFAULT_RULES, MarketSettingsSchema } from "@engine";
 import type { Comp, CostBookView, DealInputs, MarketSettings } from "@engine";
-import { assertCompReadsBack, assertDealReadsBack, CompanySettingsSchema, readDeal } from "../readBack";
+import {
+  assertCompanySettingsReadBack,
+  assertCompReadsBack,
+  assertDealReadsBack,
+  assertMarketSettingsReadBack,
+  CompanySettingsSchema,
+  firstProblem,
+  readDeal,
+} from "../readBack";
 import { LEGACY_SAMPLE_COMP_IDS } from "../sample";
 import { STARTER_COST_BOOK } from "../starterCostBook";
 import { DataError } from "../types";
 import type { CompanySettings, DealListResult, Repository, StoredDeal } from "../types";
 
-/** Each key holds one JSON value: deals and comps are an object keyed by id, the settings are one object. */
+/** Each key holds one JSON value: deals and comps are an object keyed by id, the settings are one object each (the company's, and one per region). */
 export const DEALS_KEY = "spec-studio:v1:deals";
 export const COMPS_KEY = "spec-studio:v1:comps";
-export const SETTINGS_KEY = "spec-studio:v1:settings";
+export const COMPANY_SETTINGS_KEY = "spec-studio:company-settings";
+export const marketSettingsKey = (region: string): string => `spec-studio:market-settings:${region}`;
 
 const CONFLICT = "This deal was changed on another device or tab.";
 const DELETED = "This deal was deleted on another device or tab.";
@@ -161,6 +170,30 @@ export function createLocalRepository(
     write(DEALS_KEY, { ...dealRecords(), [deal.id]: deal });
   }
 
+  /** Keys already reported as unreadable, so a bad value is logged once per repository and not on every read. */
+  const reported = new Set<string>();
+  function report(key: string, reason: string): void {
+    if (reported.has(key)) return;
+    reported.add(key);
+    console.error(`Spec Studio: the saved settings under ${key} ${reason}; using the defaults instead.`);
+  }
+
+  /** The value stored under `key` if it reads back; undefined when nothing is stored or it cannot be read (reported once). */
+  function readSetting<T>(key: string, parse: (value: unknown) => { ok: true; value: T } | { ok: false; reason: string }): T | undefined {
+    const json = readJson(storage, key);
+    if (!json.ok) {
+      report(key, json.reason);
+      return undefined;
+    }
+    if (json.value === undefined) return undefined;
+    const parsed = parse(json.value);
+    if (!parsed.ok) {
+      report(key, `do not read back (${parsed.reason})`);
+      return undefined;
+    }
+    return parsed.value;
+  }
+
   return {
     async listDeals(): Promise<DealListResult> {
       const store = readStore(storage, DEALS_KEY);
@@ -257,14 +290,34 @@ export function createLocalRepository(
     },
 
     async getMarketSettings(region: string): Promise<MarketSettings> {
-      return { ...structuredClone(DEFAULT_MARKET_SETTINGS), region };
+      const stored = readSetting(marketSettingsKey(region), (value) => {
+        // The key decides the region, whatever the stored value says.
+        const parsed = MarketSettingsSchema.safeParse(isRecord(value) ? { ...value, region } : value);
+        return parsed.success ? { ok: true, value: parsed.data } : { ok: false, reason: firstProblem(parsed.error).message };
+      });
+      return stored ?? { ...structuredClone(DEFAULT_MARKET_SETTINGS), region };
     },
 
     async getCompanySettings(): Promise<CompanySettings> {
-      const json = readJson(storage, SETTINGS_KEY);
-      if (!json.ok) return defaultCompanySettings();
-      const parsed = CompanySettingsSchema.safeParse(json.value);
-      return parsed.success ? parsed.data : defaultCompanySettings();
+      const stored = readSetting(COMPANY_SETTINGS_KEY, (value) => {
+        const parsed = CompanySettingsSchema.safeParse(value);
+        return parsed.success ? { ok: true, value: parsed.data } : { ok: false, reason: firstProblem(parsed.error).message };
+      });
+      return stored ?? defaultCompanySettings();
+    },
+
+    async saveCompanySettings(settings: CompanySettings): Promise<CompanySettings> {
+      const saved = structuredClone(settings);
+      assertCompanySettingsReadBack(saved);
+      write(COMPANY_SETTINGS_KEY, saved as unknown as Record<string, unknown>);
+      return structuredClone(saved);
+    },
+
+    async saveMarketSettings(settings: MarketSettings): Promise<MarketSettings> {
+      const saved = structuredClone(settings);
+      assertMarketSettingsReadBack(saved);
+      write(marketSettingsKey(saved.region), saved as unknown as Record<string, unknown>);
+      return structuredClone(saved);
     },
   };
 }

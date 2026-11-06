@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useContext, useMemo } from "react";
 import { DEFAULT_QUANTITY_RULES } from "@engine";
-import type { Comp, DealInputs, EngineContext } from "@engine";
+import type { Comp, DealInputs, EngineContext, MarketSettings } from "@engine";
 import { todayIso } from "../lib/today";
 import { RepositoryContext } from "./RepositoryProvider";
-import type { Repository } from "./types";
+import type { CompanySettings, Repository } from "./types";
 
 /** Every query key in one place, so a mutation invalidates exactly what a hook reads. */
 export const queryKeys = {
@@ -102,6 +102,25 @@ export function useDeleteComp() {
 export function useCompanySettings() {
   const repository = useRepository();
   return useQuery({ queryKey: queryKeys.companySettings, queryFn: () => repository.getCompanySettings() });
+}
+
+export function useSaveCompanySettings() {
+  const repository = useRepository();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (settings: CompanySettings) => repository.saveCompanySettings(settings),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.companySettings }),
+  });
+}
+
+/** Saves one region's market settings. The cost book does not depend on them, so it is left alone. */
+export function useSaveMarketSettings() {
+  const repository = useRepository();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (settings: MarketSettings) => repository.saveMarketSettings(settings),
+    onSuccess: (saved) => queryClient.invalidateQueries({ queryKey: queryKeys.marketSettings(saved.region) }),
+  });
 }
 
 export interface EngineContextResult {

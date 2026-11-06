@@ -915,3 +915,80 @@ describe("getCompanySettings", () => {
     expect((await error(repo.getCompanySettings())).kind).toBe("failed");
   });
 });
+
+describe("saveCompanySettings", () => {
+  const rules = { minMarginOnSale: 0.2, minAnnualizedReturn: 0.3, minDownsideProfitCents: 1_000_000 };
+  const next = { rules, contingencyPct: 0.08 };
+
+  it("upserts the company's row on company_id, sending only the data columns", async () => {
+    const { repo, requests } = setup(() => json({ company_id: CO, rules, contingency_pct: 0.08, created_at: CREATED, updated_at: UPDATED }));
+    await repo.saveCompanySettings(next);
+    expect(requests).toHaveLength(1);
+    const [request] = requests as [Recorded];
+    expect(request.method).toBe("POST");
+    expect(request.url.pathname).toBe("/rest/v1/company_settings");
+    expect((request.headers.get("Prefer") ?? "").split(/,\s*/)).toEqual(["resolution=merge-duplicates", "return=representation"]);
+    expect(params(request).on_conflict).toBe("company_id");
+    expect(Array.isArray(request.body)).toBe(false);
+    expect(request.body).toEqual({ company_id: CO, rules, contingency_pct: 0.08 });
+  });
+
+  it("returns what the server sent back, reading a numeric sent as a string", async () => {
+    const { repo } = setup(() => json({ company_id: CO, rules, contingency_pct: "0.0800" }));
+    expect(await repo.saveCompanySettings(next)).toEqual(next);
+  });
+
+  it("refuses settings that would not read back without making a request", async () => {
+    const { repo, requests } = setup();
+    const caught = await error(repo.saveCompanySettings({ ...next, contingencyPct: Number.NaN }));
+    expect(caught.message).toMatch(/^Couldn't save — contingencyPct: /);
+    expect(caught.kind).toBe("failed");
+    expect(requests).toHaveLength(0);
+  });
+
+  it("turns a server error into a DataError", async () => {
+    const { repo } = setup(() => json(NOT_UUID, 400));
+    const caught = await error(repo.saveCompanySettings(next));
+    expect(caught.kind).toBe("failed");
+    expect(caught.message).toBe(FAILED);
+  });
+
+  it("still falls back to the defaults when nothing was saved", async () => {
+    const { repo } = setup(() => json([]));
+    expect(await repo.getCompanySettings()).toEqual({ rules: DEFAULT_RULES, contingencyPct: 0.05 });
+  });
+});
+
+describe("saveMarketSettings", () => {
+  const settings: Record<string, unknown> = { ...DEFAULT_MARKET_SETTINGS };
+  delete settings.region;
+  const next = { ...DEFAULT_MARKET_SETTINGS, elasticity: 4.5 };
+
+  it("upserts the row on company and region, with the region as a column and not in settings", async () => {
+    const { repo, requests } = setup(() => json({ company_id: CO, region: "utah-north", settings: { ...settings, elasticity: 4.5 } }));
+    expect(await repo.saveMarketSettings(next)).toEqual(next);
+    expect(requests).toHaveLength(1);
+    const [request] = requests as [Recorded];
+    expect(request.method).toBe("POST");
+    expect(request.url.pathname).toBe("/rest/v1/market_settings");
+    expect((request.headers.get("Prefer") ?? "").split(/,\s*/)).toEqual(["resolution=merge-duplicates", "return=representation"]);
+    expect(params(request).on_conflict).toBe("company_id,region");
+    const body = request.body as { settings: Record<string, unknown> };
+    expect(Object.keys(body).sort()).toEqual(["company_id", "region", "settings"]);
+    expect(body).toMatchObject({ company_id: CO, region: "utah-north" });
+    expect(body.settings).toEqual({ ...settings, elasticity: 4.5 });
+  });
+
+  it("refuses settings that would not read back without making a request", async () => {
+    const { repo, requests } = setup();
+    const caught = await error(repo.saveMarketSettings({ ...next, includeThreshold: 500 }));
+    expect(caught.message).toMatch(/^Couldn't save — includeThreshold: /);
+    expect(caught.kind).toBe("failed");
+    expect(requests).toHaveLength(0);
+  });
+
+  it("turns a server error into a DataError", async () => {
+    const { repo } = setup(() => json(NOT_UUID, 400));
+    expect((await error(repo.saveMarketSettings(next))).kind).toBe("failed");
+  });
+});

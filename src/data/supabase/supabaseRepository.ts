@@ -2,7 +2,7 @@ import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { DEFAULT_MARKET_SETTINGS, DEFAULT_RULES } from "@engine";
 import type { Comp, CostBookView, DealInputs, DefaultPrice, MarketSettings } from "@engine";
 import { isUuid } from "../../lib/uuid";
-import { assertCompReadsBack, assertDealReadsBack } from "../readBack";
+import { assertCompanySettingsReadBack, assertCompReadsBack, assertDealReadsBack, assertMarketSettingsReadBack } from "../readBack";
 import { DataError } from "../types";
 import type { CompanySettings, DealListResult, Repository, StoredDeal } from "../types";
 import type { DealRow, DefaultPriceRow } from "./mappers";
@@ -10,6 +10,7 @@ import { toDataError } from "./errors";
 import { fetchAllPages } from "./paging";
 import {
   companySettingsFromRow,
+  companySettingsToRow,
   compFromRow,
   compToRow,
   dealFromRow,
@@ -17,6 +18,7 @@ import {
   DEAL_SCHEMA_VERSION,
   defaultPriceFromRow,
   marketSettingsFromRow,
+  marketSettingsToRow,
   priceBookEntryFromRow,
 } from "./mappers";
 
@@ -289,6 +291,28 @@ export function createSupabaseRepository(client: SupabaseClient, companyId: stri
       if (error) throw failed({ error, status }, "load your settings");
       if (!data) return { rules: structuredClone(DEFAULT_RULES), contingencyPct: 0.05 };
       return companySettingsFromRow(data);
+    },
+
+    async saveCompanySettings(settings: CompanySettings): Promise<CompanySettings> {
+      assertCompanySettingsReadBack(settings);
+      const { data, error, status } = await client
+        .from("company_settings")
+        .upsert(companySettingsToRow(settings, companyId), { onConflict: "company_id" })
+        .select()
+        .single();
+      if (error) throw failed({ error, status }, "save");
+      return companySettingsFromRow(data);
+    },
+
+    async saveMarketSettings(settings: MarketSettings): Promise<MarketSettings> {
+      assertMarketSettingsReadBack(settings);
+      const { data, error, status } = await client
+        .from("market_settings")
+        .upsert(marketSettingsToRow(settings, companyId), { onConflict: "company_id,region" })
+        .select()
+        .single();
+      if (error) throw failed({ error, status }, "save", settings.region);
+      return marketSettingsFromRow(data);
     },
   };
 }

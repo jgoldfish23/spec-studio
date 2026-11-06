@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { testSampleComps } from "../../testing/sampleIds";
 import { DEFAULT_MARKET_SETTINGS, DEFAULT_RULES, type Comp } from "@engine";
 import { isSampleComp, LEGACY_SAMPLE_COMP_IDS, sampleDealInputs } from "../sample";
@@ -8,7 +8,7 @@ import { STARTER_COST_BOOK } from "../starterCostBook";
 import { newDealInputs } from "../newDeal";
 import { MemoryStorage } from "./memoryStorage";
 import { DataError, type StoredDeal } from "../types";
-import { COMPS_KEY, createLocalRepository, DEALS_KEY, SETTINGS_KEY } from "./localRepository";
+import { COMPS_KEY, createLocalRepository, COMPANY_SETTINGS_KEY, DEALS_KEY, marketSettingsKey } from "./localRepository";
 
 const T0 = "2026-10-31T09:00:00.000Z";
 const SAVE_FAILED = "Couldn't save — browser storage is full or unavailable";
@@ -63,7 +63,11 @@ describe("storage keys", () => {
   it("are versioned", () => {
     expect(DEALS_KEY).toBe("spec-studio:v1:deals");
     expect(COMPS_KEY).toBe("spec-studio:v1:comps");
-    expect(SETTINGS_KEY).toBe("spec-studio:v1:settings");
+  });
+
+  it("are the settings keys the hosted build's tables mirror", () => {
+    expect(COMPANY_SETTINGS_KEY).toBe("spec-studio:company-settings");
+    expect(marketSettingsKey("utah-north")).toBe("spec-studio:market-settings:utah-north");
   });
 });
 
@@ -549,7 +553,7 @@ describe("company settings", () => {
       rules: { minMarginOnSale: 0.2, minAnnualizedReturn: 0.3, minDownsideProfitCents: 500_000 },
       contingencyPct: 0.08,
     };
-    storage.setItem(SETTINGS_KEY, JSON.stringify(stored));
+    storage.setItem(COMPANY_SETTINGS_KEY, JSON.stringify(stored));
     expect(await repo.getCompanySettings()).toEqual(stored);
   });
 
@@ -559,10 +563,13 @@ describe("company settings", () => {
     ["a list", "[]"],
     ["the wrong shape", JSON.stringify({ rules: "strict", contingencyPct: "5%" })],
     ["missing rules", JSON.stringify({ contingencyPct: 0.05 })],
-  ])("falls back to the defaults when the stored settings are %s", async (_name, raw) => {
+  ])("falls back to the defaults when the stored settings are %s, and says so once", async (_name, raw) => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     const { repo, storage } = setup();
-    storage.setItem(SETTINGS_KEY, raw);
+    storage.setItem(COMPANY_SETTINGS_KEY, raw);
     expect(await repo.getCompanySettings()).toEqual(defaults);
+    expect(await repo.getCompanySettings()).toEqual(defaults);
+    expect(logged).toHaveBeenCalledTimes(1);
   });
 
   it("hands out a copy, so the default rules cannot be changed through it", async () => {
@@ -867,5 +874,87 @@ describe("the legacy sample comp ids", () => {
     const repo = open(storage);
     expect(Object.keys((await repo.getDeal("d1"))?.inputs.compSelections ?? {})).not.toContain(legacy(1));
     expect((await repo.listDeals()).problems.map((p) => p.id)).toEqual(["bad"]);
+  });
+});
+
+afterEach(() => vi.restoreAllMocks());
+
+describe("saveCompanySettings", () => {
+  const next = {
+    rules: { minMarginOnSale: 0.2, minAnnualizedReturn: 0.3, minDownsideProfitCents: 500_000 },
+    contingencyPct: 0.08,
+  };
+
+  it("reads back from getCompanySettings, under its own key", async () => {
+    const { repo, storage } = setup();
+    expect(await repo.saveCompanySettings(next)).toEqual(next);
+    expect(await repo.getCompanySettings()).toEqual(next);
+    expect(JSON.parse(storage.getItem("spec-studio:company-settings") ?? "null")).toEqual(next);
+  });
+
+  it("returns a copy", async () => {
+    const { repo } = setup();
+    const saved = await repo.saveCompanySettings(next);
+    saved.rules.minMarginOnSale = 0.99;
+    expect((await repo.getCompanySettings()).rules.minMarginOnSale).toBe(0.2);
+  });
+
+  it("refuses settings that would not read back, before writing anything", async () => {
+    const { repo, storage } = setup();
+    const caught = await repo.saveCompanySettings({ ...next, contingencyPct: Number.NaN }).catch((e: unknown) => e);
+    expect(caught).toBeInstanceOf(DataError);
+    expect((caught as DataError).message).toMatch(/^Couldn't save — contingencyPct: /);
+    expect((caught as DataError).kind).toBe("failed");
+    expect(storage.getItem(COMPANY_SETTINGS_KEY)).toBeNull();
+  });
+
+  it("reports a full store as a failed save", async () => {
+    const { repo } = setup(new FullStorage());
+    await expect(repo.saveCompanySettings(next)).rejects.toMatchObject({ message: SAVE_FAILED, kind: "failed" });
+  });
+});
+
+describe("saveMarketSettings", () => {
+  const next = { ...DEFAULT_MARKET_SETTINGS, elasticity: 4.5, marketCondition: "slow" as const };
+
+  it("reads back from getMarketSettings, under a key for the region", async () => {
+    const { repo, storage } = setup();
+    expect(await repo.saveMarketSettings(next)).toEqual(next);
+    expect(await repo.getMarketSettings("utah-north")).toEqual(next);
+    expect(storage.getItem("spec-studio:market-settings:utah-north")).not.toBeNull();
+    expect(await repo.getMarketSettings("elsewhere")).toEqual({ ...DEFAULT_MARKET_SETTINGS, region: "elsewhere" });
+  });
+
+  it("returns a copy", async () => {
+    const { repo } = setup();
+    const saved = await repo.saveMarketSettings(next);
+    saved.seasonalFactors[0] = 99;
+    expect((await repo.getMarketSettings("utah-north")).seasonalFactors[0]).toBe(DEFAULT_MARKET_SETTINGS.seasonalFactors[0]);
+  });
+
+  it("refuses settings that would not read back, before writing anything", async () => {
+    const { repo, storage } = setup();
+    const caught = await repo.saveMarketSettings({ ...next, includeThreshold: 500 }).catch((e: unknown) => e);
+    expect(caught).toBeInstanceOf(DataError);
+    expect((caught as DataError).message).toMatch(/^Couldn't save — includeThreshold: /);
+    expect((caught as DataError).kind).toBe("failed");
+    expect(storage.getItem(marketSettingsKey("utah-north"))).toBeNull();
+  });
+
+  it("falls back to the defaults for an unreadable stored value and says so once", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { repo, storage } = setup();
+    storage.setItem(marketSettingsKey("utah-north"), "{oops");
+    expect(await repo.getMarketSettings("utah-north")).toEqual(DEFAULT_MARKET_SETTINGS);
+    expect(await repo.getMarketSettings("utah-north")).toEqual(DEFAULT_MARKET_SETTINGS);
+    expect(logged).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays quiet when nothing was ever saved", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { repo } = setup();
+    await repo.getMarketSettings("utah-north");
+    await repo.getCompanySettings();
+    expect(logged).not.toHaveBeenCalled();
   });
 });

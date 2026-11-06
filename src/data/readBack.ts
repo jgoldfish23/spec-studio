@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { CompSchema, DealInputsSchema, RulesSchema } from "@engine";
-import type { Comp } from "@engine";
+import { CompSchema, DealInputsSchema, MarketSettingsSchema, RulesSchema } from "@engine";
+import type { Comp, MarketSettings } from "@engine";
 import { DataError, StoredDealSchema } from "./types";
-import type { StoredDeal } from "./types";
+import type { CompanySettings, StoredDeal } from "./types";
 
 /**
  * What "a record reads back" means, for both repositories. The demo build (localStorage) and the hosted build
@@ -52,4 +52,19 @@ export function assertCompReadsBack(comp: Comp): void {
   if (parsed.success) return;
   const problem = firstProblem(parsed.error);
   throw new DataError(`Couldn't save — ${problem.message}`, { recordId: comp.id, path: problem.path });
+}
+
+/** Refuses settings that would not read back, after a trip through JSON; the error names the first problem. */
+export function assertCompanySettingsReadBack(settings: CompanySettings): void {
+  const parsed = CompanySettingsSchema.safeParse(JSON.parse(JSON.stringify(settings)));
+  if (parsed.success) return;
+  const problem = firstProblem(parsed.error);
+  throw new DataError(`Couldn't save — ${problem.message}`, { kind: "failed", path: problem.path });
+}
+
+export function assertMarketSettingsReadBack(settings: MarketSettings): void {
+  const parsed = MarketSettingsSchema.safeParse(JSON.parse(JSON.stringify(settings)));
+  if (parsed.success) return;
+  const problem = firstProblem(parsed.error);
+  throw new DataError(`Couldn't save — ${problem.message}`, { kind: "failed", recordId: settings.region, path: problem.path });
 }

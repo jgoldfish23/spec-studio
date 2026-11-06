@@ -125,4 +125,8 @@ export interface Repository {
   getCostBook(region: string): Promise<CostBookView>;
   getMarketSettings(region: string): Promise<MarketSettings>;
   getCompanySettings(): Promise<CompanySettings>;
+  /** Replaces the company's settings. Settings that would not read back are refused with a `DataError` of kind `failed`. */
+  saveCompanySettings(settings: CompanySettings): Promise<CompanySettings>;
+  /** Replaces the market settings of `settings.region`. Refused like `saveCompanySettings` when they would not read back. */
+  saveMarketSettings(settings: MarketSettings): Promise<MarketSettings>;
 }
