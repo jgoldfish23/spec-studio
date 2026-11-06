@@ -96,23 +96,35 @@ export function useDealEditor(dealId: string): DealEditor {
   const settled = dealQuery.isSuccess && !dealQuery.isFetching;
 
   const [editor, dispatch] = useReducer(editorReducer, null);
-  /** The deal the editor was seeded from, and the name it carries (the name is not part of the undo history). */
-  const [seed, setSeed] = useState<{ dealId: string; name: string } | null>(null);
+  /** The deal the editor was seeded from and the name it carries (the name is not part of the undo history), with the `updatedAt` it was read at. */
+  const [seed, setSeed] = useState<{ dealId: string; name: string; updatedAt: string } | null>(null);
   /** The inputs the current evaluation is of. */
   const [evaluated, setEvaluated] = useState<DealInputs | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>(SAVED);
   /** A save failed and none has worked since: edits made, saving or waiting in the meantime are still at risk. */
   const [saveFailedSinceSaved, setSaveFailedSinceSaved] = useState(false);
+  /**
+   * The `updatedAt` the next save is made from: the one the editor was seeded with, then the one each save returned.
+   * A save is checked against the stored `updatedAt`, and the deal an edit was scheduled with may be older than the
+   * last save (it was built while that save ran), so every save is stamped from here, not from the deal's own copy.
+   */
+  const baseline = useRef<{ dealId: string; updatedAt: string } | null>(null);
 
   // Seed once per deal id, from the first settled read. A later read of the same deal (a refetch, a cache update
   // after a save) must never replace what the owner has changed since.
   if (settled && stored !== undefined && seed?.dealId !== dealId) {
-    setSeed({ dealId, name: stored.name });
+    setSeed({ dealId, name: stored.name, updatedAt: stored.updatedAt });
     dispatch({ type: "reset", inputs: stored.inputs });
     setEvaluated(stored.inputs);
     setSaveStatus(SAVED);
     setSaveFailedSinceSaved(false);
   }
+
+  const seedId = seed?.dealId;
+  const seedStamp = seed?.updatedAt;
+  useEffect(() => {
+    if (seedId !== undefined && seedStamp !== undefined) baseline.current = { dealId: seedId, updatedAt: seedStamp };
+  }, [seedId, seedStamp]);
 
   const seeded = seed?.dealId === dealId && editor !== null;
   const present = seeded ? editor.present : undefined;
@@ -158,7 +170,9 @@ export function useDealEditor(dealId: string): DealEditor {
   useEffect(() => {
     const instance = createAutosaver<StoredDeal>({
       save: async (deal) => {
-        const saved = await repository.saveDeal(deal);
+        const from = baseline.current?.dealId === deal.id ? baseline.current.updatedAt : deal.updatedAt;
+        const saved = await repository.saveDeal({ ...deal, updatedAt: from });
+        baseline.current = { dealId: saved.id, updatedAt: saved.updatedAt };
         queryClient.setQueryData(queryKeys.deal(saved.id), saved);
         void queryClient.invalidateQueries({ queryKey: queryKeys.deals });
         return saved;

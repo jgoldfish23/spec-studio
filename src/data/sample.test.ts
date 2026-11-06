@@ -9,7 +9,8 @@ import {
 } from "@engine";
 import goldenComps from "../engine/__fixtures__/golden-comps.json";
 import goldenDeal from "../engine/__fixtures__/golden-deal.inputs.json";
-import { SAMPLE_DEAL_NAME, sampleComps, sampleDealInputs } from "./sample";
+import { isUuid } from "../lib/uuid";
+import { SAMPLE_COMP_IDS, SAMPLE_DEAL_NAME, sampleComps, sampleDealInputs } from "./sample";
 import { STARTER_COST_BOOK } from "./starterCostBook";
 
 const ctx = (): EngineContext => ({
@@ -70,7 +71,7 @@ describe("the sample deal", () => {
     a.lot.city = "Elsewhere";
     a.house.rooms.bedrooms = 1;
     a.bids.length = 0;
-    a.compSelections["comp-1"] = false;
+    a.compSelections["5a3e0c0e-5a3e-4000-8000-000000000001"] = false;
     const b = sampleDealInputs();
     expect(b.lot.city).toBe("Kaysville");
     expect(b.house.rooms.bedrooms).toBe(5);
@@ -83,8 +84,19 @@ describe("the sample comps", () => {
   it("are the 8 golden comps, each valid", () => {
     const comps = sampleComps();
     expect(comps).toHaveLength(8);
-    expect(comps).toEqual(goldenComps);
+    const withoutId = (comp: { id: string }) => ({ ...comp, id: undefined });
+    expect(comps.map(withoutId)).toEqual(goldenComps.map(withoutId));
     for (const comp of comps) expect(CompSchema.safeParse(comp).success, comp.id).toBe(true);
+  });
+
+  it("have UUID ids", () => {
+    for (const comp of sampleComps()) expect(isUuid(comp.id), comp.id).toBe(true);
+  });
+
+  it("have 8 fixed ids, in fixture order", () => {
+    const expected = Array.from({ length: 8 }, (_, i) => `5a3e0c0e-5a3e-4000-8000-00000000000${i + 1}`);
+    expect(sampleComps().map((comp) => comp.id)).toEqual(expected);
+    expect([...SAMPLE_COMP_IDS]).toEqual(expected);
   });
 
   it("return a fresh deep copy on every call", () => {

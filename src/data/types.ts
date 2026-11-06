@@ -78,14 +78,26 @@ export interface DealListResult {
   problems: { id: string; message: string }[];
 }
 
-/** A stored record that cannot be read: not valid JSON, or valid JSON that fails its schema. */
+/**
+ * What went wrong, for the code that decides what to do about it: `unreadable` is a stored record that does not read
+ * back; `conflict` and `deleted` are a save that lost to another device or tab; `offline` and `signedOut` are a
+ * request that could not be made now and may be tried again later; `failed` is anything else the server refused.
+ */
+export type DataErrorKind = "unreadable" | "conflict" | "deleted" | "offline" | "signedOut" | "failed";
+
+/** A problem with stored data: a record that cannot be read, or a request that did not work (see `DataErrorKind`). */
 export class DataError extends Error {
+  kind: DataErrorKind;
   recordId?: string;
   path?: string;
 
-  constructor(message: string, options: { recordId?: string; path?: string; cause?: unknown } = {}) {
+  constructor(
+    message: string,
+    options: { kind?: DataErrorKind; recordId?: string; path?: string; cause?: unknown } = {},
+  ) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause });
     this.name = "DataError";
+    this.kind = options.kind ?? "unreadable";
     this.recordId = options.recordId;
     this.path = options.path;
   }
@@ -97,8 +109,12 @@ export interface Repository {
   /** Null when there is no such deal; a `DataError` when one is stored but its shape is unreadable. */
   getDeal(id: string): Promise<StoredDeal | null>;
   createDeal(input: { name: string; inputs: DealInputs }): Promise<StoredDeal>;
-  /** Returns the deal with a fresh `updatedAt`. */
-  saveDeal(deal: StoredDeal): Promise<StoredDeal>;
+  /**
+   * Returns the deal with a fresh `updatedAt`. The save is checked against the stored `updatedAt`: if it is not the
+   * one on `deal`, another device or tab saved in between and this throws a `DataError` of kind `conflict`
+   * (`overwrite` skips that check). A deal that is no longer stored throws kind `deleted`, with or without `overwrite`.
+   */
+  saveDeal(deal: StoredDeal, options?: { overwrite?: boolean }): Promise<StoredDeal>;
   deleteDeal(id: string): Promise<void>;
   /** Removes every deal: the way out of a store that cannot be read. */
   resetDeals(): Promise<void>;

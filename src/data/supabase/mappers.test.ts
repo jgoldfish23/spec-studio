@@ -80,6 +80,14 @@ describe("dealToRow and dealFromRow", () => {
     });
   });
 
+  it("passes the timestamps through verbatim, microseconds and offset included", () => {
+    const stamp = "2026-11-01T02:17:17.123456+00:00";
+    const deal = dealFromRow(dealRow({ created_at: stamp, updated_at: stamp }));
+    expect(deal.updatedAt).toBe(stamp);
+    expect(deal.createdAt).toBe(stamp);
+    expect(dealToRow(deal, CO).updated_at).toBe(stamp);
+  });
+
   it("round-trips a deal", () => {
     const deal = storedDeal();
     expect(dealFromRow(dealToRow(deal, CO))).toEqual(deal);

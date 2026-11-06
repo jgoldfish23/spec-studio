@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_MARKET_SETTINGS, DEFAULT_RULES, type Comp } from "@engine";
-import { sampleComps, sampleDealInputs } from "../sample";
+import { LEGACY_SAMPLE_COMP_IDS, SAMPLE_COMP_IDS, sampleComps, sampleDealInputs } from "../sample";
+import { isUuid } from "../../lib/uuid";
 import { STARTER_COST_BOOK } from "../starterCostBook";
 import { newDealInputs } from "../newDeal";
 import { MemoryStorage } from "./memoryStorage";
@@ -203,11 +204,12 @@ describe("saveDeal", () => {
 
 describe("ids that look like object properties", () => {
   it("are ordinary ids: unknown ones read as missing, and they can be stored", async () => {
-    const { repo } = setup();
+    const { repo, storage } = setup();
     for (const id of ["constructor", "toString", "__proto__"]) {
       expect(await repo.getDeal(id)).toBeNull();
       await expect(repo.deleteDeal(id)).resolves.toBeUndefined();
     }
+    putDeals(storage, { ["__proto__"]: storedDeal("__proto__") });
     const saved = await repo.saveDeal(storedDeal("__proto__"));
     expect(await repo.getDeal("__proto__")).toEqual(saved);
     expect((await repo.listDeals()).deals.map((d) => d.id)).toEqual(["__proto__"]);
@@ -665,7 +667,7 @@ describe("a save that would not read back", () => {
 
 describe("a write that fails", () => {
   it("turns a full or blocked store into a DataError for saveDeal", async () => {
-    const { repo } = setup(new FullStorage());
+    const { repo } = setup(new FullStorage({ [DEALS_KEY]: JSON.stringify({ a: storedDeal("a") }) }));
     const error = (await repo.saveDeal(storedDeal("a")).catch((e: unknown) => e)) as DataError;
     expect(error).toBeInstanceOf(DataError);
     expect(error.message).toBe(SAVE_FAILED);
@@ -693,5 +695,171 @@ describe("a write that fails", () => {
     const { repo } = setup(storage);
     await expect(repo.saveDeal(storedDeal("a"))).rejects.toBeInstanceOf(DataError);
     expect(storage.getItem(DEALS_KEY)).toBe(stored);
+  });
+});
+
+const T1 = "2026-10-31T10:00:00.000Z";
+const CONFLICT = "This deal was changed on another device or tab.";
+const DELETED = "This deal was deleted on another device or tab.";
+
+async function failure(promise: Promise<unknown>): Promise<DataError> {
+  const caught = await promise.then(
+    () => undefined,
+    (e: unknown) => e,
+  );
+  expect(caught).toBeInstanceOf(DataError);
+  return caught as DataError;
+}
+
+describe("saveDeal conflict and deletion checks", () => {
+  it("returns a fresh updatedAt on a normal save", async () => {
+    const { repo, clock } = setup();
+    const created = await repo.createDeal({ name: "A", inputs: sampleDealInputs() });
+    clock.now = T1;
+    const saved = await repo.saveDeal(created);
+    expect(saved.updatedAt).toBe(T1);
+    expect((await repo.saveDeal(saved)).updatedAt).toBe(T1);
+  });
+
+  it("throws a conflict when another save happened in between", async () => {
+    const { repo, clock } = setup();
+    const created = await repo.createDeal({ name: "A", inputs: sampleDealInputs() });
+    clock.now = T1;
+    await repo.saveDeal({ ...created, name: "Other tab" });
+    const caught = await failure(repo.saveDeal({ ...created, name: "This tab" }));
+    expect(caught.kind).toBe("conflict");
+    expect(caught.message).toBe(CONFLICT);
+    expect(caught.recordId).toBe(created.id);
+    expect((await repo.getDeal(created.id))?.name).toBe("Other tab");
+  });
+
+  it("saves a stale deal anyway with overwrite", async () => {
+    const { repo, clock } = setup();
+    const created = await repo.createDeal({ name: "A", inputs: sampleDealInputs() });
+    clock.now = T1;
+    await repo.saveDeal({ ...created, name: "Other tab" });
+    const saved = await repo.saveDeal({ ...created, name: "This tab" }, { overwrite: true });
+    expect(saved.name).toBe("This tab");
+    expect((await repo.getDeal(created.id))?.name).toBe("This tab");
+  });
+
+  it("throws deleted when the deal is gone, with or without overwrite", async () => {
+    const { repo } = setup();
+    const created = await repo.createDeal({ name: "A", inputs: sampleDealInputs() });
+    await repo.deleteDeal(created.id);
+    for (const options of [undefined, { overwrite: true }]) {
+      const caught = await failure(repo.saveDeal(created, options));
+      expect(caught.kind).toBe("deleted");
+      expect(caught.message).toBe(DELETED);
+    }
+    expect((await repo.listDeals()).deals).toEqual([]);
+  });
+
+  it("still refuses a deal that would not read back before checking anything", async () => {
+    const { repo } = setup();
+    const created = await repo.createDeal({ name: "A", inputs: sampleDealInputs() });
+    await repo.deleteDeal(created.id);
+    const caught = await failure(repo.saveDeal({ ...created, name: "" }));
+    expect(caught.kind).toBe("unreadable");
+  });
+
+  it("marks a full store as failed", async () => {
+    const created = storedDeal("d1");
+    const storage = new FullStorage({ [DEALS_KEY]: JSON.stringify({ d1: created }) });
+    const caught = await failure(setup(storage).repo.saveDeal(created));
+    expect(caught.kind).toBe("failed");
+  });
+});
+
+describe("DataError kinds", () => {
+  it("defaults to unreadable and accepts a kind", () => {
+    expect(new DataError("x").kind).toBe("unreadable");
+    expect(new DataError("x", { kind: "offline" }).kind).toBe("offline");
+  });
+
+  it("marks an unreadable stored deal as unreadable", async () => {
+    const storage = new MemoryStorage();
+    putDeals(storage, { bad: badPriceDeal("bad") });
+    expect((await failure(setup(storage).repo.getDeal("bad"))).kind).toBe("unreadable");
+  });
+});
+
+describe("the legacy sample comp ids", () => {
+  const legacy = (n: number) => `comp-${n}`;
+  const uuid = (n: number) => `5a3e0c0e-5a3e-4000-8000-00000000000${n}`;
+
+  function legacyStorage(): MemoryStorage {
+    const storage = new MemoryStorage();
+    const comps = Object.fromEntries(sampleComps().map((c, i) => [legacy(i + 1), { ...c, id: legacy(i + 1) }]));
+    comps["my-comp"] = { ...comp("my-comp") };
+    storage.setItem(COMPS_KEY, JSON.stringify(comps));
+    const inputs = sampleDealInputs();
+    inputs.compSelections = { [legacy(1)]: false, [legacy(8)]: true, "my-comp": false, [uuid(2)]: true };
+    putDeals(storage, { d1: { ...storedDeal("d1"), inputs } });
+    return storage;
+  }
+
+  it("maps the fixture's ids to the sample's fixed UUIDs", () => {
+    expect(LEGACY_SAMPLE_COMP_IDS).toEqual(Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8].map((n) => [legacy(n), uuid(n)])));
+  });
+
+  it("rewrites the stored comps and every deal's compSelections once, on open", async () => {
+    const storage = legacyStorage();
+    const { repo } = setup(storage);
+    const comps = await repo.listComps("utah-north");
+    expect(comps.map((c) => c.id).sort()).toEqual([...SAMPLE_COMP_IDS, "my-comp"].sort());
+    expect(Object.keys(JSON.parse(storage.getItem(COMPS_KEY) as string))).not.toContain("comp-1");
+    const deal = await repo.getDeal("d1");
+    expect(deal?.inputs.compSelections).toEqual({ [uuid(1)]: false, [uuid(8)]: true, "my-comp": false, [uuid(2)]: true });
+    for (const id of Object.keys(deal?.inputs.compSelections ?? {}).filter((k) => k !== "my-comp")) expect(isUuid(id)).toBe(true);
+    expect(storage.getItem(DEALS_KEY)).not.toMatch(/"comp-\d"/);
+    expect(storage.getItem(COMPS_KEY)).not.toMatch(/"comp-\d"/);
+  });
+
+  it("leaves other non-UUID ids alone and does not write again once rewritten", async () => {
+    const storage = legacyStorage();
+    setup(storage);
+    const after = [storage.getItem(COMPS_KEY), storage.getItem(DEALS_KEY)];
+    let writes = 0;
+    const counting = new (class extends MemoryStorage {
+      override setItem(key: string, value: string) {
+        writes++;
+        super.setItem(key, value);
+      }
+    })();
+    counting.setItem(COMPS_KEY, after[0] as string);
+    counting.setItem(DEALS_KEY, after[1] as string);
+    writes = 0;
+    setup(counting);
+    expect(writes).toBe(0);
+    expect(JSON.parse(after[0] as string)["my-comp"].id).toBe("my-comp");
+  });
+
+  it("leaves a store it cannot read untouched", () => {
+    const storage = new MemoryStorage();
+    storage.setItem(COMPS_KEY, "not json");
+    storage.setItem(DEALS_KEY, "[1]");
+    setup(storage);
+    expect(storage.getItem(COMPS_KEY)).toBe("not json");
+    expect(storage.getItem(DEALS_KEY)).toBe("[1]");
+  });
+
+  it("keeps a deal that cannot be read as it is and rewrites the others", async () => {
+    const storage = legacyStorage();
+    const deals = JSON.parse(storage.getItem(DEALS_KEY) as string);
+    deals.bad = badPriceDeal("bad");
+    putDeals(storage, deals);
+    const { repo } = setup(storage);
+    expect((await repo.getDeal("d1"))?.inputs.compSelections[uuid(1)]).toBe(false);
+    expect((await repo.listDeals()).problems.map((p) => p.id)).toEqual(["bad"]);
+  });
+
+  it("keeps the newer of two copies when a UUID comp already exists beside its legacy one", async () => {
+    const storage = legacyStorage();
+    const comps = JSON.parse(storage.getItem(COMPS_KEY) as string);
+    comps[uuid(1)] = { ...comps[legacy(1)], id: uuid(1), address: "Edited sample" };
+    storage.setItem(COMPS_KEY, JSON.stringify(comps));
+    const { repo } = setup(storage);
+    expect((await repo.listComps("utah-north")).find((c) => c.id === uuid(1))?.address).toBe("Edited sample");
   });
 });

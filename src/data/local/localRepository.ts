@@ -1,6 +1,7 @@
 import { CompSchema, DEFAULT_MARKET_SETTINGS, DEFAULT_RULES } from "@engine";
 import type { Comp, CostBookView, DealInputs, MarketSettings } from "@engine";
 import { assertCompReadsBack, assertDealReadsBack, CompanySettingsSchema, readDeal } from "../readBack";
+import { LEGACY_SAMPLE_COMP_IDS } from "../sample";
 import { STARTER_COST_BOOK } from "../starterCostBook";
 import { DataError } from "../types";
 import type { CompanySettings, DealListResult, Repository, StoredDeal } from "../types";
@@ -10,6 +11,8 @@ export const DEALS_KEY = "spec-studio:v1:deals";
 export const COMPS_KEY = "spec-studio:v1:comps";
 export const SETTINGS_KEY = "spec-studio:v1:settings";
 
+const CONFLICT = "This deal was changed on another device or tab.";
+const DELETED = "This deal was deleted on another device or tab.";
 const SAVE_FAILED = "Couldn't save — browser storage is full or unavailable";
 
 const defaultCompanySettings = (): CompanySettings => ({
@@ -54,6 +57,64 @@ function without(records: Record<string, unknown>, id: string): Record<string, u
   return Object.fromEntries(Object.entries(records).filter(([key]) => key !== id));
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * Plan 2 stored the sample's comps as `comp-1`…`comp-8`; they are now fixed UUIDs. Rewrites those eight ids, and only
+ * those, in the comps and in every deal's `compSelections`, once. A store that cannot be read, a record of another
+ * shape, a write that fails: all are left as they are (the read paths already report them). Each of the two stores is
+ * rewritten on its own, so a half-done upgrade finishes on the next open.
+ */
+function upgradeLegacySampleIds(storage: Storage): void {
+  const legacy = Object.keys(LEGACY_SAMPLE_COMP_IDS);
+  const rewrite = (key: string, change: (records: Record<string, unknown>) => Record<string, unknown> | null): void => {
+    const store = readStore(storage, key);
+    if (!store.ok) return;
+    const changed = change(store.records);
+    if (changed === null) return;
+    try {
+      storage.setItem(key, JSON.stringify(changed));
+    } catch {
+      // Left as it was; the next open tries again.
+    }
+  };
+
+  rewrite(COMPS_KEY, (records) => {
+    if (!legacy.some((id) => Object.hasOwn(records, id))) return null;
+    const next: Record<string, unknown> = {};
+    for (const [id, record] of Object.entries(records)) {
+      const target = Object.hasOwn(LEGACY_SAMPLE_COMP_IDS, id) ? LEGACY_SAMPLE_COMP_IDS[id] : undefined;
+      if (target === undefined) next[id] = record;
+      // A copy already stored under the UUID is the newer one: keep it.
+      else if (!Object.hasOwn(records, target)) next[target] = isRecord(record) ? { ...record, id: target } : record;
+    }
+    return next;
+  });
+
+  rewrite(DEALS_KEY, (records) => {
+    let changed = false;
+    const next: Record<string, unknown> = {};
+    for (const [id, record] of Object.entries(records)) {
+      const inputs = isRecord(record) ? record.inputs : undefined;
+      const selections = isRecord(inputs) ? inputs.compSelections : undefined;
+      if (!isRecord(record) || !isRecord(inputs) || !isRecord(selections) || !legacy.some((l) => Object.hasOwn(selections, l))) {
+        next[id] = record;
+        continue;
+      }
+      changed = true;
+      const renamed: Record<string, unknown> = {};
+      for (const [compId, chosen] of Object.entries(selections)) {
+        const target = Object.hasOwn(LEGACY_SAMPLE_COMP_IDS, compId) ? LEGACY_SAMPLE_COMP_IDS[compId] : undefined;
+        if (target === undefined) renamed[compId] = chosen;
+        else if (!Object.hasOwn(selections, target)) renamed[target] = chosen;
+      }
+      next[id] = { ...record, inputs: { ...inputs, compSelections: renamed } };
+    }
+    return changed ? next : null;
+  });
+}
+
 /**
  * The demo build's repository: deals, comps and settings in `storage` (the browser's `localStorage`), the cost book
  * and market settings from the engine's defaults. Every read checks what it finds, so a record that was edited by
@@ -67,6 +128,7 @@ export function createLocalRepository(
 ): Repository {
   const now = opts.now ?? (() => new Date().toISOString());
   const newId = opts.newId ?? (() => crypto.randomUUID());
+  upgradeLegacySampleIds(storage);
 
   /** Any failure to write (the quota, a blocked store) is the same story to the owner. */
   function write(key: string, records: Record<string, unknown>): void {
@@ -74,7 +136,7 @@ export function createLocalRepository(
     try {
       storage.setItem(key, text);
     } catch (cause) {
-      throw new DataError(SAVE_FAILED, { cause });
+      throw new DataError(SAVE_FAILED, { kind: "failed", cause });
     }
   }
 
@@ -130,7 +192,15 @@ export function createLocalRepository(
       return deal;
     },
 
-    async saveDeal(deal: StoredDeal): Promise<StoredDeal> {
+    async saveDeal(deal: StoredDeal, options: { overwrite?: boolean } = {}): Promise<StoredDeal> {
+      assertDealReadsBack(deal);
+      const records = dealRecords();
+      if (!Object.hasOwn(records, deal.id)) throw new DataError(DELETED, { kind: "deleted", recordId: deal.id });
+      const stored = records[deal.id];
+      const storedStamp = isRecord(stored) ? stored.updatedAt : undefined;
+      if (options.overwrite !== true && storedStamp !== deal.updatedAt) {
+        throw new DataError(CONFLICT, { kind: "conflict", recordId: deal.id });
+      }
       const saved: StoredDeal = { ...structuredClone(deal), updatedAt: now() };
       putDeal(saved);
       return saved;

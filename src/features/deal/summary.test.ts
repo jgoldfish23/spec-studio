@@ -142,19 +142,19 @@ describe("headsUp", () => {
 
     it("warns when every included sold comp is more than 12 months old", async () => {
       const inputs = sampleDealInputs();
-      inputs.compSelections = allIncluded(ids, ["comp-2", "comp-4"]);
+      inputs.compSelections = allIncluded(ids, ["5a3e0c0e-5a3e-4000-8000-000000000002", "5a3e0c0e-5a3e-4000-8000-000000000004"]);
       expect(headsUp(inputs, await evaluated(inputs, "2027-08-01"), "2027-08-01")).toContain(message);
     });
 
     it("does not warn while one included comp is within 12 months", async () => {
       const inputs = sampleDealInputs();
-      inputs.compSelections = allIncluded(ids, ["comp-2", "comp-4", "comp-6"]);
+      inputs.compSelections = allIncluded(ids, ["5a3e0c0e-5a3e-4000-8000-000000000002", "5a3e0c0e-5a3e-4000-8000-000000000004", "5a3e0c0e-5a3e-4000-8000-000000000006"]);
       expect(headsUp(inputs, await evaluated(inputs, "2027-08-01"), "2027-08-01")).not.toContain(message);
     });
 
     it("counts a comp sold exactly 12 months ago as within the year", async () => {
       const inputs = sampleDealInputs();
-      inputs.compSelections = allIncluded(ids, ["comp-6"]);
+      inputs.compSelections = allIncluded(ids, ["5a3e0c0e-5a3e-4000-8000-000000000006"]);
       expect(headsUp(inputs, await evaluated(inputs, "2027-09-15"), "2027-09-15")).not.toContain(message);
       expect(headsUp(inputs, await evaluated(inputs, "2027-09-16"), "2027-09-16")).toContain(message);
     });

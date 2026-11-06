@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_MARKET_SETTINGS, DEFAULT_RULES } from "@engine";
 import type { Comp } from "@engine";
 import { sampleComps, sampleDealInputs } from "../sample";
@@ -12,6 +12,16 @@ const CO = "11111111-1111-4111-8111-111111111111";
 const DEAL_ID = "22222222-2222-4222-8222-222222222222";
 const CREATED = "2026-10-30T12:00:00.123456+00:00";
 const UPDATED = "2026-10-31T09:30:00.5+00:00";
+const COMP_ID = "33333333-3333-4333-8333-333333333333";
+const FAILED = "Couldn't save — the server said no. Try again in a minute.";
+const CONFLICT = "This deal was changed on another device or tab.";
+const DELETED = "This deal was deleted on another device or tab.";
+
+let logged: ReturnType<typeof vi.spyOn>;
+beforeEach(() => {
+  logged = vi.spyOn(console, "error").mockImplementation(() => {});
+});
+afterEach(() => vi.restoreAllMocks());
 const LATER = "2026-10-31T10:00:00.25+00:00";
 
 /** One request as the repository sent it. `url` is parsed, so `searchParams` are already decoded. */
@@ -79,7 +89,7 @@ function storedDeal(overrides: Partial<StoredDeal> = {}): StoredDeal {
   };
 }
 
-const comp = (id = "comp-1", region = "utah-north"): Comp => ({ ...(sampleComps()[0] as Comp), id, region });
+const comp = (id = COMP_ID, region = "utah-north"): Comp => ({ ...(sampleComps()[0] as Comp), id, region });
 
 /** What Postgres would send back for a comp. */
 const compRow = (c: Comp): Record<string, unknown> => ({ ...compToRow(c, CO), created_at: CREATED, updated_at: UPDATED });
@@ -103,7 +113,7 @@ describe("listDeals", () => {
     const [request] = requests as [Recorded];
     expect(request.method).toBe("GET");
     expect(request.url.pathname).toBe("/rest/v1/deals");
-    expect(params(request)).toMatchObject({ select: "*", company_id: `eq.${CO}`, order: "updated_at.desc" });
+    expect(params(request)).toMatchObject({ select: "*", company_id: `eq.${CO}`, order: "updated_at.desc,id.asc" });
   });
 
   it("returns the deals as the app stores them", async () => {
@@ -134,10 +144,12 @@ describe("listDeals", () => {
     expect(result.problems[1]?.message).toMatch(/version 2/);
   });
 
-  it("turns a server error into a DataError carrying its message", async () => {
+  it("turns a server error into a DataError of kind failed, without the server's words", async () => {
     const { repo } = setup(() => json({ code: "42501", details: null, hint: null, message: "permission denied for table deals" }, 403));
     const caught = await error(repo.listDeals());
-    expect(caught.message).toBe("permission denied for table deals");
+    expect(caught.kind).toBe("failed");
+    expect(caught.message).toBe("Couldn't load your deals — the server said no. Try again in a minute.");
+    expect(caught.message).not.toMatch(/permission/);
   });
 });
 
@@ -173,11 +185,12 @@ describe("getDeal", () => {
     expect(caught.path).toBe("schema_version");
   });
 
-  it("turns a 400 into a DataError carrying the message", async () => {
+  it("turns a 400 into a DataError of kind failed", async () => {
     const { repo } = setup(() => json(NOT_UUID, 400));
-    const caught = await error(repo.getDeal("x"));
-    expect(caught.message).toBe(NOT_UUID.message);
-    expect(caught.recordId).toBe("x");
+    const caught = await error(repo.getDeal(DEAL_ID));
+    expect(caught.kind).toBe("failed");
+    expect(caught.message).toBe("Couldn't load this deal — the server said no. Try again in a minute.");
+    expect(caught.recordId).toBe(DEAL_ID);
   });
 });
 
@@ -240,29 +253,35 @@ describe("createDeal", () => {
     expect(requests).toHaveLength(1);
   });
 
-  it("turns a server error into a DataError carrying its message", async () => {
+  it("turns a server error into a DataError of kind failed, without the server's words", async () => {
     const { repo } = setup(() => json({ code: "42501", details: null, hint: null, message: "new row violates row-level security policy" }, 403));
     const caught = await error(repo.createDeal({ name: "A", inputs: sampleDealInputs() }));
-    expect(caught.message).toBe("new row violates row-level security policy");
+    expect(caught.kind).toBe("failed");
+    expect(caught.message).toBe(FAILED);
   });
 });
 
 describe("saveDeal", () => {
-  it("upserts the deal on its id, with the company id and the inputs in the body", async () => {
+  it("updates the deal by id and the updated_at it was made from, never upserting", async () => {
     const deal = storedDeal();
-    const { repo, requests } = setup(() => json(dealRow({ updated_at: LATER })));
+    const { repo, requests } = setup(() => json([dealRow({ updated_at: LATER })]));
     await repo.saveDeal(deal);
 
     expect(requests).toHaveLength(1);
     const [request] = requests as [Recorded];
-    expect(request.method).toBe("POST");
+    expect(request.method).toBe("PATCH");
     expect(request.url.pathname).toBe("/rest/v1/deals");
-    expect(request.headers.get("Prefer")).toContain("resolution=merge-duplicates");
     expect(request.headers.get("Prefer")).toContain("return=representation");
-    expect(params(request).on_conflict).toBe("id");
-    expect(request.body).toEqual({
-      id: DEAL_ID,
-      company_id: CO,
+    expect(request.headers.get("Prefer") ?? "").not.toContain("merge-duplicates");
+    expect(params(request)).toMatchObject({ id: `eq.${DEAL_ID}`, updated_at: `eq.${UPDATED}`, company_id: `eq.${CO}` });
+    expect(params(request).on_conflict).toBeUndefined();
+  });
+
+  it("sends only the columns the owner can change", async () => {
+    const deal = storedDeal();
+    const { repo, requests } = setup(() => json([dealRow({ updated_at: LATER })]));
+    await repo.saveDeal(deal);
+    expect((requests[0] as Recorded).body).toEqual({
       name: "Kaysville lot",
       status: "analyzing",
       schema_version: 1,
@@ -270,23 +289,73 @@ describe("saveDeal", () => {
     });
   });
 
-  it("leaves the timestamps to the server, which stamps updated_at itself", async () => {
-    const { repo, requests } = setup(() => json(dealRow({ updated_at: LATER })));
-    await repo.saveDeal(storedDeal());
-    expect(Object.keys((requests[0] as Recorded).body as object)).not.toContain("created_at");
-    expect(Object.keys((requests[0] as Recorded).body as object)).not.toContain("updated_at");
+  it("filters on the stored timestamp verbatim, microseconds and offset included", async () => {
+    const stamp = "2026-11-01T02:17:17.123456+00:00";
+    const { repo, requests } = setup(() => json([dealRow({ updated_at: LATER })]));
+    await repo.saveDeal(storedDeal({ updatedAt: stamp }));
+    const raw = (requests[0] as Recorded).url.search;
+    expect(params(requests[0] as Recorded).updated_at).toBe(`eq.${stamp}`);
+    // The + of the offset is escaped, so the server reads it as a plus and not as a space.
+    expect(raw).toContain("%2B00%3A00");
   });
 
   it("returns the row the server sent back, with its fresh updated_at", async () => {
-    const { repo } = setup(() => json(dealRow({ name: "Renamed by the server", updated_at: LATER })));
+    const { repo } = setup(() => json([dealRow({ name: "Renamed by the server", updated_at: LATER })]));
     const saved = await repo.saveDeal(storedDeal({ name: "Kaysville lot" }));
     expect(saved).toEqual(storedDeal({ name: "Renamed by the server", updatedAt: LATER }));
+  });
+
+  it("with overwrite, drops the updated_at filter", async () => {
+    const { repo, requests } = setup(() => json([dealRow({ updated_at: LATER })]));
+    await repo.saveDeal(storedDeal(), { overwrite: true });
+    expect(requests).toHaveLength(1);
+    const query = params(requests[0] as Recorded);
+    expect(query).toMatchObject({ id: `eq.${DEAL_ID}` });
+    expect(query).not.toHaveProperty("updated_at");
+  });
+
+  it("asks once whether the deal still exists when nothing matched, and reports a conflict if it does", async () => {
+    const { repo, requests } = setup((request) =>
+      request.method === "PATCH" ? json([]) : json([{ id: DEAL_ID, updated_at: LATER }]),
+    );
+    const caught = await error(repo.saveDeal(storedDeal()));
+    expect(caught.kind).toBe("conflict");
+    expect(caught.message).toBe(CONFLICT);
+    expect(caught.recordId).toBe(DEAL_ID);
+    expect(requests.map((r) => r.method)).toEqual(["PATCH", "GET"]);
+    const check = requests[1] as Recorded;
+    expect(check.url.pathname).toBe("/rest/v1/deals");
+    expect(params(check)).toMatchObject({ select: "id,updated_at", id: `eq.${DEAL_ID}` });
+  });
+
+  it("reports a deleted deal when nothing matched and nothing is there", async () => {
+    const { repo, requests } = setup(() => json([]));
+    const caught = await error(repo.saveDeal(storedDeal()));
+    expect(caught.kind).toBe("deleted");
+    expect(caught.message).toBe(DELETED);
+    expect(requests.map((r) => r.method)).toEqual(["PATCH", "GET"]);
+  });
+
+  it("reports a deleted deal with overwrite too, without a second request", async () => {
+    const { repo, requests } = setup(() => json([]));
+    const caught = await error(repo.saveDeal(storedDeal(), { overwrite: true }));
+    expect(caught.kind).toBe("deleted");
+    expect(caught.message).toBe(DELETED);
+    expect(requests).toHaveLength(1);
+  });
+
+  it("treats an id that is not a UUID as a deal that is not there, without a request", async () => {
+    const { repo, requests } = setup();
+    const caught = await error(repo.saveDeal(storedDeal({ id: "deal-1" })));
+    expect(caught.kind).toBe("deleted");
+    expect(requests).toHaveLength(0);
   });
 
   it("refuses a blank name without making a request", async () => {
     const { repo, requests } = setup();
     const caught = await error(repo.saveDeal(storedDeal({ name: "" })));
     expect(caught.recordId).toBe(DEAL_ID);
+    expect(caught.kind).toBe("unreadable");
     expect(caught.path).toBe("name");
     expect(caught.message).toMatch(/^Couldn't save — name: /);
     expect(requests).toHaveLength(0);
@@ -317,16 +386,111 @@ describe("saveDeal", () => {
   it("saves a deal with a problem the owner can fix, such as 2.5 build months", async () => {
     const inputs = sampleDealInputs();
     inputs.timeline.buildMonths = 2.5;
-    const { repo, requests } = setup(() => json(dealRow({ inputs })));
+    const { repo, requests } = setup(() => json([dealRow({ inputs })]));
     await repo.saveDeal(storedDeal({ inputs }));
     expect(requests).toHaveLength(1);
   });
 
-  it("turns a 400 into a DataError carrying the message", async () => {
+  it("turns a 400 into a DataError of kind failed, and logs the raw error once", async () => {
     const { repo } = setup(() => json(NOT_UUID, 400));
-    const caught = await error(repo.saveDeal(storedDeal({ id: "x" })));
-    expect(caught.message).toBe(NOT_UUID.message);
-    expect(caught.recordId).toBe("x");
+    const caught = await error(repo.saveDeal(storedDeal()));
+    expect(caught.kind).toBe("failed");
+    expect(caught.message).toBe(FAILED);
+    expect(caught.recordId).toBe(DEAL_ID);
+    expect(logged).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["an HTTP 401", () => json({ message: "Unauthorized" }, 401)],
+    ["PGRST301", () => json({ code: "PGRST301", message: "JWT expired", details: null, hint: null }, 400)],
+    ["PGRST303", () => json({ code: "PGRST303", message: "JWT bad", details: null, hint: null }, 400)],
+  ])("maps %s to signedOut", async (_name, respond) => {
+    const { repo } = setup(respond);
+    const caught = await error(repo.saveDeal(storedDeal()));
+    expect(caught.kind).toBe("signedOut");
+    expect(caught.message).toBe("You've been signed out.");
+    expect(logged).not.toHaveBeenCalled();
+  });
+});
+
+describe("paging", () => {
+  const manyDeals = (n: number, offset = 0) => Array.from({ length: n }, (_, i) => dealRow({ id: `d-${offset + i}` }));
+
+  it("listDeals reads pages of 1000 until a short one", async () => {
+    const { repo, requests } = setup((request) => json(params(request).offset === "0" ? manyDeals(1000) : manyDeals(1, 1000)));
+    const result = await repo.listDeals();
+    expect(result.deals).toHaveLength(1001);
+    expect(requests.map((r) => [params(r).offset, params(r).limit])).toEqual([
+      ["0", "1000"],
+      ["1000", "1000"],
+    ]);
+    expect(params(requests[0] as Recorded).order).toBe("updated_at.desc,id.asc");
+  });
+
+  it("listDeals stops after one short page", async () => {
+    const { repo, requests } = setup(() => json(manyDeals(3)));
+    await repo.listDeals();
+    expect(requests).toHaveLength(1);
+  });
+
+  it("listComps reads pages in a stable order", async () => {
+    const rows = (n: number) => Array.from({ length: n }, (_, i) => compRow(comp(`00000000-0000-4000-8000-${String(i).padStart(12, "0")}`)));
+    const { repo, requests } = setup((request) => json(params(request).offset === "0" ? rows(1000) : rows(1)));
+    expect(await repo.listComps("utah-north")).toHaveLength(1001);
+    expect(requests.map((r) => params(r).offset)).toEqual(["0", "1000"]);
+    expect(params(requests[1] as Recorded).order).toBe("created_at.asc,id.asc");
+  });
+
+  it("getCostBook pages both queries", async () => {
+    const price = (i: number) => ({
+      id: `p${i}`, company_id: null, region: "utah-north", code: "framing", variant: `v${i}`, tier: null, unit: "sf",
+      unit_price_cents: 100, as_of: "2026-10-30", verified: false, source_note: "n",
+    });
+    const entry = (i: number) => ({
+      id: `e${i}`, company_id: CO, code: "framing", variant: `v${i}`, tier: null, unit: "sf",
+      unit_price_cents: "100", as_of: "2026-09-01", vendor: null, notes: null,
+    });
+    const { repo, requests } = setup((request) => {
+      const first = params(request).offset === "0";
+      const isPrices = request.url.pathname.endsWith("/default_prices");
+      const make = isPrices ? price : entry;
+      return json(Array.from({ length: first ? 1000 : 1 }, (_, i) => make(first ? i : 1000)));
+    });
+    const book = await repo.getCostBook("utah-north");
+    expect(book.defaults).toHaveLength(1001);
+    expect(book.priceBook).toHaveLength(1001);
+    for (const path of ["/rest/v1/default_prices", "/rest/v1/price_book_entries"]) {
+      const mine = requests.filter((r) => r.url.pathname === path);
+      expect(mine.map((r) => params(r).offset)).toEqual(["0", "1000"]);
+      expect(mine.map((r) => params(r).limit)).toEqual(["1000", "1000"]);
+    }
+  });
+
+  it("stops at a failing page with its error", async () => {
+    const { repo } = setup((request) => (params(request).offset === "0" ? json(manyDeals(1000)) : json(NOT_UUID, 400)));
+    expect((await error(repo.listDeals())).kind).toBe("failed");
+  });
+});
+
+describe("ids that are not UUIDs", () => {
+  it("getDeal returns null with no request", async () => {
+    const { repo, requests } = setup();
+    expect(await repo.getDeal("abc")).toBeNull();
+    expect(requests).toHaveLength(0);
+  });
+
+  it("deleteDeal and deleteComp do nothing with no request", async () => {
+    const { repo, requests } = setup();
+    await repo.deleteDeal("abc");
+    await repo.deleteComp("comp-1");
+    expect(requests).toHaveLength(0);
+  });
+
+  it("saveComp refuses one with no request", async () => {
+    const { repo, requests } = setup();
+    const caught = await error(repo.saveComp(comp("comp-1")));
+    expect(caught.path).toBe("id");
+    expect(requests).toHaveLength(0);
   });
 });
 
@@ -351,8 +515,8 @@ describe("deleteDeal and resetDeals", () => {
 
   it("turns a server error into a DataError", async () => {
     const { repo } = setup(() => json(NOT_UUID, 400));
-    expect((await error(repo.deleteDeal("x"))).message).toBe(NOT_UUID.message);
-    expect((await error(repo.resetDeals())).message).toBe(NOT_UUID.message);
+    expect((await error(repo.deleteDeal(DEAL_ID))).kind).toBe("failed");
+    expect((await error(repo.resetDeals())).kind).toBe("failed");
   });
 });
 
@@ -368,7 +532,8 @@ describe("a lost connection", () => {
       },
     });
     const caught = await error(createSupabaseRepository(client, CO).deleteDeal(DEAL_ID));
-    expect(caught.message).toMatch(/fetch failed/);
+    expect(caught.kind).toBe("offline");
+    expect(caught.message).toBe("Can't reach the server — check your connection.");
     expect(caught.recordId).toBe(DEAL_ID);
   });
 });
@@ -405,13 +570,13 @@ describe("listComps", () => {
 
   it("turns a server error into a DataError", async () => {
     const { repo } = setup(() => json(NOT_UUID, 400));
-    expect((await error(repo.listComps("utah-north"))).message).toBe(NOT_UUID.message);
+    expect((await error(repo.listComps("utah-north"))).kind).toBe("failed");
   });
 });
 
 describe("saveComp", () => {
   it("upserts the comp on its id, with the id, company and region as columns and the rest in data", async () => {
-    const original = comp("c1");
+    const original = comp(COMP_ID);
     const { repo, requests } = setup(() => json(compRow(original)));
     await repo.saveComp(original);
 
@@ -423,47 +588,48 @@ describe("saveComp", () => {
     expect(params(request).on_conflict).toBe("id");
     const body = request.body as { id: string; company_id: string; region: string; data: Record<string, unknown> };
     expect(Object.keys(body).sort()).toEqual(["company_id", "data", "id", "region"]);
-    expect(body).toMatchObject({ id: "c1", company_id: CO, region: "utah-north" });
+    expect(body).toMatchObject({ id: COMP_ID, company_id: CO, region: "utah-north" });
     expect(body.data.address).toBe(original.address);
     expect(body.data).not.toHaveProperty("id");
   });
 
   it("returns the comp the server sent back", async () => {
-    const original = comp("c1");
+    const original = comp(COMP_ID);
     const { repo } = setup(() => json(compRow(original)));
     expect(await repo.saveComp(original)).toEqual(original);
   });
 
   it("refuses a comp whose price is NaN without making a request", async () => {
     const { repo, requests } = setup();
-    const caught = await error(repo.saveComp({ ...comp("c1"), soldPriceCents: Number.NaN }));
-    expect(caught.recordId).toBe("c1");
+    const caught = await error(repo.saveComp({ ...comp(COMP_ID), soldPriceCents: Number.NaN }));
+    expect(caught.recordId).toBe(COMP_ID);
     expect(caught.path).toBe("soldPriceCents");
     expect(caught.message).toMatch(/^Couldn't save — soldPriceCents: /);
     expect(requests).toHaveLength(0);
   });
 
-  it("turns a 400 into a DataError carrying the message", async () => {
+  it("turns a 400 into a DataError of kind failed", async () => {
     const { repo } = setup(() => json(NOT_UUID, 400));
-    const caught = await error(repo.saveComp(comp("comp-1")));
-    expect(caught.message).toBe(NOT_UUID.message);
-    expect(caught.recordId).toBe("comp-1");
+    const caught = await error(repo.saveComp(comp(COMP_ID)));
+    expect(caught.kind).toBe("failed");
+    expect(caught.message).toBe(FAILED);
+    expect(caught.recordId).toBe(COMP_ID);
   });
 });
 
 describe("deleteComp", () => {
   it("deletes one comp of the company", async () => {
     const { repo, requests } = setup(() => new Response(null, { status: 204 }));
-    await repo.deleteComp("c1");
+    await repo.deleteComp(COMP_ID);
     const [request] = requests as [Recorded];
     expect(request.method).toBe("DELETE");
     expect(request.url.pathname).toBe("/rest/v1/comps");
-    expect(params(request)).toEqual({ id: "eq.c1", company_id: `eq.${CO}` });
+    expect(params(request)).toEqual({ id: `eq.${COMP_ID}`, company_id: `eq.${CO}` });
   });
 
   it("turns a server error into a DataError", async () => {
     const { repo } = setup(() => json(NOT_UUID, 400));
-    expect((await error(repo.deleteComp("x"))).message).toBe(NOT_UUID.message);
+    expect((await error(repo.deleteComp(COMP_ID))).kind).toBe("failed");
   });
 });
 
@@ -608,7 +774,7 @@ describe("getCostBook", () => {
 
   it("turns a server error into a DataError", async () => {
     const { repo } = setup(() => json(NOT_UUID, 400));
-    expect((await error(repo.getCostBook("utah-north"))).message).toBe(NOT_UUID.message);
+    expect((await error(repo.getCostBook("utah-north"))).kind).toBe("failed");
   });
 });
 
@@ -659,7 +825,7 @@ describe("getMarketSettings", () => {
 
   it("turns a server error into a DataError", async () => {
     const { repo } = setup(() => json(NOT_UUID, 400));
-    expect((await error(repo.getMarketSettings("utah-north"))).message).toBe(NOT_UUID.message);
+    expect((await error(repo.getMarketSettings("utah-north"))).kind).toBe("failed");
   });
 });
 
@@ -700,6 +866,6 @@ describe("getCompanySettings", () => {
 
   it("turns a server error into a DataError", async () => {
     const { repo } = setup(() => json(NOT_UUID, 400));
-    expect((await error(repo.getCompanySettings())).message).toBe(NOT_UUID.message);
+    expect((await error(repo.getCompanySettings())).kind).toBe("failed");
   });
 });

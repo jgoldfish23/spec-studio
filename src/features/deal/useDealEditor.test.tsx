@@ -1000,3 +1000,45 @@ describe("useDealEditor with another deal", () => {
     expect((await s.storedDeal(s.first.id))?.inputs.lot.priceCents).toBe(NEW_PRICE);
   });
 });
+
+describe("useDealEditor saves and the conflict check", () => {
+  it("builds each save on the updatedAt of the last one, so edits made during a save do not conflict", async () => {
+    const s = await setup();
+    const real = createLocalRepository(s.storage);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    s.saveDeal.mockImplementationOnce(async (deal, options) => {
+      await gate;
+      return real.saveDeal(deal, options);
+    });
+    const view = await ready(s);
+
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    await advance(1000);
+    expect(s.saveDeal).toHaveBeenCalledTimes(1);
+    // A second edit while the first save is still running: its deal was built from the data read before that save.
+    act(() => view.result.current.edit(setPrice(NEW_PRICE + 100_000)));
+    await advance(1000);
+    release();
+    await advance(50);
+
+    expect(s.saveDeal).toHaveBeenCalledTimes(2);
+    const [first, second] = s.saveDeal.mock.calls.map(([deal]) => deal);
+    expect(first?.updatedAt).toBe(s.first.updatedAt);
+    expect(second?.updatedAt).not.toBe(s.first.updatedAt);
+    expect(view.result.current.saveStatus).toEqual({ kind: "saved" });
+    expect((await s.storedDeal(s.first.id))?.inputs.lot.priceCents).toBe(NEW_PRICE + 100_000);
+  });
+
+  it("builds the save at unmount on the last updatedAt too", async () => {
+    const s = await setup();
+    const view = await ready(s);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    await advance(1000);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE + 100_000)));
+    view.unmount();
+    await advance(50);
+    expect(s.saveDeal).toHaveBeenCalledTimes(2);
+    expect((await s.storedDeal(s.first.id))?.inputs.lot.priceCents).toBe(NEW_PRICE + 100_000);
+  });
+});

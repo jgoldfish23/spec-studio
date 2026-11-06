@@ -177,7 +177,7 @@ describe("days on market", () => {
 
   it("reads High, in a neutral chip, for ten comps of which five are recent", async () => {
     // Four of the sample's comps sold within six months of the test date; three copies of each make twelve.
-    const recent = ["comp-1", "comp-3", "comp-5", "comp-6"].map((id) => sampleComps().find((comp) => comp.id === id) as Comp);
+    const recent = ["5a3e0c0e-5a3e-4000-8000-000000000001", "5a3e0c0e-5a3e-4000-8000-000000000003", "5a3e0c0e-5a3e-4000-8000-000000000005", "5a3e0c0e-5a3e-4000-8000-000000000006"].map((id) => sampleComps().find((comp) => comp.id === id) as Comp);
     const library = [0, 1, 2].flatMap((copy) =>
       recent.map((comp, n) => ({ ...comp, id: `00000000-0000-4000-8000-0000000000${copy}${n}` })),
     );
