@@ -7,6 +7,7 @@ import { createHarness, renderApp, seedSampleDeal } from "../../testing/renderAp
 import { AccountMenu } from "../auth/AccountMenu";
 import { reportLostSave } from "../deal/lostSaves";
 import { SyncNote } from "./AppShell";
+import { UNREACHABLE } from "./StartupScreens";
 import type { HostedShell } from "./hostedShell";
 
 const renderAt = (hash: string) => renderApp(hash);
@@ -298,6 +299,23 @@ describe("app shell in hosted mode", () => {
     // Outside the shell: nothing of the app shows while the gate swaps to the sign-in page.
     expect(screen.queryByRole("banner")).not.toBeInTheDocument();
     expect(screen.getByText("Signing out…")).toBeVisible();
+  });
+
+  it("does not wait forever on a sign-out that never answers: after 15 s it says so, and Try again asks again", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const signOut = vi.fn(() => new Promise<boolean>(() => {}));
+      renderHosted("#/sign-in", hosted(0, signOut));
+      expect(screen.getByText("Signing out…")).toBeVisible();
+      await act(() => vi.advanceTimersByTimeAsync(15_000));
+      expect(screen.getByRole("alert")).toHaveTextContent(UNREACHABLE);
+      await user.click(screen.getByRole("button", { name: "Try again" }));
+      expect(signOut).toHaveBeenCalledTimes(2);
+      expect(screen.getByText("Signing out…")).toBeVisible();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("goes on to the deals when the session could not be ended, rather than wait on Signing out…", async () => {

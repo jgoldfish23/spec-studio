@@ -1,10 +1,11 @@
-import { Suspense, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { Suspense, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { createHashRouter, Navigate, useNavigate, type RouteObject } from "react-router";
 import { RouterProvider } from "react-router/dom";
 import { AppShell, DEALS_SECTION } from "./features/app/AppShell";
 import { HostedShellContext } from "./features/app/hostedShell";
 import type { HostedShell } from "./features/app/hostedShell";
 import { NotFound } from "./features/app/NotFound";
+import { Loading } from "./features/app/StartupScreens";
 import { PersistentStorageContext } from "./features/app/storageMode";
 import { DealRoute } from "./features/deal/DealRoute";
 import { lazyStep } from "./features/deal/lazyStep";
@@ -44,25 +45,25 @@ function Shell() {
  * `#/sign-in`, where a save that failed as signed out sends the owner. Demo mode has no one to sign in, so it goes to
  * the deals. Hosted, the device still holds a session the server no longer takes: this ends it, once, and the gate
  * then shows the sign-in page (and opens `#/deals` after it, so this route does not sign the owner out again). If the
- * session could not be ended, it goes on to the deals rather than wait here.
+ * session could not be ended, it goes on to the deals rather than wait here; if the server never answers, the wait
+ * says so after a while and offers Try again.
  */
 function SignInRoute() {
   const signOut = useContext(HostedShellContext)?.signOut;
   const navigate = useNavigate();
-  const asked = useRef(false);
-  useEffect(() => {
-    if (!signOut || asked.current) return;
-    asked.current = true;
-    void signOut().then((ended) => {
+  const endSession = useCallback(() => {
+    void signOut?.().then((ended) => {
       if (!ended) void navigate("/deals", { replace: true });
     });
   }, [signOut, navigate]);
+  const asked = useRef(false);
+  useEffect(() => {
+    if (asked.current) return;
+    asked.current = true;
+    endSession();
+  }, [endSession]);
   if (!signOut) return <Navigate to="/deals" replace />;
-  return (
-    <main aria-busy="true" className="flex min-h-dvh items-center justify-center bg-paper px-4 text-ink">
-      <p className="m-0 text-[15px] text-muted">Signing out…</p>
-    </main>
-  );
+  return <Loading label="Signing out…" onRetry={endSession} />;
 }
 
 const routes: RouteObject[] = [

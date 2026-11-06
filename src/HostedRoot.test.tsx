@@ -19,6 +19,9 @@ import {
 import type { FakeAuthOptions } from "./data/testing/fakeAuth";
 import { DataError } from "./data/types";
 import type { DataErrorKind, Repository, StoredDeal } from "./data/types";
+import type { HostedConfig } from "./config";
+import { createOwnerMemory } from "./data/auth/rememberedOwner";
+import { UNREACHABLE } from "./features/app/StartupScreens";
 import { reportLostSave } from "./features/deal/lostSaves";
 import { HostedGate, HostedRoot } from "./HostedRoot";
 import { seedSampleDeal } from "./testing/renderApp";
@@ -42,8 +45,7 @@ const BEN_CO: Company = {
   defaultRegion: "utah-north",
 };
 
-const UNREACHABLE =
-  "Can't reach Spec Studio's server. Check your connection, then try again.";
+const LAST_USER = "spec-studio:last-user";
 const outboxKey = (user: AuthUser) => `spec-studio:outbox:${user.id}`;
 
 /** Whether the server can be reached, and if not, how a call to it fails. */
@@ -140,6 +142,8 @@ function createWorld(options: WorldOptions = {}) {
     stored,
   };
 }
+
+type World = ReturnType<typeof createWorld>;
 
 async function signIn(user: UserEvent, email: string) {
   await user.type(await screen.findByLabelText("Email"), email);
@@ -618,6 +622,269 @@ describe("HostedGate", () => {
   });
 });
 
+describe("HostedGate on a device that remembers its owner", () => {
+  const offlineError = () =>
+    new DataError("Can't reach the server — check your connection.", {
+      kind: "offline",
+    });
+  const NOTICE =
+    "Showing what's saved on this device — can't reach the server.";
+
+  /** The page reloads with nothing reaching the server: the session read, the company and every data call fail offline. */
+  function goOffline(world: World) {
+    world.network.down = "offline";
+    vi.spyOn(world.auth, "currentUser").mockRejectedValue(
+      new AuthError("offline"),
+    );
+    vi.spyOn(world.companies, "myCompany").mockRejectedValue(offlineError());
+  }
+
+  it("reopens from the device when a returning owner reloads offline, and the waiting edit syncs once back online (Review Focus 3)", async () => {
+    const user = userEvent.setup();
+    const world = createWorld({ user: ANA, companies: [[ANA, ANA_CO]] });
+    const deal = await seedSampleDeal(world.server(ANA_CO.id));
+    window.history.replaceState(null, "", `/#/deals/${deal.id}/lot`);
+    const before = world.mount();
+    await screen.findByLabelText("Deal name", undefined, { timeout: 3000 });
+    world.network.down = "offline";
+    await rename(user, "Renamed on site");
+    expect(
+      await screen.findByText(
+        "Offline — saved on this device, will sync",
+        undefined,
+        { timeout: 3000 },
+      ),
+    ).toBeVisible();
+    expect(world.outbox(ANA).map((d) => d.name)).toEqual(["Renamed on site"]);
+    before.unmount();
+
+    // The page is reloaded on the job site.
+    goOffline(world);
+    window.history.replaceState(null, "", "/#/deals");
+    world.mount();
+    expect(
+      await screen.findByText("Renamed on site", undefined, { timeout: 3000 }),
+    ).toBeVisible();
+    expect(screen.getByText(NOTICE)).toBeVisible();
+    expect(screen.getByText("1 change waiting to sync")).toBeVisible();
+    expect(
+      within(screen.getByRole("banner")).getByRole("button", {
+        name: ANA.email,
+      }),
+    ).toBeVisible();
+    expect(screen.queryByText(UNREACHABLE)).not.toBeInTheDocument();
+
+    // Back online: the browser says so, and the edit syncs.
+    world.network.down = null;
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await waitFor(async () =>
+      expect(await world.stored(ANA_CO.id, deal.id)).toBe("Renamed on site"),
+    );
+    await waitFor(() =>
+      expect(screen.queryByText(/waiting to sync/)).not.toBeInTheDocument(),
+    );
+    expect(world.device.getItem(outboxKey(ANA))).toBeNull();
+  });
+
+  it("still says it can't reach the server for a remembered owner whose company was never loaded here", async () => {
+    const world = createWorld({ user: ANA, companies: [[ANA, ANA_CO]] });
+    createOwnerMemory(world.device).rememberOwner(ANA);
+    goOffline(world);
+    world.mount();
+    expect(await screen.findByText(UNREACHABLE)).toBeVisible();
+  });
+
+  it("forgets the owner on an explicit sign-out: a reload, offline or not, shows the sign-in page and never their data", async () => {
+    const user = userEvent.setup();
+    const world = createWorld({ user: ANA, companies: [[ANA, ANA_CO]] });
+    await world
+      .server(ANA_CO.id)
+      .createDeal({ name: "Maple Street", inputs: sampleDealInputs() });
+    const first = world.mount();
+    expect(
+      await screen.findByText("Maple Street", undefined, { timeout: 3000 }),
+    ).toBeVisible();
+    expect(JSON.parse(world.device.getItem(LAST_USER) ?? "null")).toEqual(ANA);
+
+    await user.click(screen.getByRole("button", { name: ANA.email }));
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    expect(await signInPage()).toBeVisible();
+    expect(world.device.getItem(LAST_USER)).toBeNull();
+    first.unmount();
+
+    // A reload, online.
+    const online = world.mount();
+    expect(await signInPage()).toBeVisible();
+    online.unmount();
+
+    // A reload, offline: no session is stored, so there is no one to open as.
+    world.network.down = "offline";
+    vi.spyOn(world.companies, "myCompany").mockRejectedValue(offlineError());
+    const offline = world.mount();
+    expect(await signInPage()).toBeVisible();
+    offline.unmount();
+
+    // Even a session the device still held but could not read offline does not open as Ana.
+    vi.spyOn(world.auth, "currentUser").mockRejectedValue(
+      new AuthError("offline"),
+    );
+    world.mount();
+    expect(await screen.findByText(UNREACHABLE)).toBeVisible();
+    expect(screen.queryByText("Maple Street")).not.toBeInTheDocument();
+  });
+
+  it("when the session can't be renewed after reconnecting, shows the sign-in page and keeps the owner's outbox", async () => {
+    const world = createWorld({ user: ANA, companies: [[ANA, ANA_CO]] });
+    const deal = await world
+      .server(ANA_CO.id)
+      .createDeal({ name: "Maple Street", inputs: sampleDealInputs() });
+    const memory = createOwnerMemory(world.device);
+    memory.rememberOwner(ANA);
+    memory.rememberCompany(ANA.id, ANA_CO);
+    createOfflineRepository(
+      world.server(ANA_CO.id),
+      world.device,
+      ANA.id,
+    ).queue({ ...deal, name: "Oak Hollow" });
+    goOffline(world);
+    world.mount();
+    expect(
+      await screen.findByText("1 change waiting to sync", undefined, {
+        timeout: 3000,
+      }),
+    ).toBeVisible();
+
+    // The network is back, but the server no longer takes the session, and supabase-js drops it.
+    world.network.down = "signedOut";
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await act(() => world.auth.signOut());
+    expect(await signInPage()).toBeVisible();
+    expect(world.outbox(ANA).map((d) => d.name)).toEqual(["Oak Hollow"]);
+    expect(world.device.getItem(LAST_USER)).toBeNull();
+    expect(await world.stored(ANA_CO.id, deal.id)).toBe("Maple Street");
+  });
+});
+
+describe("HostedGate signing out", () => {
+  it("when supabase-js drops the session and then says it couldn't reach the server: the sign-in page, the outbox kept, reported once", async () => {
+    const user = userEvent.setup();
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const world = createWorld({ user: ANA, companies: [[ANA, ANA_CO]] });
+    const deal = await world
+      .server(ANA_CO.id)
+      .createDeal({ name: "Maple Street", inputs: sampleDealInputs() });
+    createOfflineRepository(
+      world.server(ANA_CO.id),
+      world.device,
+      ANA.id,
+    ).queue({ ...deal, name: "Oak Hollow" });
+    // Only the save is refused, so the edit keeps waiting while the rest of the app loads.
+    vi.spyOn(world.server(ANA_CO.id), "saveDeal").mockRejectedValue(
+      new DataError("Can't reach the server — check your connection.", {
+        kind: "offline",
+      }),
+    );
+    const signOut = world.auth.signOut.bind(world.auth);
+    vi.spyOn(world.auth, "signOut").mockImplementation(async () => {
+      await signOut();
+      throw new AuthError("offline");
+    });
+    world.mount();
+    await screen.findByText("1 change waiting to sync", undefined, {
+      timeout: 3000,
+    });
+
+    await user.click(screen.getByRole("button", { name: ANA.email }));
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    await user.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", {
+        name: "Sign out",
+      }),
+    );
+    expect(await signInPage()).toBeVisible();
+    await waitFor(() => expect(logged).toHaveBeenCalledTimes(1));
+    expect(String(logged.mock.calls[0]?.[0])).toMatch(/Couldn't sign out/);
+    expect(world.outbox(ANA).map((d) => d.name)).toEqual(["Oak Hollow"]);
+  });
+
+  it("says so on the page when signing out fails and the session stays", async () => {
+    const user = userEvent.setup();
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const world = createWorld({
+      user: ANA,
+      companies: [[ANA, ANA_CO]],
+      auth: { fail: { signOut: new AuthError("offline") } },
+    });
+    world.mount();
+    await dealsPage();
+    await user.click(screen.getByRole("button", { name: ANA.email }));
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+
+    const alert = (
+      await screen.findByText(
+        "Couldn't sign out — check your connection, then try again.",
+      )
+    ).closest("[role='alert']");
+    expect(alert).not.toBeNull();
+    expect(
+      within(screen.getByRole("banner")).getByRole("button", {
+        name: ANA.email,
+      }),
+    ).toBeVisible();
+    expect(logged).toHaveBeenCalledTimes(1);
+    await user.click(
+      within(alert as HTMLElement).getByRole("button", { name: "Dismiss" }),
+    );
+    expect(screen.queryByText(/Couldn't sign out/)).not.toBeInTheDocument();
+  });
+
+  it("a sign-out and the same owner's sign-in that land in one render still leave a working connection", async () => {
+    const user = userEvent.setup();
+    const world = createWorld({ user: ANA, companies: [[ANA, ANA_CO]] });
+    const deal = await seedSampleDeal(world.server(ANA_CO.id));
+    window.history.replaceState(null, "", `/#/deals/${deal.id}/lot`);
+    world.mount();
+    await screen.findByLabelText("Deal name", undefined, { timeout: 3000 });
+
+    // Both changes are heard before React renders again, so the gate sees Ana throughout.
+    act(() => {
+      void world.auth.signOut();
+      void world.auth.verifyCode(ANA.email, FAKE_CODE);
+    });
+    await rename(user, "Renamed after");
+    await waitFor(
+      async () =>
+        expect(await world.stored(ANA_CO.id, deal.id)).toBe("Renamed after"),
+      { timeout: 3000 },
+    );
+  });
+
+  it("a different owner signing in starts on the deals, not where the last owner was", async () => {
+    const user = userEvent.setup();
+    const world = createWorld({
+      user: ANA,
+      companies: [
+        [ANA, ANA_CO],
+        [BEN, BEN_CO],
+      ],
+    });
+    const deal = await seedSampleDeal(world.server(ANA_CO.id));
+    window.history.replaceState(null, "", `/#/deals/${deal.id}/lot`);
+    world.mount();
+    await screen.findByLabelText("Deal name", undefined, { timeout: 3000 });
+
+    await user.click(screen.getByRole("button", { name: ANA.email }));
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    await signIn(user, BEN.email);
+    expect(await dealsPage()).toBeVisible();
+    expect(window.location.hash).toBe("#/deals");
+  });
+});
+
 describe("HostedRoot", () => {
   const SESSION = {
     access_token: "a.b.c",
@@ -641,9 +908,8 @@ describe("HostedRoot", () => {
       headers: { "Content-Type": "application/json" },
     });
 
-  it("wires the real client: no request until sign-in, then the company and its deals, with one client under StrictMode", async () => {
-    const user = userEvent.setup();
-    const warn = vi.spyOn(console, "warn");
+  /** Supabase as far as signing in by code and listing one company's deals goes. */
+  function fakeSupabase() {
     const requests: string[] = [];
     const fakeFetch: typeof fetch = async (input, init) => {
       const request = new Request(input, init);
@@ -667,6 +933,13 @@ describe("HostedRoot", () => {
       }
       return json([]);
     };
+    return { requests, fakeFetch };
+  }
+
+  it("wires the real client: no request until sign-in, then the company and its deals, with one client under StrictMode", async () => {
+    const user = userEvent.setup();
+    const warn = vi.spyOn(console, "warn");
+    const { requests, fakeFetch } = fakeSupabase();
     render(
       <StrictMode>
         <HostedRoot
@@ -702,5 +975,38 @@ describe("HostedRoot", () => {
     expect(warn.mock.calls.flat().join(" ")).not.toMatch(
       /Multiple GoTrueClient/,
     );
+  });
+
+  it("makes one client per config and storage: the same config over another browser's storage starts signed out", async () => {
+    const user = userEvent.setup();
+    // Two clients on one address is what this test makes, and supabase-js warns of it.
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { fakeFetch } = fakeSupabase();
+    const config: HostedConfig = {
+      mode: "hosted",
+      supabaseUrl: "http://two-storages.test",
+      supabaseAnonKey: "anon-key",
+    };
+    const first = render(
+      <HostedRoot
+        config={config}
+        storage={new MemoryStorage()}
+        persistent
+        fetchOverride={fakeFetch}
+      />,
+    );
+    await signIn(user, ANA.email);
+    expect(await dealsPage()).toBeVisible();
+    first.unmount();
+
+    render(
+      <HostedRoot
+        config={config}
+        storage={new MemoryStorage()}
+        persistent
+        fetchOverride={fakeFetch}
+      />,
+    );
+    expect(await signInPage()).toBeVisible();
   });
 });

@@ -8,38 +8,41 @@ import { App } from "./App";
 import type { HostedConfig } from "./config";
 import type { AuthGateway, AuthUser } from "./data/auth/authGateway";
 import type { Company, CompanyGateway } from "./data/auth/companyGateway";
+import {
+  createOwnerMemory,
+  rememberingOwner,
+} from "./data/auth/rememberedOwner";
+import type { OwnerMemory } from "./data/auth/rememberedOwner";
 import { createSupabaseAuth } from "./data/auth/supabaseAuth";
 import { createSupabaseCompany } from "./data/auth/supabaseCompany";
 import { createOfflineRepository } from "./data/offline/offlineRepository";
 import { useOutboxSync } from "./data/offline/useOutboxSync";
 import { createQueryClient } from "./data/queryClient";
 import { RepositoryProvider } from "./data/RepositoryProvider";
+import { guardSession } from "./data/sessionGuard";
 import { createSupabase } from "./data/supabase/client";
 import { createSupabaseRepository } from "./data/supabase/supabaseRepository";
 import { DataError } from "./data/types";
 import type { Repository } from "./data/types";
 import { SyncNote } from "./features/app/AppShell";
 import type { HostedShell } from "./features/app/hostedShell";
+import {
+  Loading,
+  StartupProblem,
+  UNREACHABLE,
+} from "./features/app/StartupScreens";
 import { AccountMenu } from "./features/auth/AccountMenu";
-import { AuthFrame } from "./features/auth/AuthFrame";
 import { AuthProvider, useAuth } from "./features/auth/AuthProvider";
 import { CreateCompanyPage } from "./features/auth/CreateCompanyPage";
 import { handleLinkCallback } from "./features/auth/linkCallback";
 import { SignInPage } from "./features/auth/SignInPage";
 import type { SignInPageProps } from "./features/auth/SignInPage";
 import { resetLostSaves } from "./features/deal/lostSaves";
-import { PRIMARY_BUTTON } from "./features/deal/stepShared";
-
-/** What the owner sees when the server can't be reached while the app starts. */
-export const UNREACHABLE =
-  "Can't reach Spec Studio's server. Check your connection, then try again.";
-
-/** How long the start waits on the server before saying it can't reach it. The request keeps going meanwhile. */
-export const STARTUP_PATIENCE_MS = 15_000;
+import { FOCUS_RING } from "./features/deal/stepShared";
 
 export interface HostedRootProps {
   config: HostedConfig;
-  /** This browser's storage: the session and the offline outbox are kept in it. */
+  /** This browser's storage: the session, the offline outbox and the remembered owner are kept in it. */
   storage: Storage;
   /** False when the browser blocks storage and `storage` is in memory only. */
   persistent: boolean;
@@ -72,20 +75,35 @@ function connect(
 }
 
 /**
- * One connection per config. StrictMode runs a state initializer twice, and a second Supabase client would run its own
- * token refresh against the same stored session (supabase-js warns of "Multiple GoTrueClient instances").
+ * One connection per config, storage and fetch. StrictMode runs a state initializer twice, and a second Supabase
+ * client would run its own token refresh against the same stored session (supabase-js warns of "Multiple GoTrueClient
+ * instances"). All three are part of the key: a client keeps its session in its storage, so the same config over
+ * another storage must not get a client signed in with the first one's session.
  */
-const connections = new WeakMap<HostedConfig, Connection>();
+const connections = new WeakMap<
+  HostedConfig,
+  WeakMap<Storage, Map<typeof fetch | undefined, Connection>>
+>();
 
 function connectOnce(
   config: HostedConfig,
   storage: Storage,
   fetchOverride?: typeof fetch,
 ): Connection {
-  let connection = connections.get(config);
+  let byStorage = connections.get(config);
+  if (!byStorage) {
+    byStorage = new WeakMap();
+    connections.set(config, byStorage);
+  }
+  let byFetch = byStorage.get(storage);
+  if (!byFetch) {
+    byFetch = new Map();
+    byStorage.set(storage, byFetch);
+  }
+  let connection = byFetch.get(fetchOverride);
   if (!connection) {
     connection = connect(config, storage, fetchOverride);
-    connections.set(config, connection);
+    byFetch.set(fetchOverride, connection);
   }
   return connection;
 }
@@ -152,8 +170,21 @@ function useLinkCallback(auth: AuthGateway): LinkResult | null {
  * sign-in page while no one is signed in, the company setup while the owner has none, and the app. The app reads the
  * company's data through an outbox kept on this device under the owner's id, so edits made offline, or after the
  * session ended, wait for that same owner.
+ *
+ * The device remembers who was last signed in and each owner's company, so a returning owner whose session or company
+ * can't be read offline opens the app from the device; an owner with nothing remembered is told the server can't be
+ * reached. `auth` and `storage` are fixed for the gate's life.
  */
-export function HostedGate({ auth, ...rest }: HostedGateProps) {
+export function HostedGate({
+  auth: server,
+  storage,
+  ...rest
+}: HostedGateProps) {
+  const memory = useMemo(() => createOwnerMemory(storage), [storage]);
+  const auth = useMemo(
+    () => rememberingOwner(server, memory),
+    [server, memory],
+  );
   const callback = useLinkCallback(auth);
   return (
     <AuthProvider auth={auth}>
@@ -161,23 +192,28 @@ export function HostedGate({ auth, ...rest }: HostedGateProps) {
         // A link's code exchange that never answers: reloading tries the link again.
         <Loading onRetry={() => window.location.reload()} />
       ) : (
-        <Gate linkError={callback.error} {...rest} />
+        <Gate
+          linkError={callback.error}
+          memory={memory}
+          storage={storage}
+          {...rest}
+        />
       )}
     </AuthProvider>
   );
 }
 
-function Gate({
-  linkError,
-  ...rest
-}: Omit<HostedGateProps, "auth"> & {
+type GateProps = Omit<HostedGateProps, "auth"> & {
+  memory: OwnerMemory;
   linkError?: SignInPageProps["callbackError"];
-}) {
+};
+
+function Gate({ linkError, ...rest }: GateProps) {
   const { status, user, auth, retry } = useAuth();
   // Why the link failed belongs on the first sign-in page, not on one after a later sign-out.
   const [callbackError, setCallbackError] = useState(linkError);
   if (status === "signedIn" && callbackError) setCallbackError(undefined);
-  useForgetPreviousOwner(user?.id);
+  const generation = useSessionChanges(auth, user?.id);
 
   if (status === "loading") return <Loading onRetry={retry} />;
   if (status === "unreachable")
@@ -190,21 +226,48 @@ function Gate({
     );
   if (status === "signedOut" || !user)
     return <SignInScreen auth={auth} callbackError={callbackError} />;
-  return <OwnerSession key={user.id} user={user} auth={auth} {...rest} />;
+  return (
+    <OwnerSession
+      key={`${user.id}:${generation}`}
+      user={user}
+      auth={auth}
+      {...rest}
+    />
+  );
 }
 
 /**
- * A different owner signing in on this device must not see the last one's lost-save notices, which name that owner's
- * deals. The same owner signing back in keeps them.
+ * Follows sign-ins and sign-outs as they are heard, before React renders them. Returns the session generation, which
+ * every sign-out bumps: the owner's app is keyed on it, so a sign-out and the same owner's sign-in heard in one render
+ * still remount the app with a fresh connection (the sign-out ended the old one). A different owner signing in than
+ * the last one here starts on `#/deals`, not on the last owner's deep link, and does not see the last owner's
+ * lost-save notices, which name their deals. The same owner keeps both.
  */
-function useForgetPreviousOwner(userId: string | undefined) {
-  const previous = useRef<string | undefined>(undefined);
+function useSessionChanges(
+  auth: AuthGateway,
+  userId: string | undefined,
+): number {
+  const [generation, setGeneration] = useState(0);
+  const lastOwner = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (userId === undefined) return;
-    if (previous.current !== undefined && previous.current !== userId)
-      resetLostSaves();
-    previous.current = userId;
+    if (userId !== undefined) lastOwner.current = userId;
   }, [userId]);
+  useEffect(
+    () =>
+      auth.onChange((next) => {
+        if (next === null) {
+          setGeneration((n) => n + 1);
+          return;
+        }
+        if (lastOwner.current !== undefined && lastOwner.current !== next.id) {
+          resetLostSaves();
+          window.history.replaceState(null, "", "#/deals");
+        }
+        lastOwner.current = next.id;
+      }),
+    [auth],
+  );
+  return generation;
 }
 
 /** `#/sign-in` (and anything under it) signs a signed-in owner out. */
@@ -223,7 +286,7 @@ function SignInScreen(props: SignInPageProps) {
   return <SignInPage {...props} />;
 }
 
-type OwnerProps = Omit<HostedGateProps, "auth"> & {
+type OwnerProps = Omit<GateProps, "linkError"> & {
   user: AuthUser;
   auth: AuthGateway;
 };
@@ -242,9 +305,9 @@ function createSessionQueryClient() {
 }
 
 /**
- * Everything one signed-in owner sees. It is keyed by the owner's id, so another owner signing in gets a fresh query
- * cache: nothing the last one loaded (deals, the company) can show, even for a moment, and a save of theirs that
- * lands late writes to a cache no one reads.
+ * Everything one signed-in owner sees. It is keyed by the owner's id (and the session generation), so another owner
+ * signing in gets a fresh query cache: nothing the last one loaded (deals, the company) can show, even for a moment,
+ * and a save of theirs that lands late writes to a cache no one reads.
  */
 function OwnerSession(props: OwnerProps) {
   const [queryClient] = useState(createSessionQueryClient);
@@ -256,19 +319,29 @@ function OwnerSession(props: OwnerProps) {
 }
 
 function CompanyGate(props: OwnerProps) {
-  const { user, auth, companies } = props;
+  const { user, auth, companies, memory } = props;
   const queryClient = useQueryClient();
   const queryKey = useMemo(() => ["company", user.id] as const, [user.id]);
   const company = useQuery({
     queryKey,
     queryFn: async () => {
+      let found: Company | null;
       try {
-        return await companies.myCompany();
+        found = await companies.myCompany();
       } catch (error) {
+        // A returning owner opens from the device; with nothing remembered, the error stands.
+        const remembered =
+          error instanceof DataError && error.kind === "offline"
+            ? memory.company(user.id)
+            : null;
+        if (remembered) return remembered;
         if (!(error instanceof DataError))
           console.error("Couldn't load the company:", error);
         throw error;
       }
+      if (found) memory.rememberCompany(user.id, found);
+      else memory.forgetCompany(user.id);
+      return found;
     },
     staleTime: Infinity,
   });
@@ -283,7 +356,10 @@ function CompanyGate(props: OwnerProps) {
       <CreateCompanyPage
         companies={companies}
         auth={auth}
-        onCreated={(created) => queryClient.setQueryData(queryKey, created)}
+        onCreated={(created) => {
+          memory.rememberCompany(user.id, created);
+          queryClient.setQueryData(queryKey, created);
+        }}
       />
     );
   }
@@ -338,37 +414,6 @@ async function endSession(auth: AuthGateway): Promise<boolean> {
   }
 }
 
-const SESSION_ENDED = "You've been signed out.";
-
-/**
- * `remote` until `close()`; after it, every call fails as signed out (the outbox then keeps what it was sending). A
- * request goes out under whatever session the client holds when it is sent, so without this a sync run still going
- * when its owner signs out would send their next edit under no session, or under the next owner's, whose company's
- * rules then make it look deleted.
- */
-function closable(remote: Repository): {
-  remote: Repository;
-  close: () => void;
-} {
-  let open = true;
-  const guarded: Record<string, unknown> = {};
-  for (const [name, method] of Object.entries(remote) as [
-    string,
-    (...args: unknown[]) => Promise<unknown>,
-  ][]) {
-    guarded[name] = (...args: unknown[]) =>
-      open
-        ? method(...args)
-        : Promise.reject(new DataError(SESSION_ENDED, { kind: "signedOut" }));
-  }
-  return {
-    remote: guarded as unknown as Repository,
-    close: () => {
-      open = false;
-    },
-  };
-}
-
 /** The app for one owner and company: their outbox in front of the company's data, kept syncing. */
 function SignedInApp({
   user,
@@ -378,25 +423,34 @@ function SignedInApp({
   storage,
   persistent,
 }: OwnerProps & { company: Company }) {
-  // The outbox is kept under the owner's id: another owner on this device never sees or sends it.
-  const { repository, close } = useMemo(() => {
-    const server = closable(makeRemote(company.id));
+  // Made once for this session, in state rather than a memo (React may drop a memo, and these hold the outbox's
+  // in-flight bookkeeping and the guard). The outbox is kept under the owner's id: another owner on this device never
+  // sees or sends it.
+  const [{ repository, end }] = useState(() => {
+    const server = guardSession(makeRemote(company.id));
     return {
       repository: createOfflineRepository(server.remote, storage, user.id),
-      close: server.close,
+      end: server.end,
     };
-  }, [makeRemote, company.id, storage, user.id]);
-  // Closed by the sign-out itself, before the app unmounts: the editor's last save on the way out, and any sync run
+  });
+  // Ended by the sign-out itself, before the app unmounts: the editor's last save on the way out, and any sync run
   // still going, then wait in this owner's outbox for them.
   useEffect(
     () =>
       auth.onChange((next) => {
-        if (next?.id !== user.id) close();
+        if (next?.id !== user.id) end();
       }),
-    [auth, user.id, close],
+    [auth, user.id, end],
   );
   const { pendingCount } = useOutboxSync(repository);
-  const signOut = useCallback(() => endSession(auth), [auth]);
+  const [signOutFailed, setSignOutFailed] = useState(false);
+  const signOut = useCallback(async () => {
+    setSignOutFailed(false);
+    const ended = await endSession(auth);
+    // When the session did end, this page has already gone; when it did not, the owner must hear it.
+    if (!ended) setSignOutFailed(true);
+    return ended;
+  }, [auth]);
   const hosted = useMemo<HostedShell>(
     () => ({
       account: (
@@ -413,76 +467,31 @@ function SignedInApp({
   );
   return (
     <RepositoryProvider repository={repository}>
+      {signOutFailed ? (
+        <SignOutFailed onDismiss={() => setSignOutFailed(false)} />
+      ) : null}
       <App persistentStorage={persistent} hosted={hosted} />
     </RepositoryProvider>
   );
 }
 
-/**
- * While the start waits on the server. If it waits longer than `STARTUP_PATIENCE_MS`, it says it can't reach the
- * server and offers Try again, so a request that never answers is never an endless spinner.
- */
-function Loading({ onRetry }: { onRetry: () => void }) {
-  const [round, setRound] = useState(0);
-  const [slow, setSlow] = useState(false);
-  useEffect(() => {
-    const timer = setTimeout(() => setSlow(true), STARTUP_PATIENCE_MS);
-    return () => clearTimeout(timer);
-  }, [round]);
-  if (slow) {
-    return (
-      <StartupProblem
-        title="Can't connect"
-        message={UNREACHABLE}
-        onAction={() => {
-          setSlow(false);
-          setRound((n) => n + 1);
-          onRetry();
-        }}
-      />
-    );
-  }
+/** A sign-out that did not happen: the owner is still signed in, and must not think otherwise. */
+function SignOutFailed({ onDismiss }: { onDismiss: () => void }) {
   return (
-    <main
-      aria-busy="true"
-      className="flex min-h-dvh items-center justify-center bg-paper px-4 text-ink"
+    <div
+      role="alert"
+      className="flex flex-wrap items-center justify-between gap-3 border-b border-[#F2C2BE] bg-no-go-bg px-4 py-2 text-sm font-medium text-no-go sm:px-8"
     >
-      <p className="m-0 text-[15px] text-muted">Loading…</p>
-    </main>
-  );
-}
-
-/** A start that cannot go on: what happened, in the owner's words, and the one thing to do about it. */
-function StartupProblem({
-  title,
-  message,
-  action = "Try again",
-  onAction,
-}: {
-  title: string;
-  message: string;
-  action?: string;
-  onAction: () => void;
-}) {
-  const button = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    button.current?.focus();
-  }, []);
-  return (
-    <AuthFrame title={title}>
-      <div className="flex flex-col gap-4">
-        <p role="alert" className="m-0 text-[15px] wrap-break-word">
-          {message}
-        </p>
-        <button
-          ref={button}
-          type="button"
-          onClick={onAction}
-          className={PRIMARY_BUTTON}
-        >
-          {action}
-        </button>
-      </div>
-    </AuthFrame>
+      <p className="m-0 min-w-0 flex-1">
+        Couldn't sign out — check your connection, then try again.
+      </p>
+      <button
+        type="button"
+        onClick={onDismiss}
+        className={`inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-lg border border-no-go px-3.5 font-semibold hover:bg-surface ${FOCUS_RING}`}
+      >
+        Dismiss
+      </button>
+    </div>
   );
 }
