@@ -53,6 +53,8 @@ interface Entry {
   base: string;
   deal: StoredDeal;
   overwrite?: boolean;
+  /** The repository instance (tab) that wrote the entry: seq numbers repeat between instances. */
+  writer?: string;
   problem?: "conflict" | "deleted";
 }
 
@@ -81,12 +83,13 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
   let reportedUnreadable = false;
   let reportedWrite = false;
   let reportedListener = false;
-  /** Seqs this instance created: another tab's entry is not ours to rebase. */
-  const own = new Set<number>();
+  /** Tells this instance's entries from another tab's: another tab's entry is not ours to rebase. */
+  const writer = crypto.randomUUID();
+  const isSame = (a: Entry, b: Entry) => a.seq === b.seq && a.deal.id === b.deal.id && a.writer === b.writer;
   /** Per deal, the last stamp this instance saw the server give: a save made from `from` is really based on `to`. */
   const advanced = new Map<string, { from: string; to: string }>();
   /** Deals a sync run is sending right now, and the gate that opens when that send is done. */
-  const replaying = new Map<string, Promise<void>>();
+  const replaying = new Map<string, Promise<string | null>>();
   let lastSeq = 0;
   let lastQueuedMs = 0;
   let running: Promise<SyncResult> | null = null;
@@ -154,9 +157,12 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
     update((entries) =>
       entries.flatMap((e) => {
         if (e.deal.id !== entry.deal.id) return [e];
-        if (e.seq === entry.seq) return [];
-        // A newer save of ours is waiting: the server now holds `saved`, so that is what it is based on.
-        return own.has(e.seq) ? [{ ...e, base: saved.updatedAt }] : [e];
+        if (isSame(e, entry)) return [];
+        // A newer save of ours is waiting: the server now holds `saved`, so that is what it is based on. The owner's
+        // "keep mine" applied to the version that just landed, not to later ones.
+        if (e.writer !== writer) return [e];
+        const { overwrite: _applied, ...rest } = e;
+        return [{ ...rest, base: saved.updatedAt }];
       }),
     );
   }
@@ -164,7 +170,7 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
   function failed(entry: Entry, error: unknown): void {
     if (error instanceof DataError && (error.kind === "conflict" || error.kind === "deleted")) {
       const problem = error.kind;
-      update((entries) => entries.map((e) => (e.seq === entry.seq && e.deal.id === entry.deal.id ? { ...e, problem } : e)));
+      update((entries) => entries.map((e) => (isSame(e, entry) ? { ...e, problem } : e)));
     }
   }
 
@@ -190,9 +196,9 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
       queuedAt: new Date(lastQueuedMs).toISOString(),
       base: previous?.base ?? (stamp && deal.updatedAt === stamp.from ? stamp.to : deal.updatedAt),
       deal,
+      writer,
       ...(overwrite ? { overwrite: true } : {}),
     };
-    own.add(entry.seq);
     write([...entries.filter((e) => e.deal.id !== deal.id), entry]);
     notify();
     return entry;
@@ -208,9 +214,8 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
         // A sync run is sending the older edit of this deal: let it land, so this one is based on what it wrote.
         await gate;
         const current = read().find((e) => e.deal.id === deal.id);
-        if (!current || current.seq !== queued.seq) {
-          return { ...deal, updatedAt: advanced.get(deal.id)?.to ?? deal.updatedAt };
-        }
+        if (!current) return { ...deal, updatedAt: (await gate) ?? deal.updatedAt };
+        if (!isSame(current, queued)) return { ...deal, updatedAt: current.base };
         entry = current;
       }
       const sendOptions = entry.overwrite ? { overwrite: true } : options;
@@ -236,16 +241,18 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
     let stoppedOffline = false;
     for (const listed of read()) {
       // Look again: the entry may have been replaced or discarded since the run began.
-      const entry = read().find((e) => e.seq === listed.seq && e.deal.id === listed.deal.id);
+      const entry = read().find((e) => isSame(e, listed));
       if (!entry || entry.problem || inFlight.has(entry.deal.id)) continue;
-      let open!: () => void;
-      replaying.set(entry.deal.id, new Promise<void>((resolve) => (open = resolve)));
+      let open!: (stamp: string | null) => void;
+      let landed: string | null = null;
+      replaying.set(entry.deal.id, new Promise<string | null>((resolve) => (open = resolve)));
       try {
         const saved = await remote.saveDeal(
           { ...entry.deal, updatedAt: entry.base },
           entry.overwrite ? { overwrite: true } : undefined,
         );
         succeeded(entry, saved);
+        landed = saved.updatedAt;
         synced += 1;
       } catch (error) {
         failed(entry, error);
@@ -255,7 +262,7 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
         }
       } finally {
         replaying.delete(entry.deal.id);
-        open();
+        open(landed);
       }
     }
     return { synced, remaining: read().length, stoppedOffline };
@@ -274,6 +281,7 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
       return running;
     },
     discardPending(dealId) {
+      advanced.delete(dealId);
       if (!read().some((e) => e.deal.id === dealId)) return;
       update((entries) => entries.filter((e) => e.deal.id !== dealId));
     },

@@ -232,7 +232,8 @@ describe("syncNow", () => {
     const result = await repo.syncNow();
     expect(result).toEqual({ synced: 2, remaining: 0, stoppedOffline: false });
     expect(remote.saveDeal.mock.calls.map((c) => c[0].id)).toEqual([ID, ID2]);
-    expect(remote.saveDeal.mock.calls[0]?.[0].updatedAt).toBe(U0);
+    expect(remote.saveDeal.mock.calls.find((c) => c[0].id === ID2)?.[0]).toMatchObject({ name: "B2", updatedAt: U0 });
+    expect(remote.saveDeal.mock.calls.find((c) => c[0].id === ID)?.[0].updatedAt).toBe(U0);
     expect(repo.pending()).toEqual([]);
   });
 
@@ -426,6 +427,102 @@ describe("robustness", () => {
     });
     await expect(repo.saveDeal(deal())).resolves.toBeDefined();
     expect(remote.saveDeal).toHaveBeenCalled();
+  });
+});
+
+describe("round 2", () => {
+  /** Starts a sync whose replay of the deal hangs until released, with a save of the deal waiting on it. */
+  async function waitingOnReplay() {
+    remote.saveDeal.mockRejectedValue(offlineError());
+    await repo.saveDeal(deal({ name: "E1" })).catch(() => {});
+    let settle!: (result: () => Promise<StoredDeal>) => void;
+    remote.saveDeal.mockImplementationOnce(() => new Promise((resolve, reject) => (settle = (f) => f().then(resolve, reject))));
+    const sync = repo.syncNow();
+    const waiting = repo.saveDeal(deal({ name: "C2" }));
+    return { sync, waiting, settle };
+  }
+
+  it("returns the replaced entry's base when a newer save replaced the waiting one", async () => {
+    const { sync, waiting, settle } = await waitingOnReplay();
+    repo.queue(deal({ name: "C3" }));
+    settle(async () => deal({ updatedAt: U1 }));
+    await sync;
+    const returned = await waiting;
+    expect(returned.updatedAt).toBe(U1);
+    expect(entries(storage)[0]?.base).toBe(U1);
+  });
+
+  it("returns the replay's own stamp when the entry was discarded after a successful replay", async () => {
+    const { sync, waiting, settle } = await waitingOnReplay();
+    remote.saveDeal.mockClear();
+    settle(async () => {
+      repo.discardPending(ID);
+      return deal({ updatedAt: U1 });
+    });
+    await sync;
+    expect((await waiting).updatedAt).toBe(U1);
+    expect(remote.saveDeal).not.toHaveBeenCalled();
+  });
+
+  it("returns the deal unchanged when the entry was discarded and the replay failed", async () => {
+    const { sync, waiting, settle } = await waitingOnReplay();
+    settle(async () => {
+      repo.discardPending(ID);
+      throw offlineError();
+    });
+    await sync;
+    expect((await waiting).updatedAt).toBe(U0);
+  });
+
+  it("does not conflict with itself after a discard cleared an old stamp (probe)", async () => {
+    remote.saveDeal.mockImplementationOnce(async (d) => ({ ...d, updatedAt: U1 }));
+    await repo.saveDeal(deal({ updatedAt: U0 }));
+    // "Load their version": the editor now stands on U5.
+    repo.discardPending(ID);
+    const U5 = "2026-11-01T00:00:00+00:00";
+    remote.saveDeal.mockRejectedValueOnce(offlineError());
+    await repo.saveDeal(deal({ name: "E1", updatedAt: U5 })).catch(() => {});
+    let fail!: (e: unknown) => void;
+    remote.saveDeal.mockImplementationOnce(() => new Promise((_, reject) => (fail = reject)));
+    const sync = repo.syncNow();
+    const waiting = repo.saveDeal(deal({ name: "C2", updatedAt: U5 }));
+    repo.queue(deal({ name: "C3", updatedAt: U5 }));
+    fail(offlineError());
+    await sync;
+    const returned = await waiting;
+    expect(returned.updatedAt).toBe(U5);
+    remote.saveDeal.mockClear();
+    remote.saveDeal.mockImplementation(async (d) => ({ ...d, updatedAt: U2 }));
+    await repo.saveDeal(deal({ name: "C4", updatedAt: returned.updatedAt }));
+    expect(remote.saveDeal.mock.calls[0]?.[0].updatedAt).toBe(U5);
+  });
+
+  it("drops a rebased entry's overwrite once the overwrite has landed", async () => {
+    let release!: (d: StoredDeal) => void;
+    remote.saveDeal.mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
+    const first = repo.saveDeal(deal({ name: "Mine" }), { overwrite: true });
+    repo.queue(deal({ name: "Later" }));
+    expect(entries(storage)[0]).toMatchObject({ overwrite: true });
+    release(deal({ updatedAt: U1 }));
+    await first;
+    const left = entries(storage)[0];
+    expect(left).toMatchObject({ base: U1 });
+    expect(left?.overwrite).toBeUndefined();
+  });
+
+  it("does not rebase another tab's entry even when seq numbers collide", async () => {
+    const other = createOfflineRepository(remote as unknown as Repository, storage, SCOPE);
+    let release!: (d: StoredDeal) => void;
+    remote.saveDeal.mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
+    const mine = repo.saveDeal(deal({ name: "Mine" })); // seq 1, written by repo
+    storage.removeItem(KEY); // storage emptied, so the other tab's seq restarts too
+    other.queue(deal({ name: "Theirs" })); // seq 1 as well
+    release(deal({ updatedAt: U1 }));
+    await mine;
+    const left = entries(storage);
+    expect(left).toHaveLength(1);
+    expect(left[0]?.deal.name).toBe("Theirs");
+    expect(left[0]?.base).toBe(U0);
   });
 });
 
