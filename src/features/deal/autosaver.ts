@@ -1,11 +1,24 @@
+import { DataError } from "../../data/types";
+import type { DataErrorKind } from "../../data/types";
+
+/** Why a save failed: the `DataError` kind, or `"unknown"` for any other failure. */
+export type SaveFailureReason = DataErrorKind | "unknown";
+
 export type SaveStatus =
   | { kind: "saved" }
   | { kind: "pending" }
   | { kind: "saving" }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string; reason: SaveFailureReason };
+
+export interface SaveOptions {
+  /** Skip the conflict check: the owner chose to keep this version. */
+  overwrite?: boolean;
+}
 
 export interface AutosaverOptions<T> {
-  save: (value: T) => Promise<unknown>;
+  save: (value: T, options?: SaveOptions) => Promise<unknown>;
+  /** Whether a failed save is tried again on its own after `retryMs`. Default: always. A later edit tries again either way. */
+  shouldRetry?: (error: unknown) => boolean;
   /** Quiet time after the last `schedule` before the value is saved. */
   delayMs?: number;
   /** How long to wait before trying a failed save again. */
@@ -22,7 +35,9 @@ export interface Autosaver<T> {
   /** Replaces whatever is waiting with `value` and saves it once `delayMs` pass without another call. */
   schedule(value: T): void;
   /** Saves the waiting value now. Resolves when no save is running or waiting; never rejects (a failure is a status). */
-  flush(): Promise<void>;
+  flush(options?: SaveOptions): Promise<void>;
+  /** The value that is waiting to be saved (or that failed and is still unsaved), if any. */
+  pending(): T | undefined;
   /** Cancels what is waiting and silences the status. A save already started, or already asked for by `flush`, finishes. */
   dispose(): void;
   /**
@@ -31,6 +46,8 @@ export interface Autosaver<T> {
    */
   discard(): void;
 }
+
+const reasonOf = (error: unknown): SaveFailureReason => (error instanceof DataError ? error.kind : "unknown");
 
 const messageOf = (error: unknown): string =>
   (error instanceof Error ? error.message : String(error)) || "Couldn't save";
@@ -42,6 +59,7 @@ const messageOf = (error: unknown): string =>
  */
 export function createAutosaver<T>({
   save,
+  shouldRetry = () => true,
   delayMs = 1000,
   retryMs = 5000,
   onStatus,
@@ -58,11 +76,13 @@ export function createAutosaver<T>({
   let disposed = false;
   /** Counts `discard` calls, so a save that was running during one knows its value was given up. */
   let discards = 0;
+  /** The next save skips the conflict check (set by `flush({ overwrite })`). */
+  let overwriteNext = false;
   let status: SaveStatus = { kind: "saved" };
 
   function setStatus(next: SaveStatus): void {
     if (disposed) return;
-    if (next.kind === status.kind && (next.kind !== "error" || (status.kind === "error" && next.message === status.message))) {
+    if (next.kind === status.kind && (next.kind !== "error" || (status.kind === "error" && next.message === status.message && next.reason === status.reason))) {
       return;
     }
     status = next;
@@ -92,11 +112,17 @@ export function createAutosaver<T>({
         due = false;
         setStatus({ kind: "saving" });
         const discardsBefore = discards;
+        const options = overwriteNext ? { overwrite: true } : undefined;
+        overwriteNext = false;
         let failure: string | undefined;
+        let reason: SaveFailureReason = "unknown";
+        let retry = true;
         try {
-          await save(value);
+          await save(value, options);
         } catch (error) {
           failure = messageOf(error);
+          reason = reasonOf(error);
+          retry = shouldRetry(error);
         }
         // A value given up during its own save is not retried, and its failure is no longer news.
         if (discards !== discardsBefore) failure = undefined;
@@ -111,8 +137,8 @@ export function createAutosaver<T>({
           dirty = false;
           onAbandoned?.(latest as T, failure);
         } else {
-          setStatus({ kind: "error", message: failure });
-          if (!replaced) startTimer(retryMs);
+          setStatus({ kind: "error", message: failure, reason });
+          if (!replaced && retry) startTimer(retryMs);
         }
       }
     } finally {
@@ -136,9 +162,15 @@ export function createAutosaver<T>({
       setStatus(running ? { kind: "saving" } : { kind: "pending" });
       startTimer(delayMs);
     },
-    flush() {
+    pending() {
+      return dirty ? latest : undefined;
+    },
+    flush(options) {
       clearTimer();
-      if (dirty) due = true;
+      if (dirty) {
+        due = true;
+        if (options?.overwrite) overwriteNext = true;
+      }
       return kick();
     },
     dispose() {
@@ -149,6 +181,7 @@ export function createAutosaver<T>({
       discards++;
       dirty = false;
       due = false;
+      overwriteNext = false;
       clearTimer();
       // With a save running, its end reports the status; otherwise nothing is left waiting or failing.
       if (!running) setStatus({ kind: "saved" });

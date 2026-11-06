@@ -5,6 +5,7 @@ import { RouterProvider } from "react-router/dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEALS_KEY } from "../../data/local/localRepository";
 import { SAMPLE_DEAL_NAME } from "../../data/sample";
+import { DataError } from "../../data/types";
 import type { StoredDeal } from "../../data/types";
 import { createHarness, seedSampleDeal } from "../../testing/renderApp";
 import type { Harness } from "../../testing/renderApp";
@@ -56,7 +57,7 @@ function renderDeal(harness: Harness, id: string, step = "lot") {
     ],
     { initialEntries: [`/deals/${id}/${step}`] },
   );
-  return render(<RouterProvider router={router} />, { wrapper: harness.Providers });
+  return { ...render(<RouterProvider router={router} />, { wrapper: harness.Providers }), router };
 }
 
 beforeEach(() => {
@@ -414,5 +415,116 @@ describe("one editor per deal", () => {
     await waitFor(() => expect(screen.getByLabelText("Deal name")).toHaveValue("Other"));
     expect(screen.queryByText("Contingency is below 3%")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
+  });
+});
+
+describe("DealLayout save problems", () => {
+  async function failing(error: DataError) {
+    const user = userEvent.setup();
+    const { harness, deal } = await sampleSetup();
+    const save = vi.spyOn(harness.repository, "saveDeal");
+    save.mockRejectedValueOnce(error);
+    const view = renderDeal(harness, deal.id);
+    await screen.findByLabelText("Deal name");
+    await user.click(screen.getByRole("button", { name: "Lower contingency" }));
+    return { user, harness, deal, save, view };
+  }
+  const OFFLINE = "Offline — saved on this device, will sync";
+  const SIGNED_OUT = "Signed out — sign in to sync. Your changes are saved on this device.";
+
+  it("shows offline as a calm note, not an alert", async () => {
+    await failing(new DataError("x", { kind: "offline" }));
+    expect(await screen.findByText(OFFLINE, undefined, { timeout: 3000 })).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Couldn't save/)).not.toBeInTheDocument();
+  });
+
+  it("shows signed out as a note with a Sign in link", async () => {
+    await failing(new DataError("x", { kind: "signedOut" }));
+    expect(await screen.findByText(SIGNED_OUT, undefined, { timeout: 3000 })).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/sign-in");
+  });
+
+  it("keeps Plan 2's copy for other failures", async () => {
+    await failing(new DataError("The server said no", { kind: "failed" }));
+    const alert = await screen.findByRole("alert", undefined, { timeout: 3000 });
+    expect(alert).toHaveTextContent("Couldn't save — retrying: The server said no");
+  });
+
+
+  it("offers Load their version and Keep mine on a conflict, and Keep mine saves with overwrite", async () => {
+    const user = userEvent.setup();
+    const { harness, deal } = await sampleSetup();
+    const real = harness.repository.saveDeal.bind(harness.repository);
+    const save = vi.spyOn(harness.repository, "saveDeal");
+    save.mockRejectedValueOnce(new DataError("This deal was changed on another device or tab.", { kind: "conflict" }));
+    save.mockImplementation(real);
+    renderDeal(harness, deal.id);
+    await screen.findByLabelText("Deal name");
+    await user.click(screen.getByRole("button", { name: "Lower contingency" }));
+
+    const alert = await screen.findByRole("alert", undefined, { timeout: 3000 });
+    expect(alert).toHaveTextContent("This deal was changed on another device or tab.");
+    expect(within(alert).getByRole("button", { name: "Load their version" })).toBeVisible();
+    await user.click(within(alert).getByRole("button", { name: "Keep mine" }));
+    await screen.findByText("Saved", undefined, { timeout: 3000 });
+    expect(save).toHaveBeenLastCalledWith(expect.anything(), { overwrite: true });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect((await harness.repository.getDeal(deal.id))?.inputs.contingencyPct).toBe(0.02);
+  });
+
+  it("Load their version shows the stored deal and clears undo", async () => {
+    const user = userEvent.setup();
+    const { harness, deal } = await sampleSetup();
+    const save = vi.spyOn(harness.repository, "saveDeal");
+    save.mockRejectedValueOnce(new DataError("This deal was changed on another device or tab.", { kind: "conflict" }));
+    renderDeal(harness, deal.id);
+    await screen.findByLabelText("Deal name");
+    await user.click(screen.getByRole("button", { name: "Lower contingency" }));
+    expect(await screen.findByRole("button", { name: "Load their version" }, { timeout: 3000 })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "Load their version" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
+    expect(screen.getByText("Saved")).toBeVisible();
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it("deleted: Save as a new deal keeps the edits on the same step; Discard goes to Deals", async () => {
+    const user = userEvent.setup();
+    const { harness, deal } = await sampleSetup();
+    const save = vi.spyOn(harness.repository, "saveDeal");
+    save.mockRejectedValue(new DataError("This deal was deleted on another device or tab.", { kind: "deleted" }));
+    const view = renderDeal(harness, deal.id, "house");
+    // The house step has no controls here: edit the name instead.
+    await user.clear(await screen.findByLabelText("Deal name"));
+    await user.type(screen.getByLabelText("Deal name"), "Rescued deal");
+    await user.tab();
+    const alert = await screen.findByRole("alert", undefined, { timeout: 3000 });
+    expect(alert).toHaveTextContent("This deal was deleted on another device or tab.");
+    expect(within(alert).getByRole("button", { name: "Discard my changes" })).toBeVisible();
+
+    await user.click(within(alert).getByRole("button", { name: "Save as a new deal" }));
+    await waitFor(() => expect(view.router.state.location.pathname).toMatch(/^\/deals\/[^/]+\/house$/));
+    expect(view.router.state.location.pathname).not.toContain(deal.id);
+    const { deals } = await harness.repository.listDeals();
+    expect(deals.find((d) => d.name === "Rescued deal")).toBeDefined();
+  });
+
+  it("deleted: Discard my changes goes to Deals and nothing is saved again", async () => {
+    const user = userEvent.setup();
+    const { harness, deal } = await sampleSetup();
+    const save = vi.spyOn(harness.repository, "saveDeal");
+    save.mockRejectedValue(new DataError("This deal was deleted on another device or tab.", { kind: "deleted" }));
+    const view = renderDeal(harness, deal.id);
+    await screen.findByLabelText("Deal name");
+    await user.click(screen.getByRole("button", { name: "Lower contingency" }));
+    const alert = await screen.findByRole("alert", undefined, { timeout: 3000 });
+    await user.click(within(alert).getByRole("button", { name: "Discard my changes" }));
+    await waitFor(() => expect(view.router.state.location.pathname).toBe("/deals"));
+    expect(await screen.findByRole("heading", { name: "Deals list" })).toBeVisible();
+    expect(save).toHaveBeenCalledTimes(1);
   });
 });
