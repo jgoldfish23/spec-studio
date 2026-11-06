@@ -1,4 +1,5 @@
 import { useContext } from "react";
+import type { ReactNode } from "react";
 import { Link, Outlet, useMatches } from "react-router";
 import { withoutSavePrefix } from "../../lib/errorMessage";
 import { dismissLostSave, useLostSaves } from "../deal/lostSaves";
@@ -47,7 +48,38 @@ function HouseLogo() {
   );
 }
 
-export function AppShell() {
+/** A small rounded note on the dark header, with a clay dot: the demo pill, and its hosted-mode counterparts. */
+const PILL = "m-0 flex items-center gap-2 rounded-full border border-nav-line px-3 py-1 text-xs text-nav-text";
+
+function PillDot() {
+  return <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-clay" />;
+}
+
+/**
+ * Hosted mode: how many edits on this device have not reached the server. The region is always there and polite, so a
+ * screen reader hears the count when it changes; it is empty while nothing waits.
+ */
+export function SyncNote({ count }: { count: number }) {
+  return (
+    <div role="status">
+      {count > 0 ? (
+        <p className={PILL}>
+          <PillDot />
+          {count === 1 ? "1 change waiting to sync" : `${count} changes waiting to sync`}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+export interface AppShellProps {
+  /** Hosted mode: the signed-in owner's account menu, in place of the demo pill. */
+  account?: ReactNode;
+  /** Hosted mode: what is waiting to sync (`SyncNote`), beside the account. */
+  syncNote?: ReactNode;
+}
+
+export function AppShell({ account, syncNote }: AppShellProps) {
   const dealsActive = useMatches().some((match) => isDealsSection(match.handle));
   const lostSaves = useLostSaves();
   const persistent = useContext(PersistentStorageContext);
@@ -94,10 +126,23 @@ export function AppShell() {
             </ul>
           </nav>
 
-          <p className="order-2 ml-auto flex items-center gap-2 rounded-full border border-nav-line px-3 py-1 text-xs text-nav-text md:order-3">
-            <span aria-hidden="true" className="size-1.5 rounded-full bg-clay" />
-            {persistent ? "Demo mode · saved in this browser" : "Demo mode · not saved — this browser blocks storage"}
-          </p>
+          {account === undefined ? (
+            <p className="order-2 ml-auto flex items-center gap-2 rounded-full border border-nav-line px-3 py-1 text-xs text-nav-text md:order-3">
+              <span aria-hidden="true" className="size-1.5 rounded-full bg-clay" />
+              {persistent ? "Demo mode · saved in this browser" : "Demo mode · not saved — this browser blocks storage"}
+            </p>
+          ) : (
+            <div className="order-2 ml-auto flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 md:order-3">
+              {syncNote}
+              {persistent ? null : (
+                <p className={PILL}>
+                  <PillDot />
+                  Not saved on this device — this browser blocks storage
+                </p>
+              )}
+              {account}
+            </div>
+          )}
         </div>
       </header>
 

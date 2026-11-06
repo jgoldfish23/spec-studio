@@ -1,6 +1,8 @@
 import { act, render, screen } from "@testing-library/react";
 import { useEffect } from "react";
 import { describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { AuthError } from "../../data/auth/authGateway";
 import type { AuthGateway, AuthUser } from "../../data/auth/authGateway";
 import { createFakeAuth } from "../../data/testing/fakeAuth";
 import { AuthProvider, useAuth } from "./AuthProvider";
@@ -85,6 +87,89 @@ describe("AuthProvider", () => {
   it("useAuth outside the provider throws a clear error", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     expect(() => render(<Probe />)).toThrow(/AuthProvider/);
+  });
+});
+
+describe("AuthProvider when the server can't be reached at startup", () => {
+  function Retrying() {
+    const { status, user, retry } = useAuth();
+    return (
+      <>
+        <p>
+          {status}:{user?.email ?? "-"}
+        </p>
+        <button type="button" onClick={retry}>
+          Retry
+        </button>
+      </>
+    );
+  }
+
+  it("is unreachable, not signed out, when reading the session fails offline; retry reads it again", async () => {
+    const auth = createFakeAuth({ user: PAT });
+    const read = vi
+      .spyOn(auth, "currentUser")
+      .mockRejectedValueOnce(new AuthError("offline"));
+    render(
+      <AuthProvider auth={auth}>
+        <Retrying />
+      </AuthProvider>,
+    );
+    expect(await screen.findByText("unreachable:-")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(
+      await screen.findByText("signedIn:pat@example.com"),
+    ).toBeInTheDocument();
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  it("is loading again while the retry reads", async () => {
+    const auth = createFakeAuth({ user: PAT });
+    let answer!: (user: AuthUser | null) => void;
+    vi.spyOn(auth, "currentUser")
+      .mockRejectedValueOnce(new AuthError("offline"))
+      .mockImplementationOnce(
+        () => new Promise((resolve) => (answer = resolve)),
+      );
+    render(
+      <AuthProvider auth={auth}>
+        <Retrying />
+      </AuthProvider>,
+    );
+    await screen.findByText("unreachable:-");
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(screen.getByText("loading:-")).toBeInTheDocument();
+    await act(async () => answer(null));
+    expect(screen.getByText("signedOut:-")).toBeInTheDocument();
+  });
+
+  it("follows a sign-in that arrives while unreachable", async () => {
+    const auth = createFakeAuth();
+    vi.spyOn(auth, "currentUser").mockRejectedValueOnce(
+      new AuthError("offline"),
+    );
+    render(
+      <AuthProvider auth={auth}>
+        <Retrying />
+      </AuthProvider>,
+    );
+    await screen.findByText("unreachable:-");
+    await act(() => auth.verifyCode(PAT.email, "123456"));
+    expect(screen.getByText("signedIn:pat@example.com")).toBeInTheDocument();
+  });
+
+  it("still treats any other failed read as signed out", async () => {
+    const auth = createFakeAuth({ user: PAT });
+    vi.spyOn(auth, "currentUser").mockRejectedValueOnce(
+      new AuthError("failed"),
+    );
+    render(
+      <AuthProvider auth={auth}>
+        <Retrying />
+      </AuthProvider>,
+    );
+    expect(await screen.findByText("signedOut:-")).toBeInTheDocument();
   });
 });
 

@@ -40,9 +40,12 @@ export function createSupabaseAuth(client: SupabaseClient): AuthGateway {
       );
     },
     onChange(listener) {
-      const { data } = auth.onAuthStateChange((_event, session) =>
-        listener(userOf(session)),
-      );
+      const { data } = auth.onAuthStateChange((event, session) => {
+        // The stored session's first read is `currentUser`'s to report. supabase-js reports it as no session when
+        // the read failed, and an expired session that could not be refreshed offline is not a sign-out.
+        if (event === "INITIAL_SESSION") return;
+        listener(userOf(session));
+      });
       return () => data.subscription.unsubscribe();
     },
     async sendSignInEmail(email, redirectTo) {

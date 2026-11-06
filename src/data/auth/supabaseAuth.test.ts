@@ -48,6 +48,7 @@ const sessionBody = {
 
 function setup(
   respond: (request: Recorded) => Response | Promise<Response> = () => json({}),
+  storage = new MemoryStorage(),
 ) {
   const requests: Recorded[] = [];
   const fakeFetch: typeof fetch = async (input, init) => {
@@ -61,7 +62,6 @@ function setup(
     requests.push(recorded);
     return respond(recorded);
   };
-  const storage = new MemoryStorage();
   const client = createClient("http://test.local", "anon-key", {
     auth: {
       flowType: "pkce",
@@ -203,6 +203,33 @@ describe("supabase auth gateway", () => {
         auth.sendSignInEmail("pat@example.com", "http://app.test/"),
       ),
     ).toBe("offline");
+  });
+});
+
+describe("startup with a stored session the server can't refresh", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("is offline for currentUser, and listeners hear nothing, so the app does not show a false sign-out", async () => {
+    vi.useFakeTimers();
+    const storage = new MemoryStorage();
+    const expired = {
+      ...sessionBody,
+      expires_at: Math.floor(Date.now() / 1000) - 3600,
+    };
+    storage.setItem("sb-test-auth-token", JSON.stringify(expired));
+    const { auth } = setup(() => {
+      throw new TypeError("Failed to fetch");
+    }, storage);
+    const seen: (string | null)[] = [];
+    const stop = auth.onChange((user) => seen.push(user?.id ?? null));
+    const read = reasonOf(auth.currentUser());
+    // supabase-js retries the refresh with back-off for most of 30 s before it gives up.
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(await read).toBe("offline");
+    stop();
+    expect(seen).toEqual([]);
+    // The session stays stored, for when the network is back.
+    expect(storage.getItem("sb-test-auth-token")).not.toBeNull();
   });
 });
 
