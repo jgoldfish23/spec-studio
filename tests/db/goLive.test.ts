@@ -63,7 +63,7 @@ describe("create_company", () => {
   it("creates the company, an owner membership and the settings row", async () => {
     const out = await asUser(db.client, UNEW, async (c) => {
       const id = (await createCompany(c, NAME)).rows[0].id as string;
-      // Read back as the superuser-equivalent view: the member can see all three rows through RLS.
+      // Read back as the new member, through row-level security: all three rows are visible to them.
       const company = (await c.query("select name, default_region from companies where id = $1", [id])).rows;
       const member = (await c.query("select user_id, role from memberships where company_id = $1", [id])).rows;
       const settings = (
@@ -122,30 +122,21 @@ describe("create_company", () => {
   });
 
   it("is executable by authenticated but not anon", async () => {
-    expect(await asUser(db.client, null, (c) => sqlState(createCompany(c, NAME)))).toBe(RLS_VIOLATION);
-    const state = await asUser(db.client, null, (c) => sqlState(c.query("select public.is_member($1)", [CO_A])));
-    expect(state).toBe(RLS_VIOLATION);
-    expect(await asUser(db.client, UA, (c) => sqlState(c.query("select public.is_member($1)", [CO_A])))).toBeNull();
-  });
-
-  it("reports permission denied to anon", async () => {
     await expect(asUser(db.client, null, (c) => createCompany(c, NAME))).rejects.toThrow(/permission denied/);
     await expect(asUser(db.client, null, (c) => c.query("select public.is_member($1)", [CO_A]))).rejects.toThrow(
       /permission denied/,
     );
+    expect(await asUser(db.client, UA, (c) => sqlState(c.query("select public.is_member($1)", [CO_A])))).toBeNull();
   });
 });
 
 describe("regressions deferred from Plan 2", () => {
   it("does not let a member move their membership to another company", async () => {
-    const result = await asUser(db.client, UA, async (c) => {
-      try {
-        return (await c.query("update memberships set company_id = $1 where user_id = $2", [CO_B, UA])).rowCount;
-      } catch (e) {
-        return (e as { code?: string }).code;
-      }
-    });
-    expect([0, RLS_VIOLATION]).toContain(result);
+    // No update policy on memberships, so the row is invisible to the update: 0 rows, no error.
+    const result = await asUser(db.client, UA, (c) =>
+      c.query("update memberships set company_id = $1 where user_id = $2", [CO_B, UA]),
+    );
+    expect(result.rowCount).toBe(0);
     const row = await db.client.query("select company_id from memberships where user_id = $1", [UA]);
     expect(row.rows).toEqual([{ company_id: CO_A }]);
   });
@@ -155,6 +146,8 @@ describe("regressions deferred from Plan 2", () => {
     expect(ins).toBe(RLS_VIOLATION);
     const upd = await asUser(db.client, UA, (c) => c.query("update companies set name = 'Renamed' where id = $1", [CO_A]));
     expect(upd.rowCount).toBe(0);
+    const name = await db.client.query("select name from companies where id = $1", [CO_A]);
+    expect(name.rows).toEqual([{ name: "Company A" }]);
   });
 
   const MOVES: [string, string][] = [
@@ -221,8 +214,8 @@ describe("timestamps", () => {
   it("updated_at moves forward on update for every table", async () => {
     const old = "2020-01-01T00:00:00Z";
     const targets: [string, string][] = [
-      ["memberships", "role = 'owner'"],
-      ["default_prices", "company_id is not null"],
+      ["memberships", "true"],
+      ["default_prices", "true"],
       ["price_book_entries", "true"],
       ["market_settings", "true"],
       ["company_settings", "true"],
@@ -274,6 +267,22 @@ describe("default privileges", () => {
         where p.pronamespace = 'public'::regnamespace and has_function_privilege('anon', p.oid, 'execute')`,
     );
     expect(rows.rows).toEqual([]);
+  });
+
+  it("grants public, anon and authenticated nothing on a function created after 0002", async () => {
+    await db.client.query("begin");
+    try {
+      await db.client.query("create function public.scratch_fn() returns int language sql as 'select 1'");
+      const r = await db.client.query(
+        `select has_function_privilege('anon', 'public.scratch_fn()', 'execute') as anon,
+                has_function_privilege('authenticated', 'public.scratch_fn()', 'execute') as authenticated,
+                exists (select 1 from pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                         where p.proname = 'scratch_fn' and a.grantee = 0 and a.privilege_type = 'EXECUTE') as public`,
+      );
+      expect(r.rows[0]).toEqual({ anon: false, authenticated: false, public: false });
+    } finally {
+      await db.client.query("rollback");
+    }
   });
 
   it("does not let authenticated execute the trigger function", async () => {

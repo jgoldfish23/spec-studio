@@ -39,9 +39,14 @@ create trigger company_settings_set_updated_at before update on public.company_s
 -- shipping TRUNCATE, TRIGGER and REFERENCES to every signed-in user. New tables get an explicit grant.
 alter default privileges in schema public revoke all on tables from anon, authenticated;
 
--- Postgres lets PUBLIC execute every new function. Functions in public are callable over the API,
--- so a new function must be granted on purpose, never exposed by default.
-alter default privileges in schema public revoke execute on functions from public, anon;
+-- Postgres lets PUBLIC execute every new function, and Supabase's default ACL also grants EXECUTE on
+-- new postgres-owned functions to authenticated (and service_role). Functions in public are callable
+-- over the API, so take it back from public, anon and authenticated: a future function has to be
+-- granted on purpose. (The test shim does not model Supabase's postgres/supabase_admin split.)
+-- The IN SCHEMA form only cancels schema-level grants (Supabase's anon/authenticated ones); Postgres'
+-- built-in EXECUTE for PUBLIC is not a schema-level grant and is removed only by the form without IN SCHEMA.
+alter default privileges revoke execute on functions from public;
+alter default privileges in schema public revoke execute on functions from public, anon, authenticated;
 
 -- The trigger function has no business being callable by users; triggers do not need the caller to
 -- hold EXECUTE.
