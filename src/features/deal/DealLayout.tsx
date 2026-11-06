@@ -16,7 +16,8 @@ import { useDealEditorContext } from "./DealEditorContext";
 import type { DealEditor, EvaluationError } from "./useDealEditor";
 import { STEPS } from "./steps";
 import { needText } from "./needText";
-import { SafeOnDeviceNote, SaveProblem, needsChoice } from "./SaveProblem";
+import { needsChoice } from "./autosaver";
+import { SafeOnDeviceNote, SaveProblem } from "./SaveProblem";
 import { headsUp, stepForMissing, summarize, topNeeds } from "./summary";
 
 const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spruce";
@@ -171,7 +172,7 @@ function SaveStatusText({ status }: { status: SaveStatus }) {
   }
   // The device holds these edits, so they are a note; a conflict or deletion is the panel's to say.
   if (status.reason === "offline" || status.reason === "signedOut") return <SafeOnDeviceNote key="note" status={status} />;
-  if (needsChoice(status)) return null;
+  if (needsChoice(status.reason)) return null;
   // The reason usually starts "Couldn't save — ", which the notice already says.
   const reason = withoutSavePrefix(status.message);
   return (
@@ -324,7 +325,7 @@ function ReadyDeal({ dealId, editor, name, inputs, evaluation, today }: ReadyPro
           <SaveStatusText status={editor.saveStatus} />
         </div>
 
-        <SaveProblem dealId={dealId} editor={editor} />
+        <SaveProblem editor={editor} />
 
         <CalcErrorBoundary input={inputs} resetOn={evaluation}>
           <SummaryStrip evaluation={evaluation} />

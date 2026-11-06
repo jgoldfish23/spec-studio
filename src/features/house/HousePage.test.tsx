@@ -904,6 +904,8 @@ describe("messages under the choice controls, and figures from unusable numbers"
       discardChanges: vi.fn(),
       saveNow: vi.fn(),
       keepMine: vi.fn(),
+      busy: false,
+      discardDeletedDeal: vi.fn(),
       loadTheirs: vi.fn(),
       saveAsNewDeal: vi.fn(),
       canUndo: false,

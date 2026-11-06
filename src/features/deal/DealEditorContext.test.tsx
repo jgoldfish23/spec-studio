@@ -13,6 +13,8 @@ const editor: DealEditor = {
   discardChanges: () => undefined,
   saveNow: () => undefined,
   keepMine: () => undefined,
+  busy: false,
+  discardDeletedDeal: () => undefined,
   loadTheirs: async () => undefined,
   saveAsNewDeal: async () => "",
   canUndo: false,

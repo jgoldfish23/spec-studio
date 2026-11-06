@@ -3,7 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { createMemoryRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { DEALS_KEY } from "../../data/local/localRepository";
+import { MemoryStorage } from "../../data/local/memoryStorage";
+import { createOfflineRepository } from "../../data/offline/offlineRepository";
+import { RepositoryProvider } from "../../data/RepositoryProvider";
 import { SAMPLE_DEAL_NAME } from "../../data/sample";
 import { DataError } from "../../data/types";
 import type { StoredDeal } from "../../data/types";
@@ -38,6 +43,7 @@ function Controls() {
       >
         Raise land price
       </button>
+      <p>{`Contingency now ${editor.inputs?.contingencyPct}`}</p>
     </div>
   );
 }
@@ -419,10 +425,25 @@ describe("one editor per deal", () => {
 });
 
 describe("DealLayout save problems", () => {
-  async function failing(error: DataError) {
+  /** The harness with an outbox in front of its repository, as the hosted app has. */
+  async function withOutbox() {
+    const { harness: plain, deal } = await sampleSetup();
+    const offline = createOfflineRepository(plain.repository, new MemoryStorage(), "u");
+    const Providers = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={plain.client}>
+        <RepositoryProvider repository={offline}>{children}</RepositoryProvider>
+      </QueryClientProvider>
+    );
+    return { harness: { ...plain, repository: offline, Providers } as Harness, deal, remote: plain.repository, offline };
+  }
+
+  async function failing(error: DataError, outbox = true) {
     const user = userEvent.setup();
-    const { harness, deal } = await sampleSetup();
-    const save = vi.spyOn(harness.repository, "saveDeal");
+    const plain = await sampleSetup();
+    const { harness, deal, remote } = outbox
+      ? await withOutbox()
+      : { harness: plain.harness, deal: plain.deal, remote: plain.harness.repository };
+    const save = vi.spyOn(remote, "saveDeal");
     save.mockRejectedValueOnce(error);
     const view = renderDeal(harness, deal.id);
     await screen.findByLabelText("Deal name");
@@ -444,6 +465,13 @@ describe("DealLayout save problems", () => {
     expect(await screen.findByText(SIGNED_OUT, undefined, { timeout: 3000 })).toBeVisible();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/sign-in");
+  });
+
+  it("without an outbox, offline keeps Plan 2's copy", async () => {
+    await failing(new DataError("Can't reach the server", { kind: "offline" }), false);
+    const alert = await screen.findByRole("alert", undefined, { timeout: 3000 });
+    expect(alert).toHaveTextContent("Couldn't save — retrying: Can't reach the server");
+    expect(screen.queryByText(OFFLINE)).not.toBeInTheDocument();
   });
 
   it("keeps Plan 2's copy for other failures", async () => {
@@ -484,9 +512,11 @@ describe("DealLayout save problems", () => {
     await user.click(screen.getByRole("button", { name: "Lower contingency" }));
     expect(await screen.findByRole("button", { name: "Load their version" }, { timeout: 3000 })).toBeVisible();
     expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
+    expect(screen.getByText("Contingency now 0.02")).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Load their version" }));
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(screen.queryByText("Contingency now 0.02")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
     expect(screen.getByText("Saved")).toBeVisible();
     expect(save).toHaveBeenCalledTimes(1);
@@ -509,6 +539,8 @@ describe("DealLayout save problems", () => {
     await user.click(within(alert).getByRole("button", { name: "Save as a new deal" }));
     await waitFor(() => expect(view.router.state.location.pathname).toMatch(/^\/deals\/[^/]+\/house$/));
     expect(view.router.state.location.pathname).not.toContain(deal.id);
+    expect(await screen.findByLabelText("Deal name")).toHaveValue("Rescued deal");
+    expect(screen.getByText("House step")).toBeVisible();
     const { deals } = await harness.repository.listDeals();
     expect(deals.find((d) => d.name === "Rescued deal")).toBeDefined();
   });
@@ -526,5 +558,43 @@ describe("DealLayout save problems", () => {
     await waitFor(() => expect(view.router.state.location.pathname).toBe("/deals"));
     expect(await screen.findByRole("heading", { name: "Deals list" })).toBeVisible();
     expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it("a failed Load their version says so in the panel, and the choice stays", async () => {
+    const user = userEvent.setup();
+    const { harness, deal, remote, offline } = await withOutbox();
+    vi.spyOn(remote, "saveDeal").mockRejectedValueOnce(
+      new DataError("This deal was changed on another device or tab.", { kind: "conflict" }),
+    );
+    renderDeal(harness, deal.id);
+    await screen.findByLabelText("Deal name");
+    await user.click(screen.getByRole("button", { name: "Lower contingency" }));
+    await screen.findByRole("button", { name: "Load their version" }, { timeout: 3000 });
+    expect(offline.pending()).toHaveLength(1);
+
+    const real = harness.repository.getDeal;
+    harness.repository.getDeal = async () => {
+      throw new Error("no signal");
+    };
+    await user.click(screen.getByRole("button", { name: "Load their version" }));
+    expect(await screen.findByText("Couldn't load their version — no signal. Try again.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Keep mine" })).toBeEnabled();
+    expect(offline.pending()).toHaveLength(1);
+    harness.repository.getDeal = real;
+  });
+
+  it("deleted: Discard my changes clears the outbox entry", async () => {
+    const user = userEvent.setup();
+    const { harness, deal, remote, offline } = await withOutbox();
+    vi.spyOn(remote, "saveDeal").mockRejectedValue(
+      new DataError("This deal was deleted on another device or tab.", { kind: "deleted" }),
+    );
+    renderDeal(harness, deal.id);
+    await screen.findByLabelText("Deal name");
+    await user.click(screen.getByRole("button", { name: "Lower contingency" }));
+    const alert = await screen.findByRole("alert", undefined, { timeout: 3000 });
+    expect(offline.pending().map((p) => p.dealId)).toEqual([deal.id]);
+    await user.click(within(alert).getByRole("button", { name: "Discard my changes" }));
+    await waitFor(() => expect(offline.pending()).toHaveLength(0));
   });
 });

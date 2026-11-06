@@ -622,6 +622,8 @@ describe("messages under the choice controls", () => {
       discardChanges: vi.fn(),
       saveNow: vi.fn(),
       keepMine: vi.fn(),
+      busy: false,
+      discardDeletedDeal: vi.fn(),
       loadTheirs: vi.fn(),
       saveAsNewDeal: vi.fn(),
       canUndo: false,

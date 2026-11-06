@@ -28,7 +28,7 @@ export interface AutosaverOptions<T> {
    * Called once with the newest unsaved value when a save fails after `dispose()`. A disposed autosaver shows no
    * status and arms no retry, so this is the only way the owner of the value learns that it never reached the store.
    */
-  onAbandoned?: (value: T, message: string) => void;
+  onAbandoned?: (value: T, message: string, reason: SaveFailureReason) => void;
 }
 
 export interface Autosaver<T> {
@@ -46,6 +46,9 @@ export interface Autosaver<T> {
    */
   discard(): void;
 }
+
+/** Failures that retrying cannot fix: they wait for the owner to choose a version. */
+export const needsChoice = (reason: SaveFailureReason): boolean => reason === "conflict" || reason === "deleted";
 
 const reasonOf = (error: unknown): SaveFailureReason => (error instanceof DataError ? error.kind : "unknown");
 
@@ -135,7 +138,7 @@ export function createAutosaver<T>({
         } else if (disposed) {
           // Nothing will retry this: hand the newest unsaved value to whoever owns it.
           dirty = false;
-          onAbandoned?.(latest as T, failure);
+          onAbandoned?.(latest as T, failure, reason);
         } else {
           setStatus({ kind: "error", message: failure, reason });
           if (!replaced && retry) startTimer(retryMs);

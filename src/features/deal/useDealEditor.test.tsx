@@ -1142,6 +1142,13 @@ describe("useDealEditor save problems", () => {
   const offlineError = () => new DataError("Offline — your changes are saved on this device and will sync.", { kind: "offline" });
   const signedOutError = () => new DataError("Signed out — sign in to sync.", { kind: "signedOut" });
 
+  /** A setup whose repository keeps an outbox, as the hosted app does. */
+  async function withOutbox() {
+    let offline!: OfflineRepository;
+    const s = await setup({}, (remote) => (offline = createOfflineRepository(remote, new MemoryStorage(), "u")));
+    return { s, offline };
+  }
+
   /** A deal whose stored copy another device changed after this editor read it. */
   async function conflicted(s: Setup, view: View) {
     await advance(5);
@@ -1152,7 +1159,7 @@ describe("useDealEditor save problems", () => {
   }
 
   it("says offline, keeps retrying, and does not ask before the page closes", async () => {
-    const s = await setup();
+    const { s } = await withOutbox();
     s.saveDeal.mockRejectedValueOnce(offlineError()).mockRejectedValueOnce(offlineError());
     const view = await ready(s);
     act(() => view.result.current.edit(setPrice(NEW_PRICE)));
@@ -1169,7 +1176,7 @@ describe("useDealEditor save problems", () => {
   });
 
   it("says signed out, and does not ask before the page closes", async () => {
-    const s = await setup();
+    const { s } = await withOutbox();
     s.saveDeal.mockRejectedValueOnce(signedOutError());
     const view = await ready(s);
     act(() => view.result.current.edit(setPrice(NEW_PRICE)));
@@ -1178,6 +1185,16 @@ describe("useDealEditor save problems", () => {
     expect(asks()).toBe(false);
     await advance(5000);
     expect(view.result.current.saveStatus).toEqual({ kind: "saved" });
+  });
+
+  it("without an outbox, offline is a plain failure: it asks before the page closes", async () => {
+    const s = await setup();
+    s.saveDeal.mockRejectedValueOnce(offlineError());
+    const view = await ready(s);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    await advance(1000);
+    expect(view.result.current.saveStatus).toMatchObject({ kind: "error", reason: "failed" });
+    expect(asks()).toBe(true);
   });
 
   it("still asks before the page closes for a failure that is not on the device", async () => {
@@ -1259,6 +1276,102 @@ describe("useDealEditor save problems", () => {
     const stored = await s.storedDeal(s.first.id);
     expect(stored?.inputs.lot.priceCents).toBe(NEW_PRICE);
     expect(stored?.inputs.contingencyPct).toBe(0.03);
+  });
+
+  it("ignores edits made while Load their version is reading, so they cannot overwrite theirs", async () => {
+    const s = await setup();
+    const view = await ready(s);
+    await conflicted(s, view);
+    const real = s.repository.getDeal.bind(s.repository);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    s.repository.getDeal = async (id) => {
+      await gate;
+      return real(id);
+    };
+    let loading!: Promise<void>;
+    act(() => {
+      loading = view.result.current.loadTheirs();
+    });
+    expect(view.result.current.busy).toBe(true);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE + 777)));
+    act(() => {
+      view.result.current.rename("Typed while loading");
+    });
+    release();
+    await act(async () => {
+      await loading;
+    });
+    await advance(5000);
+    expect(view.result.current.busy).toBe(false);
+    expect(s.saveDeal).toHaveBeenCalledTimes(1);
+    expect(view.result.current.inputs?.lot.priceCents).toBe(ORIGINAL_PRICE);
+    expect(view.result.current.deal?.name).toBe("Other device");
+    expect((await s.storedDeal(s.first.id))?.name).toBe("Other device");
+  });
+
+  it("a failed Load their version puts the conflict and the outbox entry back", async () => {
+    const { s, offline } = await withOutbox();
+    const view = await ready(s);
+    await conflicted(s, view);
+    expect(offline.pending()).toHaveLength(1);
+    const real = s.repository.getDeal.bind(s.repository);
+    s.repository.getDeal = async () => {
+      throw new DataError("Can't reach the server", { kind: "offline" });
+    };
+    await act(async () => {
+      await expect(view.result.current.loadTheirs()).rejects.toThrow("Can't reach the server");
+    });
+    expect(view.result.current.saveStatus).toMatchObject({ kind: "error", reason: "conflict" });
+    expect(view.result.current.inputs?.lot.priceCents).toBe(NEW_PRICE);
+    expect(view.result.current.busy).toBe(false);
+    expect(offline.pending().map((p) => p.dealId)).toEqual([s.first.id]);
+    // The owner can still choose.
+    s.repository.getDeal = real;
+    act(() => view.result.current.keepMine());
+    await advance(50);
+    expect(view.result.current.saveStatus).toEqual({ kind: "saved" });
+    expect((await s.storedDeal(s.first.id))?.inputs.lot.priceCents).toBe(NEW_PRICE);
+  });
+
+  it("leaving a deal while offline or signed out raises no lost-save banner when an outbox holds the edit", async () => {
+    for (const make of [offlineError, signedOutError]) {
+      resetLostSaves();
+      const { s } = await withOutbox();
+      s.saveDeal.mockRejectedValueOnce(make());
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const lost = renderHook(() => useLostSaves());
+      const view = await ready(s);
+      act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+      view.unmount();
+      await advance(1000);
+      expect(lost.result.current).toEqual([]);
+    }
+  });
+
+  it("leaving a deal with a plain failure still raises the lost-save banner, with an outbox too", async () => {
+    const { s } = await withOutbox();
+    s.saveDeal.mockRejectedValueOnce(new DataError("The server refused it", { kind: "failed" }));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const lost = renderHook(() => useLostSaves());
+    const view = await ready(s);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    view.unmount();
+    await advance(1000);
+    expect(lost.result.current).toHaveLength(1);
+  });
+
+  it("discardDeletedDeal clears the outbox entry", async () => {
+    const { s, offline } = await withOutbox();
+    const view = await ready(s);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    await createLocalRepository(s.storage).deleteDeal(s.first.id);
+    await advance(1000);
+    expect(offline.pending()).toHaveLength(1);
+    act(() => view.result.current.discardDeletedDeal());
+    expect(offline.pending()).toHaveLength(0);
+    await advance(30_000);
+    expect(s.saveDeal).toHaveBeenCalledTimes(1);
   });
 
   it("loadTheirs drops the outbox entry of an offline repository", async () => {
@@ -1362,6 +1475,32 @@ describe("useDealEditor closing the page with an outbox", () => {
     expect(queue).toHaveBeenCalledTimes(1);
     expect(queue.mock.calls[0]?.[0].updatedAt).toBe(landed?.updatedAt);
     expect(entriesOf(outbox)[0]?.base).toBe(landed?.updatedAt);
+  });
+
+  it("queues on visibilitychange to hidden too", async () => {
+    const { s, outbox, release } = await gatedSetup();
+    const view = await ready(s);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    await advance(1000);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE + 100_000)));
+    const hidden = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    hidden.mockRestore();
+    expect(entriesOf(outbox)[0]?.deal.inputs.lot.priceCents).toBe(NEW_PRICE + 100_000);
+    release();
+  });
+
+  it("queues the newest edit when the editor unmounts while a save is running", async () => {
+    const { s, outbox, release } = await gatedSetup();
+    const view = await ready(s);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    await advance(1000);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE + 100_000)));
+    view.unmount();
+    expect(entriesOf(outbox)[0]?.deal.inputs.lot.priceCents).toBe(NEW_PRICE + 100_000);
+    release();
   });
 
   it("does not queue when nothing is waiting", async () => {

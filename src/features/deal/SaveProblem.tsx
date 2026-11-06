@@ -1,19 +1,14 @@
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { isOfflineRepository } from "../../data/offline/offlineRepository";
-import { useRepository } from "../../data/queries";
 import { errorMessage } from "../../lib/errorMessage";
+import { needsChoice } from "./autosaver";
 import type { SaveStatus } from "./autosaver";
+import { STEPS } from "./steps";
 import type { DealEditor } from "./useDealEditor";
 
 const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spruce";
 const BUTTON = `inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-[#C9CEC8] bg-surface px-3.5 text-sm font-semibold text-ink hover:bg-paper disabled:cursor-not-allowed disabled:text-muted disabled:opacity-60 ${focusRing}`;
 const PRIMARY = `inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-spruce px-4 text-sm font-semibold text-white hover:bg-spruce-dark disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`;
-
-/** Whether this save status is one that needs the owner's choice (rather than a status line). */
-export function needsChoice(status: SaveStatus): boolean {
-  return status.kind === "error" && (status.reason === "conflict" || status.reason === "deleted");
-}
 
 /**
  * The calm notes for a save that waits on the device: the edit is in the outbox, so nothing is at risk and nothing
@@ -41,37 +36,34 @@ export function SafeOnDeviceNote({ status }: { status: SaveStatus }) {
 }
 
 /** A deal that was changed or deleted on another device or tab: the owner picks which version wins. */
-export function SaveProblem({ dealId, editor }: { dealId: string; editor: DealEditor }) {
+export function SaveProblem({ editor }: { editor: DealEditor }) {
   const { saveStatus: status } = editor;
-  const repository = useRepository();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  if (status.kind !== "error" || (status.reason !== "conflict" && status.reason !== "deleted")) return null;
+  if (status.kind !== "error" || !needsChoice(status.reason)) return null;
 
-  async function run(action: () => Promise<void> | void) {
+  async function run(action: () => Promise<void> | void, failed = "Couldn't do that") {
     setBusy(true);
     setFailure(null);
     try {
       await action();
     } catch (error) {
-      setFailure(errorMessage(error));
+      setFailure(`${failed} — ${errorMessage(error)}. Try again.`);
     } finally {
       setBusy(false);
     }
   }
 
   const discard = () => {
-    editor.discardChanges();
-    // Nothing was deleted on this device, so its outbox entry would otherwise try again.
-    if (isOfflineRepository(repository)) repository.discardPending(dealId);
+    editor.discardDeletedDeal();
     navigate("/deals");
   };
   const saveAsNew = async () => {
     const id = await editor.saveAsNewDeal();
     // The same step of the new deal: the segment after `/deals/<id>/`.
-    const step = pathname.split("/")[3] ?? "lot";
+    const step = STEPS.find((candidate) => pathname.endsWith(`/${candidate.path}`))?.path ?? "lot";
     navigate(`/deals/${id}/${step}`);
   };
 
@@ -85,25 +77,25 @@ export function SaveProblem({ dealId, editor }: { dealId: string; editor: DealEd
       <div className="flex flex-wrap gap-3">
         {status.reason === "conflict" ? (
           <>
-            <button type="button" disabled={busy} onClick={() => void run(editor.loadTheirs)} className={BUTTON}>
+            <button type="button" disabled={busy || editor.busy} onClick={() => void run(editor.loadTheirs, "Couldn't load their version")} className={BUTTON}>
               Load their version
             </button>
-            <button type="button" disabled={busy} onClick={() => void run(editor.keepMine)} className={PRIMARY}>
+            <button type="button" disabled={busy || editor.busy} onClick={() => void run(editor.keepMine)} className={PRIMARY}>
               Keep mine
             </button>
           </>
         ) : (
           <>
-            <button type="button" disabled={busy} onClick={() => void run(saveAsNew)} className={PRIMARY}>
+            <button type="button" disabled={busy || editor.busy} onClick={() => void run(saveAsNew)} className={PRIMARY}>
               Save as a new deal
             </button>
-            <button type="button" disabled={busy} onClick={() => void run(discard)} className={BUTTON}>
+            <button type="button" disabled={busy || editor.busy} onClick={() => void run(discard)} className={BUTTON}>
               Discard my changes
             </button>
           </>
         )}
       </div>
-      {failure ? <p className="m-0 text-sm font-medium text-no-go">{`Couldn't do that: ${failure}`}</p> : null}
+      {failure ? <p className="m-0 text-sm font-medium text-no-go">{failure}</p> : null}
     </div>
   );
 }
