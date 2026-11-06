@@ -443,9 +443,9 @@ export interface TextFieldProps extends FieldProps {
   onChange: (text: string) => void;
   onBlur?: () => void;
   /** `date` draws the browser's own date picker; the value is then `YYYY-MM-DD` or empty. */
-  type?: "text" | "date";
+  type?: "text" | "date" | "email";
   /** The keyboard a phone offers. */
-  inputMode?: "text" | "decimal" | "numeric";
+  inputMode?: "text" | "decimal" | "numeric" | "email";
   /** A symbol before the text, e.g. `$`. */
   prefix?: string;
 }

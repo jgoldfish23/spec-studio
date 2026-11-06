@@ -1,5 +1,6 @@
 import { AuthError } from "../auth/authGateway";
 import type { AuthGateway, AuthUser } from "../auth/authGateway";
+import { ALREADY_HAS_COMPANY } from "../auth/companyGateway";
 import type { Company, CompanyGateway } from "../auth/companyGateway";
 import { DataError } from "../types";
 
@@ -100,7 +101,7 @@ export function createFakeCompanies(
         );
       }
       if (companies.has(id))
-        throw new DataError("You already have a company.", { kind: "failed" });
+        throw new DataError(ALREADY_HAS_COMPANY, { kind: "failed" });
       const company = {
         id: `company-${companies.size + 1}`,
         name: trimmed,

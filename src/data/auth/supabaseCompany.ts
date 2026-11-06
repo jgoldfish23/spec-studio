@@ -1,9 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { DataError } from "../types";
 import { toDataError } from "../supabase/errors";
+import { ALREADY_HAS_COMPANY } from "./companyGateway";
 import type { CompanyGateway } from "./companyGateway";
 
-const ALREADY = "You already have a company.";
 const BAD_NAME = "Enter a company name of 120 characters or fewer.";
 
 interface MembershipRow {
@@ -50,7 +50,10 @@ export function createSupabaseCompany(client: SupabaseClient): CompanyGateway {
             cause: error,
           });
         if (error.code === "SS002")
-          throw new DataError(ALREADY, { kind: "failed", cause: error });
+          throw new DataError(ALREADY_HAS_COMPANY, {
+            kind: "failed",
+            cause: error,
+          });
         if (error.code === "SS003")
           throw new DataError(BAD_NAME, { kind: "failed", cause: error });
         throw toDataError(error, "create your company", undefined, status);
