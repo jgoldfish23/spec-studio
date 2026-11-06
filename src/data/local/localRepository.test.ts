@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { testSampleComps } from "../../testing/sampleIds";
 import { DEFAULT_MARKET_SETTINGS, DEFAULT_RULES, type Comp } from "@engine";
-import { LEGACY_SAMPLE_COMP_IDS, SAMPLE_COMP_IDS, sampleComps, sampleDealInputs } from "../sample";
+import { isSampleComp, LEGACY_SAMPLE_COMP_IDS, sampleDealInputs } from "../sample";
+import goldenComps from "../../engine/__fixtures__/golden-comps.json";
 import { isUuid } from "../../lib/uuid";
 import { STARTER_COST_BOOK } from "../starterCostBook";
 import { newDealInputs } from "../newDeal";
@@ -53,8 +55,8 @@ function putDeals(storage: Storage, deals: Record<string, unknown>): void {
 }
 
 function comp(id: string, region = "utah-north"): Comp {
-  const base = sampleComps()[0] as Comp;
-  return { ...base, id, region };
+  const base = testSampleComps()[0] as Comp;
+  return { ...base, id, region, source: "manual" };
 }
 
 describe("storage keys", () => {
@@ -786,39 +788,52 @@ describe("DataError kinds", () => {
 
 describe("the legacy sample comp ids", () => {
   const legacy = (n: number) => `comp-${n}`;
-  const uuid = (n: number) => `5a3e0c0e-5a3e-4000-8000-00000000000${n}`;
 
   function legacyStorage(): MemoryStorage {
     const storage = new MemoryStorage();
-    const comps = Object.fromEntries(sampleComps().map((c, i) => [legacy(i + 1), { ...c, id: legacy(i + 1) }]));
+    const comps: Record<string, unknown> = Object.fromEntries(
+      goldenComps.map((c, i) => [legacy(i + 1), { ...c, id: legacy(i + 1), source: "manual" }]),
+    );
     comps["my-comp"] = { ...comp("my-comp") };
     storage.setItem(COMPS_KEY, JSON.stringify(comps));
     const inputs = sampleDealInputs();
-    inputs.compSelections = { [legacy(1)]: false, [legacy(8)]: true, "my-comp": false, [uuid(2)]: true };
+    inputs.compSelections = { [legacy(1)]: false, [legacy(8)]: true, "my-comp": false };
     putDeals(storage, { d1: { ...storedDeal("d1"), inputs } });
     return storage;
   }
 
-  it("maps the fixture's ids to the sample's fixed UUIDs", () => {
-    expect(LEGACY_SAMPLE_COMP_IDS).toEqual(Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8].map((n) => [legacy(n), uuid(n)])));
+  /** A repository whose ids are 00000000-0000-4000-8000-000000000001, ...002, ... in the order they are asked for. */
+  function open(storage: Storage) {
+    let n = 0;
+    return createLocalRepository(storage, {
+      now: () => T0,
+      newId: () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`,
+    });
+  }
+
+  it("lists the fixture's eight ids", () => {
+    expect(LEGACY_SAMPLE_COMP_IDS).toEqual([1, 2, 3, 4, 5, 6, 7, 8].map(legacy));
   });
 
-  it("rewrites the stored comps and every deal's compSelections once, on open", async () => {
+  it("gives the eight comps new UUIDs and the sample mark, and renames every deal's compSelections to match, once", async () => {
     const storage = legacyStorage();
-    const { repo } = setup(storage);
+    const repo = open(storage);
     const comps = await repo.listComps("utah-north");
-    expect(comps.map((c) => c.id).sort()).toEqual([...SAMPLE_COMP_IDS, "my-comp"].sort());
-    expect(Object.keys(JSON.parse(storage.getItem(COMPS_KEY) as string))).not.toContain("comp-1");
+    const sample = comps.filter(isSampleComp);
+    expect(sample).toHaveLength(8);
+    for (const c of sample) expect(isUuid(c.id), c.id).toBe(true);
+    expect(new Set(sample.map((c) => c.id)).size).toBe(8);
+    expect(comps.find((c) => c.id === "my-comp")?.source).toBe("manual");
+    const idOf = (n: number) => sample.find((c) => c.address === goldenComps[n - 1]?.address)?.id as string;
     const deal = await repo.getDeal("d1");
-    expect(deal?.inputs.compSelections).toEqual({ [uuid(1)]: false, [uuid(8)]: true, "my-comp": false, [uuid(2)]: true });
-    for (const id of Object.keys(deal?.inputs.compSelections ?? {}).filter((k) => k !== "my-comp")) expect(isUuid(id)).toBe(true);
+    expect(deal?.inputs.compSelections).toEqual({ [idOf(1)]: false, [idOf(8)]: true, "my-comp": false });
     expect(storage.getItem(DEALS_KEY)).not.toMatch(/"comp-\d"/);
     expect(storage.getItem(COMPS_KEY)).not.toMatch(/"comp-\d"/);
   });
 
-  it("leaves other non-UUID ids alone and does not write again once rewritten", async () => {
+  it("is idempotent: a second open changes nothing and writes nothing", async () => {
     const storage = legacyStorage();
-    setup(storage);
+    open(storage);
     const after = [storage.getItem(COMPS_KEY), storage.getItem(DEALS_KEY)];
     let writes = 0;
     const counting = new (class extends MemoryStorage {
@@ -830,7 +845,7 @@ describe("the legacy sample comp ids", () => {
     counting.setItem(COMPS_KEY, after[0] as string);
     counting.setItem(DEALS_KEY, after[1] as string);
     writes = 0;
-    setup(counting);
+    open(counting);
     expect(writes).toBe(0);
     expect(JSON.parse(after[0] as string)["my-comp"].id).toBe("my-comp");
   });
@@ -839,7 +854,7 @@ describe("the legacy sample comp ids", () => {
     const storage = new MemoryStorage();
     storage.setItem(COMPS_KEY, "not json");
     storage.setItem(DEALS_KEY, "[1]");
-    setup(storage);
+    open(storage);
     expect(storage.getItem(COMPS_KEY)).toBe("not json");
     expect(storage.getItem(DEALS_KEY)).toBe("[1]");
   });
@@ -849,17 +864,8 @@ describe("the legacy sample comp ids", () => {
     const deals = JSON.parse(storage.getItem(DEALS_KEY) as string);
     deals.bad = badPriceDeal("bad");
     putDeals(storage, deals);
-    const { repo } = setup(storage);
-    expect((await repo.getDeal("d1"))?.inputs.compSelections[uuid(1)]).toBe(false);
+    const repo = open(storage);
+    expect(Object.keys((await repo.getDeal("d1"))?.inputs.compSelections ?? {})).not.toContain(legacy(1));
     expect((await repo.listDeals()).problems.map((p) => p.id)).toEqual(["bad"]);
-  });
-
-  it("keeps the newer of two copies when a UUID comp already exists beside its legacy one", async () => {
-    const storage = legacyStorage();
-    const comps = JSON.parse(storage.getItem(COMPS_KEY) as string);
-    comps[uuid(1)] = { ...comps[legacy(1)], id: uuid(1), address: "Edited sample" };
-    storage.setItem(COMPS_KEY, JSON.stringify(comps));
-    const { repo } = setup(storage);
-    expect((await repo.listComps("utah-north")).find((c) => c.id === uuid(1))?.address).toBe("Edited sample");
   });
 });

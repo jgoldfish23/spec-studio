@@ -51,7 +51,7 @@ export const CompSchema = z.object({
   walkout: z.boolean(),
   adu: z.boolean(),
   pool: z.boolean(),
-  source: z.enum(["manual", "csv", "claudeFile", "ownSale"]),
+  source: z.enum(["manual", "csv", "claudeFile", "ownSale", "sample"]),
   verified: z.boolean(),
   notes: z.string().optional(),
 });

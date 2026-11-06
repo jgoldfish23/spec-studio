@@ -1,7 +1,8 @@
+import { testSampleComps } from "../../testing/sampleIds";
 import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { compDomDays, DEFAULT_MARKET_SETTINGS } from "@engine";
-import { sampleComps } from "../../data/sample";
+
 import { formatMoney } from "../../lib/format";
 import { advance, installFakeClock, newUser, savedAfterAutosave } from "../../testing/editorTiming";
 import { evaluated } from "../../testing/engineContext";
@@ -53,7 +54,7 @@ describe("the comps table", () => {
     await openMarket(harness, deal);
 
     const header = (address: string) => within(compRow(address)).getByRole("rowheader");
-    for (const comp of sampleComps()) expect(within(header(comp.address)).getByText("Sample")).toBeVisible();
+    for (const comp of testSampleComps()) expect(within(header(comp.address)).getByText("Sample")).toBeVisible();
     expect(within(header(far.address)).queryByText("Sample")).not.toBeInTheDocument();
     // The tag is beside the address, not part of it.
     expect(listedAddresses()).toContain(TOP);
@@ -70,7 +71,7 @@ describe("the comps table", () => {
     // Built, finished sf (2,173 above grade and 1,777 in the basement), sold price, price per finished sf.
     expect(cells.slice(0, 4).map((cell) => cell.textContent)).toEqual(["2025", "3,950", "$1,365,000", "$346"]);
     // Days to contract, listed → sold, match, adjusted value.
-    expect(cells[4]).toHaveTextContent(String(compDomDays(sampleComps()[0]!, DEFAULT_MARKET_SETTINGS)));
+    expect(cells[4]).toHaveTextContent(String(compDomDays(testSampleComps()[0]!, DEFAULT_MARKET_SETTINGS)));
     expect(cells[4]).toHaveTextContent("26");
     expect(cells[5]).toHaveTextContent("Apr 2026 → Jun 2026");
     expect(cells[6]).toHaveTextContent("98%");

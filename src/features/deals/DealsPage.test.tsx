@@ -1,9 +1,11 @@
+import { TEST_SAMPLE_IDS, testSampleComps } from "../../testing/sampleIds";
+import { sampleComps } from "../../data/sample";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Comp } from "@engine";
 import { DEALS_KEY } from "../../data/local/localRepository";
-import { SAMPLE_COMP_IDS, SAMPLE_DEAL_NAME, sampleComps, sampleDealInputs } from "../../data/sample";
+import { isSampleComp, SAMPLE_DEAL_NAME, sampleDealInputs } from "../../data/sample";
 import { createHarness, renderApp, seedSampleDeal } from "../../testing/renderApp";
 
 const EMPTY = "No deals yet — start one, or load the sample deal to look around.";
@@ -21,7 +23,7 @@ const main = () => screen.getByRole("main");
 
 const OWN_COMP_ID = "0b6f6c0e-6a43-4c1f-9b55-3a6c7f2f0e11";
 /** A sold comp the owner added: not one of the sample's. */
-const ownComp = (): Comp => ({ ...(sampleComps()[0] as Comp), id: OWN_COMP_ID, address: "12 Own Street, Layton, UT" });
+const ownComp = (): Comp => ({ ...(testSampleComps()[0] as Comp), id: OWN_COMP_ID, source: "manual", address: "12 Own Street, Layton, UT" });
 
 describe("Deals page", () => {
   it("shows the title, the subtitle and the empty state when there are no deals", async () => {
@@ -150,8 +152,25 @@ describe("Deals page", () => {
       await user.click(await screen.findByRole("button", { name: "Load sample deal" }));
       await waitFor(() => expect(window.location.hash).toMatch(/\/proforma$/));
       const comps = await harness.repository.listComps("utah-north");
-      expect(comps.map((comp) => comp.id).sort()).toEqual([...SAMPLE_COMP_IDS].sort());
+      expect(comps).toHaveLength(8);
+      expect(comps.every(isSampleComp)).toBe(true);
       expect(comps.find((comp) => comp.id === first.id)?.soldPriceCents).toBe(123_456_700);
+    });
+
+    it("get their own ids in each company's library, so two companies can both load the sample", async () => {
+      const user = userEvent.setup();
+      const ids: string[][] = [];
+      for (let i = 0; i < 2; i++) {
+        const harness = createHarness();
+        const view = renderApp("#/", harness);
+        await user.click(await screen.findByRole("button", { name: "Load sample deal" }));
+        await waitFor(() => expect(window.location.hash).toMatch(/\/proforma$/));
+        ids.push((await harness.repository.listComps("utah-north")).map((comp) => comp.id));
+        view.unmount();
+        window.location.hash = "#/";
+      }
+      expect(ids.map((list) => list.length)).toEqual([8, 8]);
+      expect(new Set(ids.flat()).size).toBe(16);
     });
 
     it("are left out of a new deal (as choices the owner can change on Market); the owner's own comps are not", async () => {
@@ -165,7 +184,7 @@ describe("Deals page", () => {
       await waitFor(() => expect(window.location.hash).toMatch(/^#\/deals\/[^/]+\/lot$/));
       const id = window.location.hash.split("/")[2] as string;
       const stored = await harness.repository.getDeal(id);
-      expect(stored?.inputs.compSelections).toEqual(Object.fromEntries([...SAMPLE_COMP_IDS].map((compId) => [compId, false])));
+      expect(stored?.inputs.compSelections).toEqual(Object.fromEntries(TEST_SAMPLE_IDS.map((compId) => [compId, false])));
     });
 
     it("are not chosen for a new deal when the library has none of them", async () => {

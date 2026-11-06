@@ -1,8 +1,9 @@
+import { testSampleComps } from "../../testing/sampleIds";
 import { createClient } from "@supabase/supabase-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_MARKET_SETTINGS, DEFAULT_RULES } from "@engine";
 import type { Comp } from "@engine";
-import { sampleComps, sampleDealInputs } from "../sample";
+import { sampleDealInputs } from "../sample";
 import { DataError } from "../types";
 import type { StoredDeal } from "../types";
 import { compToRow } from "./mappers";
@@ -89,7 +90,7 @@ function storedDeal(overrides: Partial<StoredDeal> = {}): StoredDeal {
   };
 }
 
-const comp = (id = COMP_ID, region = "utah-north"): Comp => ({ ...(sampleComps()[0] as Comp), id, region });
+const comp = (id = COMP_ID, region = "utah-north"): Comp => ({ ...(testSampleComps()[0] as Comp), id, region });
 
 /** What Postgres would send back for a comp. */
 const compRow = (c: Comp): Record<string, unknown> => ({ ...compToRow(c, CO), created_at: CREATED, updated_at: UPDATED });
@@ -261,6 +262,13 @@ describe("createDeal", () => {
   });
 });
 
+/** The same JSON with every object's keys in the opposite order, as jsonb might hand it back. */
+function reverseKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(reverseKeys);
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(Object.entries(value).reverse().map(([key, inner]) => [key, reverseKeys(inner)]));
+}
+
 describe("saveDeal", () => {
   it("updates the deal by id and the updated_at it was made from, never upserting", async () => {
     const deal = storedDeal();
@@ -325,7 +333,44 @@ describe("saveDeal", () => {
     expect(requests.map((r) => r.method)).toEqual(["PATCH", "GET"]);
     const check = requests[1] as Recorded;
     expect(check.url.pathname).toBe("/rest/v1/deals");
-    expect(params(check)).toMatchObject({ select: "id,updated_at", id: `eq.${DEAL_ID}` });
+    expect(params(check)).toMatchObject({
+      select: "id,company_id,name,status,schema_version,inputs,created_at,updated_at",
+      id: `eq.${DEAL_ID}`,
+      company_id: `eq.${CO}`,
+    });
+  });
+
+  it("does not guess when the existence check itself fails: that error is mapped, not a conflict or a deletion", async () => {
+    const { repo } = setup((request) => (request.method === "PATCH" ? json([]) : json(NOT_UUID, 400)));
+    const caught = await error(repo.saveDeal(storedDeal()));
+    expect(caught.kind).toBe("failed");
+    expect(caught.message).toBe(FAILED);
+    const offline = setup((request) => (request.method === "PATCH" ? json([]) : json({ message: "no" }, 401)));
+    expect((await error(offline.repo.saveDeal(storedDeal()))).kind).toBe("signedOut");
+  });
+
+  it("returns the stored deal when a lost response hid that this very save had committed", async () => {
+    // The PATCH answers nothing matched (the first attempt already moved updated_at), and the row is what we send.
+    const deal = storedDeal();
+    const { repo } = setup((request) =>
+      request.method === "PATCH"
+        ? json([])
+        // jsonb hands the keys back in its own order
+        : json({ ...dealRow({ updated_at: LATER }), inputs: reverseKeys(deal.inputs) }),
+    );
+    const saved = await repo.saveDeal(deal);
+    expect(saved).toEqual(storedDeal({ updatedAt: LATER }));
+  });
+
+  it("still reports a conflict when the stored deal differs in any field", async () => {
+    for (const change of [{ name: "Someone else's name" }, { status: "dropped" }]) {
+      const { repo } = setup((request) => (request.method === "PATCH" ? json([]) : json(dealRow({ ...change, updated_at: LATER }))));
+      expect((await error(repo.saveDeal(storedDeal()))).kind).toBe("conflict");
+    }
+    const other = sampleDealInputs();
+    other.lot.priceCents += 1;
+    const { repo } = setup((request) => (request.method === "PATCH" ? json([]) : json(dealRow({ inputs: other, updated_at: LATER }))));
+    expect((await error(repo.saveDeal(storedDeal()))).kind).toBe("conflict");
   });
 
   it("reports a deleted deal when nothing matched and nothing is there", async () => {
@@ -490,6 +535,7 @@ describe("ids that are not UUIDs", () => {
     const { repo, requests } = setup();
     const caught = await error(repo.saveComp(comp("comp-1")));
     expect(caught.path).toBe("id");
+    expect(caught.kind).toBe("failed");
     expect(requests).toHaveLength(0);
   });
 });
@@ -684,7 +730,7 @@ describe("getCostBook", () => {
     await repo.getCostBook("utah-north");
     const defaults = requests.find((r) => r.url.pathname === "/rest/v1/default_prices") as Recorded;
     const book = requests.find((r) => r.url.pathname === "/rest/v1/price_book_entries") as Recorded;
-    expect(params(defaults).order).toBe("code.asc,variant.asc,tier.asc,company_id.asc");
+    expect(params(defaults).order).toBe("code.asc,variant.asc,tier.asc,company_id.asc,id.asc");
     expect(params(book).order).toBe("code.asc,variant.asc,tier.asc,id.asc");
   });
 

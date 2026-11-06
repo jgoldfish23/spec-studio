@@ -1,12 +1,13 @@
+import { testSampleComps } from "../../testing/sampleIds";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { Comp } from "@engine";
-import { sampleComps } from "../../data/sample";
+
 import { CompForm } from "./CompForm";
 import { formFromComp } from "./compForm";
 
-const FIRST = sampleComps()[0] as Comp;
+const FIRST: Comp = { ...(testSampleComps()[0] as Comp), source: "manual" };
 
 function renderForm(region: string) {
   const onSave = vi.fn();

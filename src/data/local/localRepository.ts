@@ -61,58 +61,67 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 /**
- * Plan 2 stored the sample's comps as `comp-1`…`comp-8`; they are now fixed UUIDs. Rewrites those eight ids, and only
- * those, in the comps and in every deal's `compSelections`, once. A store that cannot be read, a record of another
- * shape, a write that fails: all are left as they are (the read paths already report them). Each of the two stores is
- * rewritten on its own, so a half-done upgrade finishes on the next open.
+ * Plan 2 stored the sample's comps as `comp-1`…`comp-8`. Comp ids are now UUIDs, and the sample is marked by
+ * `source: "sample"`: those eight ids, and only those, get a new UUID and the mark, in the comps and in every deal's
+ * `compSelections`, once. A store that cannot be read, a record of another shape, a write that fails: all are left as
+ * they are (the read paths already report them). The deals are written first, so if the second write fails the comps
+ * are still plain `comp-N` and the next open tries again.
  */
-function upgradeLegacySampleIds(storage: Storage): void {
-  const legacy = Object.keys(LEGACY_SAMPLE_COMP_IDS);
-  const rewrite = (key: string, change: (records: Record<string, unknown>) => Record<string, unknown> | null): void => {
-    const store = readStore(storage, key);
-    if (!store.ok) return;
-    const changed = change(store.records);
-    if (changed === null) return;
-    try {
-      storage.setItem(key, JSON.stringify(changed));
-    } catch {
-      // Left as it was; the next open tries again.
+function upgradeLegacySampleIds(storage: Storage, newId: () => string): void {
+  const legacy = new Set(LEGACY_SAMPLE_COMP_IDS);
+  const isLegacy = (id: string): boolean => legacy.has(id);
+  const renamed = new Map<string, string>();
+  const rename = (id: string): string => {
+    let target = renamed.get(id);
+    if (target === undefined) {
+      target = newId();
+      renamed.set(id, target);
     }
+    return target;
   };
 
-  rewrite(COMPS_KEY, (records) => {
-    if (!legacy.some((id) => Object.hasOwn(records, id))) return null;
-    const next: Record<string, unknown> = {};
-    for (const [id, record] of Object.entries(records)) {
-      const target = Object.hasOwn(LEGACY_SAMPLE_COMP_IDS, id) ? LEGACY_SAMPLE_COMP_IDS[id] : undefined;
-      if (target === undefined) next[id] = record;
-      // A copy already stored under the UUID is the newer one: keep it.
-      else if (!Object.hasOwn(records, target)) next[target] = isRecord(record) ? { ...record, id: target } : record;
-    }
-    return next;
-  });
+  const comps = readStore(storage, COMPS_KEY);
+  const deals = readStore(storage, DEALS_KEY);
 
-  rewrite(DEALS_KEY, (records) => {
-    let changed = false;
+  let nextDeals: Record<string, unknown> | null = null;
+  if (deals.ok) {
     const next: Record<string, unknown> = {};
-    for (const [id, record] of Object.entries(records)) {
+    let changed = false;
+    for (const [id, record] of Object.entries(deals.records)) {
       const inputs = isRecord(record) ? record.inputs : undefined;
       const selections = isRecord(inputs) ? inputs.compSelections : undefined;
-      if (!isRecord(record) || !isRecord(inputs) || !isRecord(selections) || !legacy.some((l) => Object.hasOwn(selections, l))) {
+      if (!isRecord(record) || !isRecord(inputs) || !isRecord(selections) || !Object.keys(selections).some(isLegacy)) {
         next[id] = record;
         continue;
       }
       changed = true;
-      const renamed: Record<string, unknown> = {};
-      for (const [compId, chosen] of Object.entries(selections)) {
-        const target = Object.hasOwn(LEGACY_SAMPLE_COMP_IDS, compId) ? LEGACY_SAMPLE_COMP_IDS[compId] : undefined;
-        if (target === undefined) renamed[compId] = chosen;
-        else if (!Object.hasOwn(selections, target)) renamed[target] = chosen;
-      }
-      next[id] = { ...record, inputs: { ...inputs, compSelections: renamed } };
+      const swapped: Record<string, unknown> = {};
+      for (const [compId, chosen] of Object.entries(selections))
+        swapped[isLegacy(compId) ? rename(compId) : compId] = chosen;
+      next[id] = { ...record, inputs: { ...inputs, compSelections: swapped } };
     }
-    return changed ? next : null;
-  });
+    if (changed) nextDeals = next;
+  }
+
+  let nextComps: Record<string, unknown> | null = null;
+  if (comps.ok && Object.keys(comps.records).some(isLegacy)) {
+    nextComps = {};
+    for (const [id, record] of Object.entries(comps.records)) {
+      if (!isLegacy(id)) nextComps[id] = record;
+      else {
+        const target = rename(id);
+        nextComps[target] = isRecord(record) ? { ...record, id: target, source: "sample" } : record;
+      }
+    }
+  }
+
+  // Renaming ids for the deals happened before the comps' own, so both use one mapping; write in the safe order.
+  try {
+    if (nextDeals !== null) storage.setItem(DEALS_KEY, JSON.stringify(nextDeals));
+    if (nextComps !== null) storage.setItem(COMPS_KEY, JSON.stringify(nextComps));
+  } catch {
+    // Left as it was; the next open tries again.
+  }
 }
 
 /**
@@ -128,7 +137,7 @@ export function createLocalRepository(
 ): Repository {
   const now = opts.now ?? (() => new Date().toISOString());
   const newId = opts.newId ?? (() => crypto.randomUUID());
-  upgradeLegacySampleIds(storage);
+  upgradeLegacySampleIds(storage, newId);
 
   /** Any failure to write (the quota, a blocked store) is the same story to the owner. */
   function write(key: string, records: Record<string, unknown>): void {

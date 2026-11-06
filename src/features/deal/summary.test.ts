@@ -1,8 +1,9 @@
+import { testSampleComps } from "../../testing/sampleIds";
 import { describe, expect, it } from "vitest";
 import { evaluateDeal } from "@engine";
 import type { DealEvaluation, MissingItem } from "@engine";
 import { newDealInputs } from "../../data/newDeal";
-import { sampleComps, sampleDealInputs } from "../../data/sample";
+import { sampleDealInputs } from "../../data/sample";
 import { contextFor, evaluated, TEST_TODAY } from "../../testing/engineContext";
 import { headsUp, stepForMissing, summarize, topNeeds } from "./summary";
 
@@ -138,7 +139,7 @@ describe("headsUp", () => {
     const message = "Every included comp sold more than 12 months ago";
     const allIncluded = (ids: readonly string[], included: readonly string[]) =>
       Object.fromEntries(ids.map((id) => [id, included.includes(id)]));
-    const ids = sampleComps().map((comp) => comp.id);
+    const ids = testSampleComps().map((comp) => comp.id);
 
     it("warns when every included sold comp is more than 12 months old", async () => {
       const inputs = sampleDealInputs();

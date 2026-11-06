@@ -5,12 +5,13 @@ import {
   DEFAULT_QUANTITY_RULES,
   evaluateDeal,
   validateDeal,
+  type Comp,
   type EngineContext,
 } from "@engine";
 import goldenComps from "../engine/__fixtures__/golden-comps.json";
 import goldenDeal from "../engine/__fixtures__/golden-deal.inputs.json";
 import { isUuid } from "../lib/uuid";
-import { SAMPLE_COMP_IDS, SAMPLE_DEAL_NAME, sampleComps, sampleDealInputs } from "./sample";
+import { isSampleComp, leaveOutSampleComps, SAMPLE_DEAL_NAME, sampleComps, sampleDealInputs } from "./sample";
 import { STARTER_COST_BOOK } from "./starterCostBook";
 
 const ctx = (): EngineContext => ({
@@ -71,7 +72,7 @@ describe("the sample deal", () => {
     a.lot.city = "Elsewhere";
     a.house.rooms.bedrooms = 1;
     a.bids.length = 0;
-    a.compSelections["5a3e0c0e-5a3e-4000-8000-000000000001"] = false;
+    a.compSelections["x"] = false;
     const b = sampleDealInputs();
     expect(b.lot.city).toBe("Kaysville");
     expect(b.house.rooms.bedrooms).toBe(5);
@@ -84,7 +85,11 @@ describe("the sample comps", () => {
   it("are the 8 golden comps, each valid", () => {
     const comps = sampleComps();
     expect(comps).toHaveLength(8);
-    const withoutId = (comp: { id: string }) => ({ ...comp, id: undefined });
+    const withoutId = (comp: { id: string }) => ({
+      ...comp,
+      id: undefined,
+      source: undefined,
+    });
     expect(comps.map(withoutId)).toEqual(goldenComps.map(withoutId));
     for (const comp of comps) expect(CompSchema.safeParse(comp).success, comp.id).toBe(true);
   });
@@ -93,10 +98,33 @@ describe("the sample comps", () => {
     for (const comp of sampleComps()) expect(isUuid(comp.id), comp.id).toBe(true);
   });
 
-  it("have 8 fixed ids, in fixture order", () => {
-    const expected = Array.from({ length: 8 }, (_, i) => `5a3e0c0e-5a3e-4000-8000-00000000000${i + 1}`);
-    expect(sampleComps().map((comp) => comp.id)).toEqual(expected);
-    expect([...SAMPLE_COMP_IDS]).toEqual(expected);
+  it("get new ids on every call, so two companies never share a comp row", () => {
+    const a = sampleComps().map((comp) => comp.id);
+    const b = sampleComps().map((comp) => comp.id);
+    expect(new Set([...a, ...b]).size).toBe(16);
+  });
+
+  it("take their ids from the generator when one is given", () => {
+    let n = 0;
+    expect(sampleComps(() => `id-${++n}`).map((comp) => comp.id)).toEqual(
+      Array.from({ length: 8 }, (_, i) => `id-${i + 1}`),
+    );
+  });
+
+  it("are marked as sample data, and nothing else is", () => {
+    expect(sampleComps().every(isSampleComp)).toBe(true);
+    for (const comp of goldenComps) expect(comp.source).toBe("manual");
+    expect(isSampleComp({ ...(sampleComps()[0] as Comp), source: "manual" })).toBe(false);
+  });
+
+  it("are the ones leaveOutSampleComps leaves out", () => {
+    const own = {
+      ...(sampleComps()[0] as Comp),
+      id: "own",
+      source: "manual" as const,
+    };
+    const sample = sampleComps();
+    expect(leaveOutSampleComps([own, ...sample])).toEqual(Object.fromEntries(sample.map((comp) => [comp.id, false])));
   });
 
   it("return a fresh deep copy on every call", () => {

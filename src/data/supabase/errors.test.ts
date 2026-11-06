@@ -18,9 +18,31 @@ describe("toDataError", () => {
   });
 
   it("maps a PostgREST error that wraps a fetch failure to offline", () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const wrapped = { message: "TypeError: Failed to fetch", details: "stack", code: "" };
+    expect(toDataError(wrapped, "save", undefined, 0).kind).toBe("offline");
+    expect(toDataError({ ...wrapped, message: "FetchError: x" }, "save").kind).toBe("offline");
+    expect(toDataError({ message: "anything", status: 0 }, "save").kind).toBe("offline");
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  it("never reads details: owner text that mentions a fetch failure is still a failed save", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const result = toDataError({ message: "TypeError: Failed to fetch", details: "TypeError: Failed to fetch", code: "" }, "save");
-    expect(result.kind).toBe("offline");
+    const error = {
+      message: 'new row for relation "deals" violates check constraint',
+      details: "Failing row contains (Failed to fetch, TypeError: Failed to fetch)",
+      code: "23514",
+    };
+    expect(toDataError(error, "save", undefined, 400).kind).toBe("failed");
+    expect(toDataError(error, "save").kind).toBe("failed");
+  });
+
+  it("keeps the whole error as the cause, hint included, and logs that same object", () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const error = Object.assign(new Error("nope"), { code: "42501", details: "d", hint: "grant it" });
+    const result = toDataError(error, "save", "x", 403);
+    expect(result.cause).toBe(error);
+    expect(log.mock.calls[0]?.[1]).toBe(error);
   });
 
   it.each([

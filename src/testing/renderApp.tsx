@@ -1,3 +1,4 @@
+import { testSampleComps } from "./sampleIds";
 import { QueryClientProvider } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
 import { render } from "@testing-library/react";
@@ -7,7 +8,7 @@ import { App } from "../App";
 import { createLocalRepository } from "../data/local/localRepository";
 import { createQueryClient } from "../data/queryClient";
 import { RepositoryProvider } from "../data/RepositoryProvider";
-import { SAMPLE_DEAL_NAME, sampleComps, sampleDealInputs } from "../data/sample";
+import { SAMPLE_DEAL_NAME, sampleDealInputs } from "../data/sample";
 import { MemoryStorage } from "../data/local/memoryStorage";
 import type { Repository, StoredDeal } from "../data/types";
 import { resetLostSaves } from "../features/deal/lostSaves";
@@ -48,6 +49,6 @@ export function renderApp(hash: string, harness: Harness = createHarness()) {
 
 /** Stores the sample deal and its comps, the way "Load sample deal" does. */
 export async function seedSampleDeal(repository: Repository): Promise<StoredDeal> {
-  for (const comp of sampleComps()) await repository.saveComp(comp);
+  for (const comp of testSampleComps()) await repository.saveComp(comp);
   return repository.createDeal({ name: SAMPLE_DEAL_NAME, inputs: sampleDealInputs() });
 }

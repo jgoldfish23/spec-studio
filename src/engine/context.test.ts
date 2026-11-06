@@ -264,7 +264,7 @@ describe("comps", () => {
     for (const finish of ["none", "unfinished", "partial", "finished"]) {
       expect(validateContext(setAt(fullContext(), "comps.0.basementFinish", finish)), finish).toEqual([]);
     }
-    for (const source of ["manual", "csv", "claudeFile", "ownSale"]) {
+    for (const source of ["manual", "csv", "claudeFile", "ownSale", "sample"]) {
       expect(validateContext(setAt(fullContext(), "comps.0.source", source)), source).toEqual([]);
     }
   });

@@ -104,11 +104,11 @@ export function useDealEditor(dealId: string): DealEditor {
   /** A save failed and none has worked since: edits made, saving or waiting in the meantime are still at risk. */
   const [saveFailedSinceSaved, setSaveFailedSinceSaved] = useState(false);
   /**
-   * The `updatedAt` the next save is made from: the one the editor was seeded with, then the one each save returned.
+   * The `updatedAt` the next save of each deal is made from (a late save of one deal must not touch another's): the one the editor was seeded with, then the one each save returned.
    * A save is checked against the stored `updatedAt`, and the deal an edit was scheduled with may be older than the
    * last save (it was built while that save ran), so every save is stamped from here, not from the deal's own copy.
    */
-  const baseline = useRef<{ dealId: string; updatedAt: string } | null>(null);
+  const baseline = useRef(new Map<string, string>());
 
   // Seed once per deal id, from the first settled read. A later read of the same deal (a refetch, a cache update
   // after a save) must never replace what the owner has changed since.
@@ -123,7 +123,7 @@ export function useDealEditor(dealId: string): DealEditor {
   const seedId = seed?.dealId;
   const seedStamp = seed?.updatedAt;
   useEffect(() => {
-    if (seedId !== undefined && seedStamp !== undefined) baseline.current = { dealId: seedId, updatedAt: seedStamp };
+    if (seedId !== undefined && seedStamp !== undefined) baseline.current.set(seedId, seedStamp);
   }, [seedId, seedStamp]);
 
   const seeded = seed?.dealId === dealId && editor !== null;
@@ -170,9 +170,9 @@ export function useDealEditor(dealId: string): DealEditor {
   useEffect(() => {
     const instance = createAutosaver<StoredDeal>({
       save: async (deal) => {
-        const from = baseline.current?.dealId === deal.id ? baseline.current.updatedAt : deal.updatedAt;
+        const from = baseline.current.get(deal.id) ?? deal.updatedAt;
         const saved = await repository.saveDeal({ ...deal, updatedAt: from });
-        baseline.current = { dealId: saved.id, updatedAt: saved.updatedAt };
+        baseline.current.set(saved.id, saved.updatedAt);
         queryClient.setQueryData(queryKeys.deal(saved.id), saved);
         void queryClient.invalidateQueries({ queryKey: queryKeys.deals });
         return saved;

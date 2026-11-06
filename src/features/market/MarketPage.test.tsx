@@ -1,7 +1,8 @@
+import { testSampleComps } from "../../testing/sampleIds";
 import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { Comp } from "@engine";
-import { sampleComps } from "../../data/sample";
+
 import { formatDayRange, formatMoney } from "../../lib/format";
 import { advance, installFakeClock, newUser, pasteOver, savedAfterAutosave } from "../../testing/editorTiming";
 import { sampleSetup, setupWith } from "../../testing/stepHarness";
@@ -177,7 +178,7 @@ describe("days on market", () => {
 
   it("reads High, in a neutral chip, for ten comps of which five are recent", async () => {
     // Four of the sample's comps sold within six months of the test date; three copies of each make twelve.
-    const recent = ["5a3e0c0e-5a3e-4000-8000-000000000001", "5a3e0c0e-5a3e-4000-8000-000000000003", "5a3e0c0e-5a3e-4000-8000-000000000005", "5a3e0c0e-5a3e-4000-8000-000000000006"].map((id) => sampleComps().find((comp) => comp.id === id) as Comp);
+    const recent = ["5a3e0c0e-5a3e-4000-8000-000000000001", "5a3e0c0e-5a3e-4000-8000-000000000003", "5a3e0c0e-5a3e-4000-8000-000000000005", "5a3e0c0e-5a3e-4000-8000-000000000006"].map((id) => testSampleComps().find((comp) => comp.id === id) as Comp);
     const library = [0, 1, 2].flatMap((copy) =>
       recent.map((comp, n) => ({ ...comp, id: `00000000-0000-4000-8000-0000000000${copy}${n}` })),
     );
@@ -197,7 +198,7 @@ describe("days on market", () => {
   });
 
   it("reads Low, in a no-go chip, for three comps", async () => {
-    await openWithLibrary(sampleComps().slice(0, 3));
+    await openWithLibrary(testSampleComps().slice(0, 3));
 
     const chip = within(card("Days on market")).getByText("Low");
     expect(chip).toHaveClass("bg-no-go-bg", "text-no-go");

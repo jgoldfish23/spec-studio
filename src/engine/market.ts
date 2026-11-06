@@ -9,7 +9,7 @@ export type CompStatus = "sold" | "active" | "pending";
 /** How much of a basement is finished. `none` means the house has no basement. */
 export type BasementFinish = "none" | "unfinished" | "partial" | "finished";
 /** How a comp entered the app. */
-export type CompSource = "manual" | "csv" | "claudeFile" | "ownSale";
+export type CompSource = "manual" | "csv" | "claudeFile" | "ownSale" | "sample";
 /** The owner's read of the market, which scales days on market (Task 11). */
 export type MarketCondition = "hot" | "normal" | "slow";
 

@@ -1,7 +1,8 @@
+import { testSampleComps } from "./sampleIds";
 import { DEFAULT_QUANTITY_RULES, evaluateDeal } from "@engine";
 import type { Comp, DealEvaluation, DealInputs, EngineContext, ISODate } from "@engine";
 import { createLocalRepository } from "../data/local/localRepository";
-import { sampleComps, sampleDealInputs } from "../data/sample";
+import { sampleDealInputs } from "../data/sample";
 import { MemoryStorage } from "../data/local/memoryStorage";
 import type { Repository } from "../data/types";
 
@@ -20,7 +21,7 @@ export interface ContextOptions {
 export async function contextFor({
   repository = createLocalRepository(new MemoryStorage()),
   today = TEST_TODAY,
-  comps = sampleComps(),
+  comps = testSampleComps(),
 }: ContextOptions = {}): Promise<EngineContext> {
   return {
     today,

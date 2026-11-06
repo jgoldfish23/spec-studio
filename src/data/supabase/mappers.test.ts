@@ -1,7 +1,8 @@
+import { testSampleComps } from "../../testing/sampleIds";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_MARKET_SETTINGS, DEFAULT_RULES } from "@engine";
 import type { Comp, DefaultPrice, PriceBookEntry } from "@engine";
-import { sampleComps, sampleDealInputs } from "../sample";
+import { sampleDealInputs } from "../sample";
 import { DataError } from "../types";
 import type { StoredDeal } from "../types";
 import {
@@ -141,7 +142,7 @@ describe("dealToRow and dealFromRow", () => {
 });
 
 describe("compToRow and compFromRow", () => {
-  const comp = (): Comp => sampleComps()[0] as Comp;
+  const comp = (): Comp => testSampleComps()[0] as Comp;
 
   it("keeps the id and region in their columns and the rest in data", () => {
     const original = comp();

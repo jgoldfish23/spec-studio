@@ -14,7 +14,7 @@ import {
   useResetDeals,
   useSaveComp,
 } from "../../data/queries";
-import { leaveOutSampleComps, SAMPLE_COMP_IDS, SAMPLE_DEAL_NAME, sampleComps, sampleDealInputs } from "../../data/sample";
+import { isSampleComp, leaveOutSampleComps, SAMPLE_DEAL_NAME, sampleComps, sampleDealInputs } from "../../data/sample";
 import type { StoredDeal } from "../../data/types";
 import { errorMessage } from "../../lib/errorMessage";
 import { formatMoney, formatPercentCompact } from "../../lib/format";
@@ -107,7 +107,7 @@ function RulesCard() {
 /** "9 sold comps in Northern Utah (8 are sample data)." */
 function compsLine(comps: readonly Comp[]): string {
   const sold = comps.filter((comp) => comp.status === "sold");
-  const sample = sold.filter((comp) => SAMPLE_COMP_IDS.has(comp.id)).length;
+  const sample = sold.filter(isSampleComp).length;
   const note = sample === 0 ? "" : ` (${sample} ${sample === 1 ? "is" : "are"} sample data)`;
   return `${sold.length} sold ${sold.length === 1 ? "comp" : "comps"} in Northern Utah${note}.`;
 }
@@ -193,8 +193,9 @@ export function DealsPage() {
     perform("Couldn't load the sample deal", async () => {
       // The comps first, so the sample is priced the moment it opens. Only the ones that are missing: a sample comp the
       // owner has changed keeps the change.
-      const stored = new Set((await repository.listComps(REGION)).map((comp) => comp.id));
-      for (const comp of sampleComps()) if (!stored.has(comp.id)) await saveComp.mutateAsync(comp);
+      const key = (comp: Comp) => `${comp.address}|${comp.soldDate}`;
+      const stored = new Set((await repository.listComps(REGION)).filter(isSampleComp).map(key));
+      for (const comp of sampleComps()) if (!stored.has(key(comp))) await saveComp.mutateAsync(comp);
       const deal = await createDeal.mutateAsync({ name: SAMPLE_DEAL_NAME, inputs: sampleDealInputs() });
       void navigate(`/deals/${deal.id}/proforma`);
     });
@@ -222,7 +223,7 @@ export function DealsPage() {
     // The last deal named as the sample takes the sample's comps with it.
     const lastSample =
       deal.name === SAMPLE_DEAL_NAME && (list?.deals.filter((other) => other.name === SAMPLE_DEAL_NAME).length ?? 0) <= 1;
-    const sampleCompIds = lastSample ? (library ?? []).filter((comp) => SAMPLE_COMP_IDS.has(comp.id)).map((comp) => comp.id) : [];
+    const sampleCompIds = lastSample ? (library ?? []).filter(isSampleComp).map((comp) => comp.id) : [];
     setConfirming({ kind: "delete", id: deal.id, name: deal.name, sampleCompIds });
   };
 

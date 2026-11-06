@@ -1,3 +1,4 @@
+import { testSampleComps } from "../../testing/sampleIds";
 import { QueryClientProvider } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
@@ -9,7 +10,7 @@ import { createLocalRepository, DEALS_KEY } from "../../data/local/localReposito
 import { createQueryClient } from "../../data/queryClient";
 import { queryKeys } from "../../data/queries";
 import { RepositoryProvider } from "../../data/RepositoryProvider";
-import { SAMPLE_DEAL_NAME, sampleComps, sampleDealInputs } from "../../data/sample";
+import { SAMPLE_DEAL_NAME, sampleDealInputs } from "../../data/sample";
 import { MemoryStorage } from "../../data/local/memoryStorage";
 import { DataError } from "../../data/types";
 import type { Repository, StoredDeal } from "../../data/types";
@@ -43,7 +44,7 @@ async function setup(overrides: Partial<Repository> = {}): Promise<Setup> {
   const storage = new MemoryStorage();
   let n = 0;
   const base = createLocalRepository(storage, { newId: () => `deal-${++n}` });
-  for (const comp of sampleComps()) await base.saveComp(comp);
+  for (const comp of testSampleComps()) await base.saveComp(comp);
   const first = await base.createDeal({ name: SAMPLE_DEAL_NAME, inputs: sampleDealInputs() });
   const saveDeal = vi.fn<Repository["saveDeal"]>((deal) => base.saveDeal(deal));
   const repository: Repository = { ...base, saveDeal, ...overrides };
@@ -111,7 +112,7 @@ describe("useDealEditor loading", () => {
     expect(editor.deal?.name).toBe(SAMPLE_DEAL_NAME);
     expect(editor.inputs).toEqual(sampleDealInputs());
     expect(editor.deal?.inputs).toBe(editor.inputs);
-    expect(editor.context?.comps).toHaveLength(sampleComps().length);
+    expect(editor.context?.comps).toHaveLength(testSampleComps().length);
     expect(editor.evaluation?.verdict).toBeDefined();
     expect(editor.evaluation?.scenarios.status).toBe("ok");
     expect(editor.canUndo).toBe(false);
@@ -1002,15 +1003,24 @@ describe("useDealEditor with another deal", () => {
 });
 
 describe("useDealEditor saves and the conflict check", () => {
-  it("builds each save on the updatedAt of the last one, so edits made during a save do not conflict", async () => {
-    const s = await setup();
+  /** Makes the next `saveDeal` wait for `release`, then run for real. */
+  function gateNextSave(s: Setup) {
     const real = createLocalRepository(s.storage);
     let release: () => void = () => {};
     const gate = new Promise<void>((resolve) => (release = resolve));
+    const returned: StoredDeal[] = [];
     s.saveDeal.mockImplementationOnce(async (deal, options) => {
       await gate;
-      return real.saveDeal(deal, options);
+      const saved = await real.saveDeal(deal, options);
+      returned.push(saved);
+      return saved;
     });
+    return { release: () => release(), returned };
+  }
+
+  it("builds each save on the updatedAt of the last one, so edits made during a save do not conflict", async () => {
+    const s = await setup();
+    const { release, returned } = gateNextSave(s);
     const view = await ready(s);
 
     act(() => view.result.current.edit(setPrice(NEW_PRICE)));
@@ -1025,20 +1035,96 @@ describe("useDealEditor saves and the conflict check", () => {
     expect(s.saveDeal).toHaveBeenCalledTimes(2);
     const [first, second] = s.saveDeal.mock.calls.map(([deal]) => deal);
     expect(first?.updatedAt).toBe(s.first.updatedAt);
-    expect(second?.updatedAt).not.toBe(s.first.updatedAt);
+    expect(returned).toHaveLength(1);
+    expect(second?.updatedAt).toBe(returned[0]?.updatedAt);
     expect(view.result.current.saveStatus).toEqual({ kind: "saved" });
     expect((await s.storedDeal(s.first.id))?.inputs.lot.priceCents).toBe(NEW_PRICE + 100_000);
   });
 
-  it("builds the save at unmount on the last updatedAt too", async () => {
+  it("builds the save at unmount on the last updatedAt too, when a save is running as the page goes", async () => {
+    const s = await setup();
+    const { release, returned } = gateNextSave(s);
+    const view = await ready(s);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    await advance(1000);
+    expect(s.saveDeal).toHaveBeenCalledTimes(1);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE + 100_000)));
+    view.unmount();
+    release();
+    await advance(50);
+    expect(s.saveDeal).toHaveBeenCalledTimes(2);
+    expect(s.saveDeal.mock.calls[1]?.[0].updatedAt).toBe(returned[0]?.updatedAt);
+    expect((await s.storedDeal(s.first.id))?.inputs.lot.priceCents).toBe(NEW_PRICE + 100_000);
+  });
+
+  it("still ends in a conflict when a refetch brings another device's newer copy: the cache's stamp is not used", async () => {
+    const s = await setup();
+    const view = await ready(s);
+    // Another device saves the deal, and this one reads it again.
+    await advance(5);
+    const other = createLocalRepository(s.storage);
+    await other.saveDeal({ ...s.first, name: "Other device" });
+    await act(async () => {
+      await s.client.invalidateQueries({ queryKey: queryKeys.deal(s.first.id) });
+    });
+    await advance(10);
+
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    await advance(1000);
+
+    expect(s.saveDeal.mock.calls[0]?.[0].updatedAt).toBe(s.first.updatedAt);
+    expect(view.result.current.saveStatus).toMatchObject({
+      kind: "error",
+      message: "This deal was changed on another device or tab.",
+    });
+    expect((await s.storedDeal(s.first.id))?.name).toBe("Other device");
+    expect((await s.storedDeal(s.first.id))?.inputs.lot.priceCents).toBe(ORIGINAL_PRICE);
+  });
+
+  it("retries a failed save from the last good updatedAt", async () => {
     const s = await setup();
     const view = await ready(s);
     act(() => view.result.current.edit(setPrice(NEW_PRICE)));
     await advance(1000);
+    const good = await s.storedDeal(s.first.id);
+    expect(good?.updatedAt).not.toBe(s.first.updatedAt);
+
+    s.saveDeal.mockImplementationOnce(async () => {
+      throw new DataError("Can't reach the server — check your connection.", { kind: "offline" });
+    });
     act(() => view.result.current.edit(setPrice(NEW_PRICE + 100_000)));
-    view.unmount();
-    await advance(50);
-    expect(s.saveDeal).toHaveBeenCalledTimes(2);
+    await advance(1000);
+    expect(view.result.current.saveStatus.kind).toBe("error");
+    await advance(5000);
+
+    expect(s.saveDeal).toHaveBeenCalledTimes(3);
+    const stamps = s.saveDeal.mock.calls.map(([deal]) => deal.updatedAt);
+    expect(stamps[1]).toBe(good?.updatedAt);
+    expect(stamps[2]).toBe(good?.updatedAt);
+    expect(view.result.current.saveStatus).toEqual({ kind: "saved" });
     expect((await s.storedDeal(s.first.id))?.inputs.lot.priceCents).toBe(NEW_PRICE + 100_000);
+  });
+
+  it("keeps each deal's baseline apart: a late save of the deal just left does not touch the next one's", async () => {
+    const s = await setup();
+    const second = await s.repository.createDeal({ name: "Second", inputs: sampleDealInputs() });
+    const { release } = gateNextSave(s);
+    const view = await ready(s);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    await advance(1000);
+    expect(s.saveDeal).toHaveBeenCalledTimes(1);
+
+    view.rerender({ dealId: second.id });
+    await settle(view, (e) => e.status === "ready" && e.deal?.id === second.id);
+    release();
+    await advance(50);
+
+    act(() => view.result.current.edit(setPrice(NEW_PRICE + 100_000)));
+    await advance(1000);
+
+    const call = s.saveDeal.mock.calls.find(([deal]) => deal.id === second.id);
+    expect(call?.[0].updatedAt).toBe(second.updatedAt);
+    expect(view.result.current.saveStatus).toEqual({ kind: "saved" });
+    expect((await s.storedDeal(second.id))?.inputs.lot.priceCents).toBe(NEW_PRICE + 100_000);
   });
 });

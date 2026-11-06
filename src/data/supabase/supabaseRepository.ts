@@ -5,7 +5,7 @@ import { isUuid } from "../../lib/uuid";
 import { assertCompReadsBack, assertDealReadsBack } from "../readBack";
 import { DataError } from "../types";
 import type { CompanySettings, DealListResult, Repository, StoredDeal } from "../types";
-import type { DefaultPriceRow } from "./mappers";
+import type { DealRow, DefaultPriceRow } from "./mappers";
 import { toDataError } from "./errors";
 import { fetchAllPages } from "./paging";
 import {
@@ -23,10 +23,23 @@ import {
 /** Stands in for the id and timestamps a new deal does not have yet, so the rest of it can be checked before sending. */
 const PENDING = { id: "pending", stamp: "1970-01-01T00:00:00.000Z" } as const;
 
-/** What a failed request looked like: PostgREST's error and the HTTP status, for `toDataError`. */
+/** A failed request: PostgREST's own error object, whole, and the HTTP status. */
 function failed(response: { error: PostgrestError; status: number }, action: string, recordId?: string) {
-  const { message, details, code } = response.error;
-  return toDataError({ message, details, code, status: response.status }, action, recordId);
+  return toDataError(response.error, action, recordId, response.status);
+}
+
+/** Every column of a `deals` row, for a read that needs the whole deal but is not a `select("*")`. */
+const DEAL_COLUMNS = "id,company_id,name,status,schema_version,inputs,created_at,updated_at";
+
+/** Whether two parsed JSON values are the same, whatever order an object's keys come in (jsonb reorders them). */
+function sameJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  const keys = Object.keys(left);
+  return keys.length === Object.keys(right).length && keys.every((key) => Object.hasOwn(right, key) && sameJson(left[key], right[key]));
 }
 
 const CONFLICT = "This deal was changed on another device or tab.";
@@ -142,12 +155,17 @@ export function createSupabaseRepository(client: SupabaseClient, companyId: stri
       if (options.overwrite === true) throw new DataError(DELETED, { kind: "deleted", recordId: deal.id });
       const check = await client
         .from("deals")
-        .select("id,updated_at")
+        .select(DEAL_COLUMNS)
         .eq("id", deal.id)
         .eq("company_id", companyId)
         .maybeSingle();
       if (check.error) throw failed({ error: check.error, status: check.status }, "save", deal.id);
       if (check.data === null) throw new DataError(DELETED, { kind: "deleted", recordId: deal.id });
+      // A save can commit and lose its response (a dropped connection); the retry then finds its own write and must not
+      // call it a conflict. A stored deal that is exactly what this save sent is that save, already applied.
+      const stored = check.data as unknown as DealRow;
+      const sent = JSON.parse(JSON.stringify({ name: row.name, status: row.status, inputs: row.inputs })) as unknown;
+      if (sameJson(sent, { name: stored.name, status: stored.status, inputs: stored.inputs })) return dealFromRow(stored);
       throw new DataError(CONFLICT, { kind: "conflict", recordId: deal.id });
     },
 
@@ -191,7 +209,7 @@ export function createSupabaseRepository(client: SupabaseClient, companyId: stri
 
     async saveComp(comp: Comp): Promise<Comp> {
       assertCompReadsBack(comp);
-      if (!isUuid(comp.id)) throw new DataError("Couldn't save — id: must be a UUID", { recordId: comp.id, path: "id" });
+      if (!isUuid(comp.id)) throw new DataError("Couldn't save — id: must be a UUID", { kind: "failed", recordId: comp.id, path: "id" });
       const { data, error, status } = await client
         .from("comps")
         .upsert(compToRow(comp, companyId), { onConflict: "id" })
@@ -221,6 +239,7 @@ export function createSupabaseRepository(client: SupabaseClient, companyId: stri
             .order("variant")
             .order("tier")
             .order("company_id")
+            .order("id")
             .range(from, to),
         ),
         // A price book may repeat a key, so the id breaks the tie.

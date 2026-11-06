@@ -1,3 +1,4 @@
+import { testSampleComps } from "../testing/sampleIds";
 import { describe, expect, it } from "vitest";
 import {
   CostBookViewSchema,
@@ -8,7 +9,7 @@ import {
   type EngineContext,
   type FinishTier,
 } from "@engine";
-import { sampleComps, sampleDealInputs } from "./sample";
+import { sampleDealInputs } from "./sample";
 import { STARTER_COST_BOOK } from "./starterCostBook";
 
 const keyOf = (p: { code: string; variant: string; tier: string | null }) => JSON.stringify([p.code, p.variant, p.tier]);
@@ -75,7 +76,7 @@ describe("STARTER_COST_BOOK", () => {
 const ctx = (): EngineContext => ({
   today: "2026-10-30",
   costBook: { defaults: STARTER_COST_BOOK, priceBook: [] },
-  comps: sampleComps(),
+  comps: testSampleComps(),
   marketSettings: DEFAULT_MARKET_SETTINGS,
   quantityRules: DEFAULT_QUANTITY_RULES,
 });
