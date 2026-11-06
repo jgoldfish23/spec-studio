@@ -52,7 +52,7 @@ function fakeRemote() {
 }
 
 const entries = (storage: Storage, key = KEY) =>
-  (JSON.parse(storage.getItem(key) ?? '{"entries":[]}') as { entries: { problem?: string; base: string; seq: number; deal: StoredDeal }[] }).entries;
+  (JSON.parse(storage.getItem(key) ?? '{"entries":[]}') as { entries: { problem?: string; overwrite?: boolean; base: string; seq: number; deal: StoredDeal }[] }).entries;
 
 let storage: MemoryStorage;
 let remote: ReturnType<typeof fakeRemote>;
@@ -108,7 +108,7 @@ describe("saveDeal", () => {
   it("keeps one entry per deal, with the base of the first unsynced edit", async () => {
     remote.saveDeal.mockRejectedValue(offlineError());
     await expect(repo.saveDeal(deal({ name: "One" }))).rejects.toThrow();
-    await expect(repo.saveDeal(deal({ name: "Two" }))).rejects.toThrow();
+    await expect(repo.saveDeal(deal({ name: "Two", updatedAt: U1 }))).rejects.toThrow();
     const left = entries(storage);
     expect(left).toHaveLength(1);
     expect(left[0]?.deal.name).toBe("Two");
@@ -166,7 +166,8 @@ describe("saveDeal", () => {
 describe("getDeal", () => {
   it("returns the outbox copy with the base updatedAt", async () => {
     remote.saveDeal.mockRejectedValue(offlineError());
-    await repo.saveDeal(deal({ name: "Local", updatedAt: U0 })).catch(() => {});
+    await repo.saveDeal(deal({ name: "First", updatedAt: U0 })).catch(() => {});
+    await repo.saveDeal(deal({ name: "Local", updatedAt: U1 })).catch(() => {});
     const got = await repo.getDeal(ID);
     expect(got?.name).toBe("Local");
     expect(got?.updatedAt).toBe(U0);
@@ -224,10 +225,13 @@ describe("syncNow", () => {
 
   it("replays oldest first through the base updatedAt", async () => {
     await queue([ID2, "B"], [ID, "A"]);
+    remote.saveDeal.mockRejectedValue(offlineError());
+    await repo.saveDeal(deal({ id: ID2, name: "B2", updatedAt: U1 })).catch(() => {});
+    remote.saveDeal.mockImplementation(async (d) => ({ ...d, updatedAt: U2 }));
     remote.saveDeal.mockClear();
     const result = await repo.syncNow();
     expect(result).toEqual({ synced: 2, remaining: 0, stoppedOffline: false });
-    expect(remote.saveDeal.mock.calls.map((c) => c[0].id)).toEqual([ID2, ID]);
+    expect(remote.saveDeal.mock.calls.map((c) => c[0].id)).toEqual([ID, ID2]);
     expect(remote.saveDeal.mock.calls[0]?.[0].updatedAt).toBe(U0);
     expect(repo.pending()).toEqual([]);
   });
@@ -267,6 +271,161 @@ describe("syncNow", () => {
     const [a, b] = await Promise.all([repo.syncNow(), repo.syncNow()]);
     expect(remote.saveDeal).toHaveBeenCalledTimes(1);
     expect(a).toEqual(b);
+  });
+});
+
+describe("more sync behaviour", () => {
+  it("replays a stored overwrite", async () => {
+    remote.saveDeal.mockRejectedValue(offlineError());
+    await repo.saveDeal(deal(), { overwrite: true }).catch(() => {});
+    remote.saveDeal.mockClear();
+    remote.saveDeal.mockImplementation(async (d) => ({ ...d, updatedAt: U1 }));
+    await repo.syncNow();
+    expect(remote.saveDeal.mock.calls[0]?.[1]).toEqual({ overwrite: true });
+  });
+
+  it("carries overwrite forward to a newer save, until a problem clears it", async () => {
+    remote.saveDeal.mockRejectedValue(offlineError());
+    await repo.saveDeal(deal({ name: "One" }), { overwrite: true }).catch(() => {});
+    await repo.saveDeal(deal({ name: "Two" })).catch(() => {});
+    expect(entries(storage)[0]).toMatchObject({ overwrite: true });
+    expect(remote.saveDeal.mock.calls[1]?.[1]).toEqual({ overwrite: true });
+    remote.saveDeal.mockRejectedValue(new DataError("c", { kind: "conflict" }));
+    await repo.saveDeal(deal({ name: "Three" })).catch(() => {});
+    await repo.saveDeal(deal({ name: "Four" })).catch(() => {});
+    expect(entries(storage)[0]?.overwrite).toBeUndefined();
+  });
+
+  it("skips a deal that saveDeal has in flight", async () => {
+    remote.saveDeal.mockRejectedValue(offlineError());
+    await repo.saveDeal(deal()).catch(() => {});
+    remote.saveDeal.mockClear();
+    remote.saveDeal.mockImplementation(() => new Promise(() => {}));
+    void repo.saveDeal(deal({ name: "Typing" }));
+    remote.saveDeal.mockClear();
+    expect(await repo.syncNow()).toEqual({ synced: 0, remaining: 1, stoppedOffline: false });
+    expect(remote.saveDeal).not.toHaveBeenCalled();
+  });
+
+  it("skips an entry replaced or discarded mid-run", async () => {
+    remote.saveDeal.mockRejectedValue(offlineError());
+    await repo.saveDeal(deal({ id: ID2, name: "B" })).catch(() => {});
+    await repo.saveDeal(deal({ name: "A" })).catch(() => {});
+    remote.saveDeal.mockClear();
+    remote.saveDeal.mockImplementationOnce(async (d) => {
+      repo.discardPending(ID);
+      return { ...d, updatedAt: U1 };
+    });
+    const result = await repo.syncNow();
+    expect(result.synced).toBe(1);
+    expect(remote.saveDeal).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not rebase an entry another tab wrote", async () => {
+    remote.saveDeal.mockRejectedValue(offlineError());
+    await repo.saveDeal(deal({ name: "Mine" })).catch(() => {});
+    let release!: (d: StoredDeal) => void;
+    remote.saveDeal.mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
+    const sync = repo.syncNow();
+    const other = createOfflineRepository(remote as unknown as Repository, storage, SCOPE);
+    other.queue(deal({ name: "Theirs" }));
+    release(deal({ updatedAt: U1 }));
+    await sync;
+    expect(entries(storage)[0]).toMatchObject({ base: U0 });
+    expect(entries(storage)[0]?.deal.name).toBe("Theirs");
+  });
+
+  it("does not false-conflict on an edit made after a background sync (path A)", async () => {
+    remote.saveDeal.mockRejectedValue(offlineError());
+    await repo.saveDeal(deal({ name: "C" })).catch(() => {});
+    remote.saveDeal.mockImplementation(async (d) => ({ ...d, updatedAt: U1 }));
+    await repo.syncNow();
+    remote.saveDeal.mockClear();
+    await repo.saveDeal(deal({ name: "C2", updatedAt: U0 }));
+    expect(remote.saveDeal.mock.calls[0]?.[0].updatedAt).toBe(U1);
+  });
+
+  it("waits for a running replay of the same deal before sending (path B)", async () => {
+    remote.saveDeal.mockRejectedValue(offlineError());
+    await repo.saveDeal(deal({ name: "C" })).catch(() => {});
+    let release!: (d: StoredDeal) => void;
+    remote.saveDeal.mockClear();
+    remote.saveDeal.mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
+    remote.saveDeal.mockImplementation(async (d) => ({ ...d, updatedAt: U2 }));
+    const sync = repo.syncNow();
+    const typing = repo.saveDeal(deal({ name: "C2", updatedAt: U0 }));
+    await Promise.resolve();
+    expect(remote.saveDeal).toHaveBeenCalledTimes(1);
+    release(deal({ name: "C", updatedAt: U1 }));
+    await sync;
+    await typing;
+    expect(remote.saveDeal).toHaveBeenCalledTimes(2);
+    expect(remote.saveDeal.mock.calls[1]?.[0]).toMatchObject({ name: "C2", updatedAt: U1 });
+    expect(repo.pending()).toEqual([]);
+  });
+});
+
+describe("queue", () => {
+  it("writes synchronously without calling the remote, and syncNow replays it", async () => {
+    repo.queue(deal({ name: "Closing" }));
+    expect(entries(storage)).toHaveLength(1);
+    expect(remote.saveDeal).not.toHaveBeenCalled();
+    expect(await repo.syncNow()).toEqual({ synced: 1, remaining: 0, stoppedOffline: false });
+    expect(remote.saveDeal.mock.calls[0]?.[0].name).toBe("Closing");
+  });
+});
+
+describe("deleting and resetting", () => {
+  it("drops the deal's entry once the remote has deleted it", async () => {
+    remote.saveDeal.mockRejectedValue(offlineError());
+    await repo.saveDeal(deal()).catch(() => {});
+    remote.listDeals.mockResolvedValue({ deals: [], problems: [] });
+    await repo.deleteDeal(ID);
+    expect((await repo.listDeals()).deals).toEqual([]);
+    expect(repo.pending()).toEqual([]);
+  });
+
+  it("clears every entry on reset", async () => {
+    remote.saveDeal.mockRejectedValue(offlineError());
+    await repo.saveDeal(deal()).catch(() => {});
+    await repo.saveDeal(deal({ id: ID2 })).catch(() => {});
+    remote.listDeals.mockResolvedValue({ deals: [], problems: [] });
+    await repo.resetDeals();
+    expect((await repo.listDeals()).deals).toEqual([]);
+  });
+
+  it("keeps the entry when the delete is offline", async () => {
+    remote.saveDeal.mockRejectedValue(offlineError());
+    await repo.saveDeal(deal()).catch(() => {});
+    remote.deleteDeal.mockRejectedValue(offlineError());
+    await expect(repo.deleteDeal(ID)).rejects.toMatchObject({ kind: "offline" });
+    expect(repo.pending()).toHaveLength(1);
+  });
+});
+
+describe("robustness", () => {
+  it("lists an outbox entry the remote does not have", async () => {
+    remote.saveDeal.mockRejectedValue(offlineError());
+    await repo.saveDeal(deal({ id: ID2, name: "Only here" })).catch(() => {});
+    const list = await repo.listDeals();
+    expect(list.deals.map((d) => d.name)).toEqual(["Lot", "Only here"]);
+  });
+
+  it("reports a throwing getItem once", () => {
+    storage.getItem = () => {
+      throw new Error("blocked");
+    };
+    expect(repo.pending()).toEqual([]);
+    expect(repo.pending()).toEqual([]);
+    expect(logged).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let a throwing listener stop the save", async () => {
+    repo.subscribe(() => {
+      throw new Error("boom");
+    });
+    await expect(repo.saveDeal(deal())).resolves.toBeDefined();
+    expect(remote.saveDeal).toHaveBeenCalled();
   });
 });
 
