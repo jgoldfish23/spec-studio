@@ -45,6 +45,7 @@ alter default privileges in schema public revoke all on tables from anon, authen
 -- granted on purpose. (The test shim does not model Supabase's postgres/supabase_admin split.)
 -- The IN SCHEMA form only cancels schema-level grants (Supabase's anon/authenticated ones); Postgres'
 -- built-in EXECUTE for PUBLIC is not a schema-level grant and is removed only by the form without IN SCHEMA.
+-- If you later run `create extension` as postgres, its functions won't be executable by app roles; afterwards run `grant execute on all functions in schema extensions to public;`
 alter default privileges revoke execute on functions from public;
 alter default privileges in schema public revoke execute on functions from public, anon, authenticated;
 
