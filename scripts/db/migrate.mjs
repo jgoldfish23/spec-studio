@@ -38,24 +38,38 @@ try {
   fail("Could not connect to the database. Check DATABASE_URL.");
 }
 
-try {
-  await client.query(`
-    create schema if not exists spec_studio_meta;
-    create table if not exists spec_studio_meta.schema_migrations (
-      filename   text primary key,
-      checksum   text not null,
-      applied_at timestamptz not null default now()
-    );
-    revoke all on schema spec_studio_meta from public, anon, authenticated;
-    revoke all on all tables in schema spec_studio_meta from public, anon, authenticated;
-  `);
+// One fixed key for "a migration run is in progress" (arbitrary; "SPECSTUD" in ASCII). Two deploys
+// racing would otherwise read the same applied set and apply the same file twice.
+const MIGRATION_LOCK_KEY = 0x5350454353545544n;
 
-  const { rows } = await client.query("select filename, checksum from spec_studio_meta.schema_migrations");
+try {
+  // Session-level, so it is held across the per-file transactions and released below (or when the connection drops).
+  await client.query("select pg_advisory_lock($1::bigint)", [MIGRATION_LOCK_KEY.toString()]);
+
+  // A dry run is read-only: no bootstrap, and a missing meta table means nothing is applied yet.
+  if (!dryRun) {
+    await client.query(`
+      create schema if not exists spec_studio_meta;
+      create table if not exists spec_studio_meta.schema_migrations (
+        filename   text primary key,
+        checksum   text not null,
+        applied_at timestamptz not null default now()
+      );
+      revoke all on schema spec_studio_meta from public, anon, authenticated;
+      revoke all on all tables in schema spec_studio_meta from public, anon, authenticated;
+    `);
+  }
+
+  // Read after taking the lock, so a run that waited sees what the other run applied.
+  const exists = (await client.query("select to_regclass('spec_studio_meta.schema_migrations') as t")).rows[0].t !== null;
+  const rows = exists ? (await client.query("select filename, checksum from spec_studio_meta.schema_migrations")).rows : [];
   const applied = new Map(rows.map((r) => [r.filename, r.checksum]));
 
   for (const [filename, checksum] of applied) {
     const current = sums.get(filename);
-    if (current && current.checksum !== checksum) {
+    if (!current) {
+      console.warn(`Warning: ${filename} was applied earlier but is not in the migrations folder.`);
+    } else if (current.checksum !== checksum) {
       fail(`${filename} has changed since it was applied. Migrations are append-only: add a new file instead.`);
     }
   }
@@ -82,5 +96,6 @@ try {
     }
   }
 } finally {
+  await client.query("select pg_advisory_unlock($1::bigint)", [MIGRATION_LOCK_KEY.toString()]).catch(() => undefined);
   await client.end().catch(() => undefined);
 }

@@ -1,8 +1,9 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { STARTER_COST_BOOK } from "../../src/data/starterCostBook";
 import { freshDatabase, type TestDatabase } from "./helpers";
 
 const ROOT = join(__dirname, "..", "..");
@@ -37,6 +38,16 @@ function tempMigrations(): string {
   dirs.push(d);
   cpSync(MIGRATIONS, d, { recursive: true });
   return d;
+}
+
+function runAsync(args: string[] = []): Promise<{ code: number | null; out: string }> {
+  return new Promise((resolve) => {
+    const child = spawn("node", ["scripts/db/migrate.mjs", ...args], { cwd: ROOT, env: { ...process.env, DATABASE_URL: url } });
+    let out = "";
+    child.stdout.on("data", (d) => (out += d));
+    child.stderr.on("data", (d) => (out += d));
+    child.on("close", (code) => resolve({ code, out }));
+  });
 }
 
 function run(args: string[] = [], env: Record<string, string> = {}) {
@@ -77,6 +88,40 @@ describe("db:migrate", () => {
     const r = run([], { DATABASE_URL: secret.toString() });
     expect(r.out).not.toContain("s3cretpw");
     expect(r.out).not.toContain(secret.host);
+  });
+
+  it("prints a fixed message and no part of the URL when the database is unreachable", () => {
+    const bad = "postgresql://sneaky_user:p4ssw0rd-xyz@127.0.0.1:1/secretdb_name";
+    const r = run([], { DATABASE_URL: bad });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("Could not connect to the database. Check DATABASE_URL.");
+    for (const part of ["p4ssw0rd-xyz", "sneaky_user", "127.0.0.1", ":1", "secretdb_name"]) expect(r.out).not.toContain(part);
+  });
+
+  it("applies each file exactly once when two runs race", async () => {
+    const [a, b] = await Promise.all([runAsync(), runAsync()]);
+    expect(a.code, a.out).toBe(0);
+    expect(b.code, b.out).toBe(0);
+    const { rows } = await db.client.query("select count(*)::int as n, count(distinct filename)::int as d from spec_studio_meta.schema_migrations");
+    expect(rows[0]).toEqual({ n: files.length, d: files.length });
+    const seeded = await db.client.query("select count(*)::int as n from default_prices where company_id is null");
+    expect(seeded.rows[0].n).toBe(STARTER_COST_BOOK.length);
+    expect([a.out, b.out].filter((o) => o.includes("Applied 0001_init.sql"))).toHaveLength(1);
+  });
+
+  it("--dry-run on a fresh database creates nothing", async () => {
+    expect(run(["--dry-run"]).code).toBe(0);
+    const { rows } = await db.client.query("select to_regnamespace('spec_studio_meta') as s");
+    expect(rows[0].s).toBeNull();
+  });
+
+  it("warns about an applied file missing locally and carries on", () => {
+    run();
+    const dir = tempMigrations();
+    rmSync(join(dir, "0003_starter_cost_book.sql"));
+    const r = run([], { MIGRATIONS_DIR: dir });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("0003_starter_cost_book.sql was applied earlier but is not in the migrations folder");
   });
 
   it("refuses an applied file that has changed", () => {

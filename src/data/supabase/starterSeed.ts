@@ -2,9 +2,13 @@ import type { DefaultPrice } from "@engine";
 
 const quote = (s: string): string => `'${s.replace(/'/g, "''")}'`;
 
-const row = (p: DefaultPrice): string =>
-  `(null, ${quote(p.region)}, ${quote(p.code)}, ${quote(p.variant)}, ${p.tier === null ? "null" : quote(p.tier)}, ` +
+const row = (p: DefaultPrice): string => {
+  if (!Number.isSafeInteger(p.unitPriceCents)) {
+    throw new Error(`Starter price ${p.code}/${p.variant} has unitPriceCents ${p.unitPriceCents}; it must be a whole number of cents.`);
+  }
+  return `(null, ${quote(p.region)}, ${quote(p.code)}, ${quote(p.variant)}, ${p.tier === null ? "null" : quote(p.tier)}, ` +
   `${quote(p.unit)}, ${p.unitPriceCents}, ${quote(p.asOf)}, ${p.verified ? "true" : "false"}, ${quote(p.sourceNote)})`;
+};
 
 /**
  * The SQL of migration 0003: the starter cost book as global `default_prices` rows (`company_id` null),

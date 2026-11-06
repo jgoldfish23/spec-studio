@@ -40,4 +40,19 @@ describe("starterSeedSql", () => {
     expect(sql).toContain("'O''Brien''s quote'");
     expect(sql).toContain("null, 'sf', 2350, '2026-10-30', false,");
   });
+
+  it("throws on a price that is not a whole number of cents", () => {
+    const bad: DefaultPrice = {
+      code: "framing",
+      variant: "base",
+      tier: null,
+      region: "utah-north",
+      unitPriceCents: 23.5,
+      unit: "sf",
+      asOf: "2026-10-30",
+      verified: false,
+      sourceNote: "x",
+    };
+    expect(() => starterSeedSql([bad])).toThrow(/whole number of cents/);
+  });
 });
