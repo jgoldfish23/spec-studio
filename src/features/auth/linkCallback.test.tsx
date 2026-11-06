@@ -59,9 +59,12 @@ describe("handleLinkCallback", () => {
     });
     const result = await handleLinkCallback(window.location, auth);
     render(<SignInPage auth={auth} callbackError={result.error} />);
+    const message = screen.getByRole("alert");
+    expect(message).toHaveTextContent(/opened in a different browser/);
     expect(
-      screen.getByText(/opened in a different browser/),
-    ).toBeInTheDocument();
+      message.compareDocumentPosition(screen.getByLabelText("6-digit code")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(screen.getByLabelText("Email")).toHaveValue("");
     expect(screen.getByLabelText("6-digit code")).toBeInTheDocument();
   });

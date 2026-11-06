@@ -121,6 +121,9 @@ describe("CreateCompanyPage", () => {
       ...existing,
       id: companies.companies.get("fake-user")?.id,
     });
+    expect(
+      screen.getByRole("button", { name: "Create company" }),
+    ).toBeDisabled();
   });
 
   it("shows the already-have-a-company error when there is no company to load", async () => {
@@ -152,7 +155,31 @@ describe("CreateCompanyPage", () => {
     expect(
       await screen.findByText("You've been signed out. Sign in again."),
     ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign in" })).toHaveFocus();
     await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(signOut).toHaveBeenCalledOnce();
+  });
+});
+
+describe("CreateCompanyPage when the parent throws", () => {
+  it("does not show a creation failure for an error from onCreated", async () => {
+    const onCreated = vi.fn(() => {
+      throw new Error("parent broke");
+    });
+    render(
+      <CreateCompanyPage
+        companies={createFakeCompanies()}
+        auth={createFakeAuth()}
+        onCreated={onCreated}
+      />,
+    );
+    await userEvent.type(screen.getByLabelText("Company name"), "Acme");
+    // The error escapes the async handler as an unhandled rejection; swallow it for this test.
+    const swallow = vi.fn();
+    process.on("unhandledRejection", swallow);
+    await create();
+    await vi.waitFor(() => expect(onCreated).toHaveBeenCalled());
+    process.off("unhandledRejection", swallow);
+    expect(screen.queryByText(/Couldn't create/)).not.toBeInTheDocument();
   });
 });

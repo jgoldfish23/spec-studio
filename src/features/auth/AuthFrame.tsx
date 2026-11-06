@@ -31,3 +31,15 @@ export function Problem({ message }: { message: string | null }) {
     </div>
   );
 }
+
+/** Why the page opened as it did (a sign-in link that failed). Above the fields, and announced although it is there from the start. */
+export function Notice({ message }: { message: string | null }) {
+  return message ? (
+    <p
+      role="alert"
+      className="m-0 mb-4 text-[13px] font-medium text-no-go wrap-break-word"
+    >
+      {message}
+    </p>
+  ) : null;
+}

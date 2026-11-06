@@ -32,9 +32,15 @@ export function CreateCompanyPage({
   const inFlight = useRef(false);
   const form = useRef<HTMLFormElement>(null);
 
+  const signInButton = useRef<HTMLButtonElement>(null);
+
   useEffect(() => {
     form.current?.querySelector("input")?.focus();
   }, []);
+
+  useEffect(() => {
+    if (signedOut) signInButton.current?.focus();
+  }, [signedOut]);
 
   async function create(event: FormEvent) {
     event.preventDefault();
@@ -48,34 +54,36 @@ export function CreateCompanyPage({
     inFlight.current = true;
     setBusy(true);
     setProblem(null);
+    let company: Company | null;
     try {
-      onCreated(
-        await companies.createCompany(trimmed, {
-          rules: DEFAULT_RULES,
-          contingencyPct: 0.05,
-        }),
-      );
-      return; // Stays busy: the caller replaces this page.
+      company = await companies.createCompany(trimmed, {
+        rules: DEFAULT_RULES,
+        contingencyPct: 0.05,
+      });
     } catch (error) {
-      await explain(error);
+      company = await explain(error);
+    }
+    if (company) {
+      onCreated(company);
+      return; // Stays busy: the caller replaces this page.
     }
     inFlight.current = false;
     setBusy(false);
   }
 
-  /** Shows what went wrong. A company that already exists (a create whose answer was lost) is simply carried on with. */
-  async function explain(error: unknown) {
+  /**
+   * Shows what went wrong. A company that already exists (a create whose answer was lost) is returned to carry on
+   * with.
+   */
+  async function explain(error: unknown): Promise<Company | null> {
     if (error instanceof DataError && error.kind === "signedOut") {
       setSignedOut(true);
-      return;
+      return null;
     }
     if (error instanceof DataError && error.message === ALREADY_HAS_COMPANY) {
       try {
         const existing = await companies.myCompany();
-        if (existing) {
-          onCreated(existing);
-          return;
-        }
+        if (existing) return existing;
       } catch {
         // Fall through to the original message.
       }
@@ -85,6 +93,7 @@ export function CreateCompanyPage({
         ? error.message
         : "Couldn't create your company — try again in a minute.",
     );
+    return null;
   }
 
   if (signedOut) {
@@ -95,6 +104,7 @@ export function CreateCompanyPage({
             You've been signed out. Sign in again.
           </p>
           <button
+            ref={signInButton}
             type="button"
             onClick={() => void auth.signOut()}
             className={PRIMARY_BUTTON}

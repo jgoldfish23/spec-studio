@@ -4,7 +4,7 @@ import { authErrorFrom } from "../../data/auth/authGateway";
 import type { AuthError, AuthGateway } from "../../data/auth/authGateway";
 import { TextField } from "../../ui/fields";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "../deal/stepShared";
-import { AuthFrame, Problem } from "./AuthFrame";
+import { AuthFrame, Notice, Problem } from "./AuthFrame";
 import { redirectUrl } from "./linkCallback";
 
 export interface SignInPageProps {
@@ -33,9 +33,11 @@ export function SignInPage({ auth, callbackError }: SignInPageProps) {
   const [code, setCode] = useState("");
   const [emailError, setEmailError] = useState<string | undefined>();
   const [codeError, setCodeError] = useState<string | undefined>();
-  const [problem, setProblem] = useState<string | null>(
+  // `callbackError` is read at mount only; the parent remounts the page for a new callback.
+  const [notice, setNotice] = useState<string | null>(
     callbackError?.message ?? null,
   );
+  const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
   const form = useRef<HTMLFormElement>(null);
@@ -50,6 +52,7 @@ export function SignInPage({ auth, callbackError }: SignInPageProps) {
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
+    setNotice(null);
     setProblem(null);
     try {
       await request();
@@ -90,6 +93,7 @@ export function SignInPage({ auth, callbackError }: SignInPageProps) {
   }
 
   function useDifferentEmail() {
+    setNotice(null);
     setProblem(null);
     setCodeError(undefined);
     setEmailError(undefined);
@@ -100,6 +104,7 @@ export function SignInPage({ auth, callbackError }: SignInPageProps) {
   if (stage === "enterEmail") {
     return (
       <AuthFrame title="Sign in to Spec Studio">
+        <Notice message={notice} />
         <form
           ref={form}
           onSubmit={sendLink}
@@ -129,6 +134,7 @@ export function SignInPage({ auth, callbackError }: SignInPageProps) {
 
   return (
     <AuthFrame title="Check your email">
+      <Notice message={notice} />
       {emailKnown ? (
         <p className="m-0 mb-4 text-[15px] wrap-break-word">
           We sent a link and a 6-digit code to {email.trim()}.
@@ -157,6 +163,7 @@ export function SignInPage({ auth, callbackError }: SignInPageProps) {
         <TextField
           label="6-digit code"
           inputMode="numeric"
+          autoComplete="one-time-code"
           value={code}
           onChange={setCode}
           error={codeError}

@@ -446,12 +446,14 @@ export interface TextFieldProps extends FieldProps {
   type?: "text" | "date" | "email";
   /** The keyboard a phone offers. */
   inputMode?: "text" | "decimal" | "numeric" | "email";
+  /** The browser's autofill hint, e.g. `one-time-code` so a phone offers the code from an email. */
+  autoComplete?: string;
   /** A symbol before the text, e.g. `$`. */
   prefix?: string;
 }
 
 /** Plain text. Fully controlled: there is nothing to parse, so the box holds exactly what was typed. */
-export function TextField({ label, value, onChange, onBlur, hint, error, type = "text", inputMode, prefix }: TextFieldProps) {
+export function TextField({ label, value, onChange, onBlur, hint, error, type = "text", inputMode, autoComplete, prefix }: TextFieldProps) {
   return (
     <FieldFrame label={label} hint={hint} message={error}>
       {(control, invalid) => (
@@ -460,6 +462,7 @@ export function TextField({ label, value, onChange, onBlur, hint, error, type = 
             {...control}
             type={type}
             inputMode={inputMode}
+            autoComplete={autoComplete}
             value={value}
             onChange={(event) => onChange(event.target.value)}
             onBlur={onBlur}

@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AuthError } from "../../data/auth/authGateway";
 import { FAKE_CODE, createFakeAuth } from "../../data/testing/fakeAuth";
 import { SignInPage } from "./SignInPage";
@@ -50,15 +50,55 @@ describe("SignInPage", () => {
     ).toBeInTheDocument();
   });
 
-  it("sends one email on a double click", async () => {
+  it("sends one email on a double click while the first is still out", async () => {
     const auth = createFakeAuth();
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const send = vi
+      .spyOn(auth, "sendSignInEmail")
+      .mockImplementation(() => held);
     render(<SignInPage auth={auth} />);
     await userEvent.type(screen.getByLabelText("Email"), "pat@example.com");
     await userEvent.dblClick(
       screen.getByRole("button", { name: "Email me a sign-in link" }),
     );
+    expect(send).toHaveBeenCalledTimes(1);
+    release();
     await screen.findByText("Check your email");
-    expect(auth.sent).toHaveLength(1);
+  });
+
+  it("verifies the code once on a double click while the first is still out", async () => {
+    const auth = createFakeAuth();
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const verify = vi
+      .spyOn(auth, "verifyCode")
+      .mockImplementation(async (email) => {
+        await held;
+        return { id: "u", email };
+      });
+    render(<SignInPage auth={auth} />);
+    await sendTo("pat@example.com");
+    await userEvent.type(
+      await screen.findByLabelText("6-digit code"),
+      FAKE_CODE,
+    );
+    await userEvent.dblClick(screen.getByRole("button", { name: "Sign in" }));
+    expect(verify).toHaveBeenCalledTimes(1);
+    release();
+  });
+
+  it("asks the phone to offer the emailed code", async () => {
+    render(<SignInPage auth={createFakeAuth()} />);
+    await sendTo("pat@example.com");
+    expect(await screen.findByLabelText("6-digit code")).toHaveAttribute(
+      "autocomplete",
+      "one-time-code",
+    );
+    expect(screen.getByLabelText("6-digit code")).toHaveAttribute(
+      "inputmode",
+      "numeric",
+    );
   });
 
   it("accepts only 6 digits", async () => {
@@ -130,7 +170,16 @@ describe("SignInPage", () => {
         callbackError={new AuthError("otherBrowser")}
       />,
     );
-    expect(screen.getByText(/different browser/)).toBeInTheDocument();
+    const message = screen.getByRole("alert");
+    expect(message).toHaveTextContent(/different browser/);
+    expect(
+      message.compareDocumentPosition(screen.getByLabelText("Email")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      message.compareDocumentPosition(screen.getByLabelText("6-digit code")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(screen.getByLabelText("Email")).toHaveValue("");
     expect(screen.getByLabelText("6-digit code")).toBeInTheDocument();
   });
@@ -151,7 +200,12 @@ describe("SignInPage", () => {
   it("shows another callback error in the email state", () => {
     const error = new AuthError("badCode");
     render(<SignInPage auth={createFakeAuth()} callbackError={error} />);
-    expect(screen.getByText(error.message)).toBeInTheDocument();
+    const message = screen.getByRole("alert");
+    expect(message).toHaveTextContent(error.message);
+    expect(
+      message.compareDocumentPosition(screen.getByLabelText("Email")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(screen.queryByLabelText("6-digit code")).not.toBeInTheDocument();
   });
 });

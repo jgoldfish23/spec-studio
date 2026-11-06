@@ -64,7 +64,7 @@ export function AccountMenu({
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => setOpen((was) => !was)}
-        className={`inline-flex min-h-11 max-w-48 cursor-pointer items-center rounded-md px-3 text-sm text-paper hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper`}
+        className="inline-flex min-h-11 max-w-48 cursor-pointer items-center rounded-md px-3 text-sm text-paper hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-paper"
       >
         <span className="truncate">{user.email}</span>
       </button>
