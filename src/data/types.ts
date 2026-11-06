@@ -76,6 +76,8 @@ export interface CompanySettings {
 export interface DealListResult {
   deals: StoredDeal[];
   problems: { id: string; message: string }[];
+  /** A plain line about the list as a whole (not a deal that failed), like that it is showing what the device holds. */
+  notice?: string;
 }
 
 /**

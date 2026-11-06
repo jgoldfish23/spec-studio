@@ -434,3 +434,20 @@ describe("Deals page", () => {
     expect(createDeal).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("Deals page notice", () => {
+  it("shows the list's notice as a plain line, not an alert or a problem row", async () => {
+    const harness = createHarness();
+    const stored = await seedSampleDeal(harness.repository);
+    vi.spyOn(harness.repository, "listDeals").mockResolvedValue({
+      deals: [stored],
+      problems: [],
+      notice: "Showing what's saved on this device — can't reach the server.",
+    });
+    renderApp("#/", harness);
+    const notice = await screen.findByText("Showing what's saved on this device — can't reach the server.");
+    expect(notice).toBeVisible();
+    expect(notice).not.toHaveAttribute("role", "alert");
+    expect(screen.queryByRole("button", { name: /Remove/ })).not.toBeInTheDocument();
+  });
+});

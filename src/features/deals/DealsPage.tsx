@@ -266,6 +266,12 @@ export function DealsPage() {
         </p>
       ) : null}
 
+      {list?.notice ? (
+        <p role="status" className="m-0 rounded-lg border border-line bg-surface px-4 py-3 text-sm text-muted">
+          {list.notice}
+        </p>
+      ) : null}
+
       <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-4">
         <RulesCard />
         <Card title="Cost book">
