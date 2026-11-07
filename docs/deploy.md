@@ -4,11 +4,11 @@ This guide takes Spec Studio from the demo (saved only in one browser) to a live
 
 **Read this first: never paste a secret value into a chat, an issue, a commit or a document.** GitHub stores your secrets, and the deploy workflow reads them by name. Nobody, including Claude, ever needs to see them.
 
-You will use three websites: Supabase (the database and sign-in), Cloudflare (hosts the site) and GitHub (runs the deploy). The words in **bold** are the exact names to use.
+You will use three websites: Supabase (the database and sign-in), Cloudflare (hosts the site) and GitHub (runs the deploy). The words in **bold** are the exact names to use. Menu names below are current at the time of writing; if one has moved, look for the nearest equivalent (Supabase and Cloudflare rename menus from time to time).
 
 ## Checklist
 
-1. **Create a Supabase project.** At supabase.com, choose New project. Name it `spec-studio`. Set a database password and keep it somewhere safe (a password manager). For Region choose **West US (North California)**.
+1. **Create a Supabase project.** At supabase.com, choose New project. Name it `spec-studio`. Set a database password made of letters and digits only (no symbols, so it pastes into the connection string without trouble) and keep it somewhere safe (a password manager). For Region choose **West US (North California)**.
 
 2. **Tell Supabase where the site lives.** In Supabase open Authentication, then URL Configuration.
    - Site URL: `https://spec-studio.pages.dev`
@@ -16,20 +16,20 @@ You will use three websites: Supabase (the database and sign-in), Cloudflare (ho
 
    The app's sign-in links return to `https://spec-studio.pages.dev/`. If you add your own domain later, add it to both fields.
 
-3. **Add a sign-in code to the email.** In Supabase open Authentication, then Email Templates, then **Magic Link**. Keep the existing `{{ .ConfirmationURL }}` link. Under it add this line exactly: `Or type this code: {{ .Token }}`. Save.
+3. **Add a sign-in code to the email.** In Supabase open Authentication, then Emails, then Templates. Do this in **both** the **Magic Link** template and the **Confirm signup** template (a first-time sign-in with a new email address uses Confirm signup). In each, keep the existing `{{ .ConfirmationURL }}` link and add this line exactly under it: `Or type this code: {{ .Token }}`. Save each one.
 
-4. **Give GitHub the public project settings.** In Supabase open Project Settings, then API. In GitHub open your repository, then Settings, then Secrets and variables, then Actions, then the **Variables** tab. Add two variables:
+4. **Give GitHub the public project settings.** In Supabase open Project Settings, then Data API (for the Project URL) and API Keys (for the keys). In GitHub open your repository, then Settings, then Secrets and variables, then Actions, then the **Variables** tab. Add two variables:
    - **`SUPABASE_URL`**: the Project URL.
    - **`SUPABASE_ANON_KEY`**: the **anon** key. Newer projects also show a "publishable" key that starts with `sb_publishable_`; that works too. These two values are public by design.
 
    Never copy the `service_role` key or any key that starts with `sb_secret_` anywhere. If one is used by mistake, the deploy stops with an error before anything is published.
 
-5. **Give GitHub the database connection.** In Supabase click Connect and choose the **Session pooler** string (port 5432). The direct connection also works. Do **not** use the Transaction pooler (port 6543): the migration step needs a steady connection. Replace the `[YOUR-PASSWORD]` part with the database password from step 1. In GitHub, on the **Secrets** tab of the same page, add a secret named **`SUPABASE_DB_URL`** with that string. It lives only in GitHub.
+5. **Give GitHub the database connection.** In Supabase click Connect and choose the **Session pooler** connection string (port 5432) and use only that one. Do **not** use the Transaction pooler (port 6543): the migration step needs a steady connection. Do not use the direct connection either: it does not work from GitHub. Replace the `[YOUR-PASSWORD]` part with the database password from step 1. In GitHub, on the **Secrets** tab of the same page, add a secret named **`SUPABASE_DB_URL`** with that string. It lives only in GitHub.
 
 6. **Set up Cloudflare.**
-   - In Cloudflare open Workers & Pages, then Create, then Pages, then Upload assets (direct upload). Name the project **`spec-studio`**. You can upload any small file just to create it; the deploy replaces it.
+   - In Cloudflare open Workers & Pages, then Create, then Pages, then Upload assets (direct upload). Name the project **`spec-studio`**. You can upload any small file just to create it; the deploy replaces it. Note the project's real address (`something.pages.dev`): if the name `spec-studio` was taken, Cloudflare adds a suffix. If it differs from `spec-studio.pages.dev`, go back to step 2 and use your real address there.
    - Your Account ID is in the right sidebar of the Workers & Pages overview. Add it in GitHub as the secret **`CLOUDFLARE_ACCOUNT_ID`**.
-   - Create an API token: My Profile, then API Tokens, then Create Token, then Create Custom Token. Permission: **Account, Cloudflare Pages, Edit**. Add it in GitHub as the secret **`CLOUDFLARE_API_TOKEN`**.
+   - Create an API token: My Profile, then API Tokens, then Create Token, then Create Custom Token. Permission: **Account, Cloudflare Pages, Edit**. Under Account Resources, pick the right account. Add it in GitHub as the secret **`CLOUDFLARE_API_TOKEN`**.
 
 7. **Run the deploy.** In GitHub open Actions, choose the **Deploy** workflow, and click Run workflow on `main`. It applies the database setup, builds the site and publishes it. A red error names whatever setting is missing; add it and run again. The site appears at `https://spec-studio.pages.dev`.
 

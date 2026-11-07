@@ -8,7 +8,7 @@ const scan = scanText as (text: string, opts?: { demo?: boolean }) => Hit[];
 const b64url = (s: string) => Buffer.from(s).toString("base64url");
 // Obviously fake: built here from a claims object with a dummy signature.
 const jwt = (claims: object) => `${b64url('{"alg":"HS256","typ":"JWT"}')}.${b64url(JSON.stringify(claims))}.ZHVtbXk`;
-const fakeJwt = (claims: object) => `eyJ${jwt(claims).slice(3)}`;
+const fakeJwt = jwt;
 const rules = (text: string, demo = false) => scan(text, { demo }).map((h) => h.rule);
 
 describe("scanText", () => {
@@ -44,6 +44,19 @@ describe("scanText", () => {
 
   it("demo mode allows bare supabase.co and env names", () => {
     expect(rules("VITE_SUPABASE_URL .supabase.co", true)).toEqual([]);
+  });
+
+  it("allows a short sb_secret_ value", () => {
+    expect(rules("sb_secret_short")).toEqual([]);
+  });
+
+  it("does not crash on a JWT-shaped token whose payload is not JSON", () => {
+    const t = `${b64url('{"alg":"x"}')}.${b64url("not json")}.ZHVtbXk`;
+    expect(rules(`k="${t}"`)).toEqual([]);
+  });
+
+  it("ignores a project URL of the wrong length", () => {
+    expect(rules("https://abcdefghijklmnopqrs.supabase.co https://abcdefghijklmnopqrstu.supabase.co", true)).toEqual([]);
   });
 
   it("never returns the matched value", () => {

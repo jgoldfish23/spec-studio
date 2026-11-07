@@ -20,17 +20,24 @@ describe("deploy.yml", () => {
     expect(deploy.concurrency["cancel-in-progress"] ?? false).toBe(false);
   });
 
-  it("deploy needs migrate", () => {
-    const needs = [deploy.jobs.deploy.needs].flat();
-    expect(needs).toContain("migrate");
+  it("runs preflight, then migrate, then deploy", () => {
+    expect([deploy.jobs.migrate.needs].flat()).toContain("preflight");
+    expect([deploy.jobs.deploy.needs].flat()).toContain("migrate");
+  });
+
+  it("only runs on main, whatever started it", () => {
+    for (const name of ["preflight", "migrate", "deploy"]) {
+      expect(deploy.jobs[name].if).toBe("github.ref == 'refs/heads/main'");
+    }
   });
 
   it("migrate uses the SUPABASE_DB_URL secret as DATABASE_URL and runs db:migrate", () => {
     const text = stepsText(deploy.jobs.migrate);
     expect(text).toContain("secrets.SUPABASE_DB_URL");
     expect(text).toContain("DATABASE_URL");
-    expect(text).toContain("npm run db:migrate");
     expect(text).toContain("::notice::");
+    const step = deploy.jobs.migrate.steps.find((x: any) => x.run === "npm run db:migrate");
+    expect(step.env.DATABASE_URL).toBe("${{ secrets.SUPABASE_DB_URL }}");
   });
 
   it("uses the exact secret and variable names", () => {
@@ -42,10 +49,22 @@ describe("deploy.yml", () => {
     expect(text).toContain("VITE_SUPABASE_ANON_KEY");
   });
 
-  it("guards against empty variables and secrets before building", () => {
-    const text = stepsText(deploy.jobs.deploy);
-    expect(text).toContain("::error::");
-    expect(text.indexOf("::error::")).toBeLessThan(text.indexOf("npm run build"));
+  it("preflight guards all four settings", () => {
+    const run = deploy.jobs.preflight.steps[0].run as string;
+    expect(run).toContain("::error::");
+    for (const n of ["SUPABASE_URL", "SUPABASE_ANON_KEY", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]) {
+      expect(run).toContain('[ -z "$' + n + '" ]');
+    }
+    const text = JSON.stringify(deploy.jobs.preflight);
+    for (const n of ["vars.SUPABASE_URL", "vars.SUPABASE_ANON_KEY", "secrets.CLOUDFLARE_API_TOKEN", "secrets.CLOUDFLARE_ACCOUNT_ID"]) {
+      expect(text).toContain(n);
+    }
+  });
+
+  it("package.json pins yaml exactly and has no wrangler", () => {
+    const pkg = JSON.parse(read("package.json"));
+    expect(pkg.devDependencies.yaml).toMatch(/^[0-9]+[.][0-9]+[.][0-9]+$/);
+    expect(JSON.stringify(pkg)).not.toContain("wrangler");
   });
 
   it("scans the bundle after the build and before the deploy", () => {
@@ -66,7 +85,7 @@ describe("deploy.yml", () => {
   });
 
   it("uses the same actions and node as ci.yml", () => {
-    for (const job of Object.values<any>(deploy.jobs)) {
+    for (const job of [deploy.jobs.migrate, deploy.jobs.deploy]) {
       const uses = job.steps.map((s: any) => s.uses).filter(Boolean);
       expect(uses).toContain("actions/checkout@v4");
       expect(uses).toContain("actions/setup-node@v4");

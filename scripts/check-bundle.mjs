@@ -24,6 +24,11 @@ try {
   process.exit(1);
 }
 
+if (files.length === 0) {
+  console.error(`check-bundle: ${root} has no files. Run npm run build first.`);
+  process.exit(1);
+}
+
 let failed = false;
 for (const file of files) {
   for (const { rule } of scanText(readFileSync(file).toString("utf8"), { demo })) {
