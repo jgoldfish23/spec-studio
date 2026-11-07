@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { DEFAULT_MARKET_SETTINGS } from "@engine";
 import type { Comp } from "@engine";
+import { buildExport, downloadExport } from "../../data/exportFile";
 import { newDealInputs } from "../../data/newDeal";
 import {
   useCompanySettings,
@@ -131,6 +132,8 @@ export function DealsPage() {
   const [confirming, setConfirming] = useState<Confirming>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  /** What "Download a copy first" last did, shown in the dialog it was pressed in. */
+  const [copyNote, setCopyNote] = useState<string | null>(null);
   const pageRef = useRef<HTMLDivElement>(null);
   const newDealRef = useRef<HTMLButtonElement>(null);
   /** Where focus goes once a removed row is gone: the row known by `key`, or New deal when `key` is null. */
@@ -205,9 +208,23 @@ export function DealsPage() {
     removeRow(problemKey(id), "Couldn't delete the deal", () => deleteDeal.mutateAsync(id));
   const removeEverything = () => perform("Couldn't remove the saved deals", () => resetDeals.mutateAsync());
 
+  const downloadCopy = async () => {
+    setBusy(true);
+    setCopyNote(null);
+    try {
+      const now = new Date().toISOString();
+      setCopyNote(`Downloaded ${downloadExport(await buildExport(repository, REGION, now), now)}.`);
+    } catch (error) {
+      setCopyNote(`Couldn't download a copy: ${errorMessage(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const confirm = (): void => {
     const pending = confirming;
     setConfirming(null);
+    setCopyNote(null);
     if (pending?.kind === "delete") void removeDeal(pending.id, pending.sampleCompIds);
     else if (pending?.kind === "removeProblem") void removeProblem(pending.id);
     else if (pending?.kind === "reset") void removeEverything();
@@ -333,7 +350,22 @@ export function DealsPage() {
         </section>
       )}
 
-      {confirming ? <ConfirmDialog {...dialogFor(confirming)} onConfirm={confirm} onCancel={() => setConfirming(null)} /> : null}
+      {confirming ? (
+        <ConfirmDialog
+          {...dialogFor(confirming)}
+          onConfirm={confirm}
+          onCancel={() => {
+            setConfirming(null);
+            setCopyNote(null);
+          }}
+          {...(confirming.kind === "reset"
+            ? {
+                extraAction: { label: "Download a copy first", onClick: () => void downloadCopy(), disabled: busy },
+                note: copyNote ?? undefined,
+              }
+            : {})}
+        />
+      ) : null}
     </div>
   );
 }

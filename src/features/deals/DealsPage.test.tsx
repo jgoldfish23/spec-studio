@@ -420,6 +420,25 @@ describe("Deals page", () => {
     expect(harness.storage.getItem(DEALS_KEY)).toBeNull();
   });
 
+  it("offers to download a copy before removing everything, and keeps the dialog open", async () => {
+    const user = userEvent.setup();
+    const harness = createHarness();
+    harness.storage.setItem(DEALS_KEY, "{ not json");
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    const createObjectURL = (URL.createObjectURL = vi.fn(() => "blob:copy"));
+    URL.revokeObjectURL = vi.fn();
+    renderApp("#/", harness);
+    await user.click(await screen.findByRole("button", { name: "Remove" }));
+    const dialog = screen.getByRole("alertdialog");
+    await user.click(within(dialog).getByRole("button", { name: "Download a copy first" }));
+    await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(await within(dialog).findByText("Downloaded spec-studio-export-2026-10-31.json.")).toBeVisible();
+    expect(screen.getByRole("alertdialog")).toBeVisible();
+    expect(harness.storage.getItem(DEALS_KEY)).toBe("{ not json");
+    click.mockRestore();
+  });
+
   it("says so when an action fails, and keeps working", async () => {
     const user = userEvent.setup();
     const harness = createHarness();

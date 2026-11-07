@@ -8,6 +8,10 @@ export interface ConfirmDialogProps {
   confirmLabel: string;
   onConfirm: () => void;
   onCancel: () => void;
+  /** An optional third answer that leaves the dialog open, e.g. "Download a copy first". It sits between Cancel and the confirming button. */
+  extraAction?: { label: string; onClick: () => void; disabled?: boolean };
+  /** A line under the question, e.g. what the extra action just did or why it failed. */
+  note?: string;
 }
 
 const BUTTON =
@@ -18,7 +22,7 @@ const BUTTON =
  * build can run inside a frame where `window.confirm` is blocked. Focus starts on Cancel, Tab stays inside, Escape
  * cancels, and focus goes back to where it was when the dialog closes.
  */
-export function ConfirmDialog({ message, confirmLabel, onConfirm, onCancel }: ConfirmDialogProps) {
+export function ConfirmDialog({ message, confirmLabel, onConfirm, onCancel, extraAction, note }: ConfirmDialogProps) {
   const messageId = useId();
   const cancelButton = useRef<HTMLButtonElement>(null);
   const confirmButton = useRef<HTMLButtonElement>(null);
@@ -72,6 +76,11 @@ export function ConfirmDialog({ message, confirmLabel, onConfirm, onCancel }: Co
         <p id={messageId} className="m-0 text-[17px] font-semibold leading-snug text-ink">
           {message}
         </p>
+        {note ? (
+          <p role="status" className="m-0 text-sm text-muted">
+            {note}
+          </p>
+        ) : null}
         <div className="flex flex-wrap justify-end gap-3">
           <button
             ref={cancelButton}
@@ -81,6 +90,16 @@ export function ConfirmDialog({ message, confirmLabel, onConfirm, onCancel }: Co
           >
             Cancel
           </button>
+          {extraAction ? (
+            <button
+              type="button"
+              onClick={extraAction.onClick}
+              disabled={extraAction.disabled}
+              className={`${BUTTON} border border-[#C9CEC8] bg-surface text-ink hover:bg-paper disabled:opacity-60`}
+            >
+              {extraAction.label}
+            </button>
+          ) : null}
           <button
             ref={confirmButton}
             type="button"

@@ -8,6 +8,7 @@ import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { MarketSection } from "./MarketSection";
 import { QuantityRulesSection } from "./QuantityRulesSection";
 import { RulesSection } from "./RulesSection";
+import { YourDataCard } from "./YourDataCard";
 
 /** The one region the app knows: Northern Utah (Davis & Weber). */
 const REGION = DEFAULT_MARKET_SETTINGS.region;
@@ -67,6 +68,8 @@ export function SettingsPage() {
       )}
 
       <QuantityRulesSection />
+
+      <YourDataCard />
 
       {blocker.state === "blocked" ? (
         <ConfirmDialog
