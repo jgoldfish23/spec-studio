@@ -4,10 +4,11 @@ import { Card } from "../../ui/Card";
 import { FOCUS_RING, MUTED_NOTE } from "../deal/stepShared";
 import { monthLabel } from "./timeline";
 
-const COLUMNS = ["Spend", "Loan draw", "Interest", "Carry", "Equity out", "Cumulative equity", "Loan balance"] as const;
+/** The month by month table's columns after the month. */
+export const CASH_FLOW_COLUMNS = ["Spend", "Loan draw", "Interest", "Carry", "Equity out", "Cumulative equity", "Loan balance"] as const;
 
 /** Property tax, insurance, utilities, staging, upkeep and HOA for the month. */
-const carryOf = (p: Period): number =>
+export const carryOf = (p: Period): number =>
   p.taxCents + p.insuranceCents + p.utilitiesCents + p.stagingCents + p.upkeepCents + p.hoaCents;
 
 interface CashFlowCardProps {
@@ -36,7 +37,7 @@ export function CashFlowCard({ result, landClose }: CashFlowCardProps) {
                   <th scope="col" className="px-2 py-2 text-left font-semibold">
                     Month
                   </th>
-                  {COLUMNS.map((name) => (
+                  {CASH_FLOW_COLUMNS.map((name) => (
                     <th key={name} scope="col" className="px-2 py-2 text-right font-semibold">
                       {name}
                     </th>

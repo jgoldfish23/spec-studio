@@ -35,13 +35,14 @@ describe("Pro forma page layout", () => {
     expect(screen.getByRole("link", { name: "Pro forma" })).toHaveAttribute("href", `#/deals/${deal.id}/proforma`);
   });
 
-  it("has a Lender package button that is disabled, with a Later tag", async () => {
+  it("has a Lender package link to the print page, with no Later tag", async () => {
     const { harness, deal } = await sampleSetup();
     await openProForma(harness, deal);
 
-    const button = screen.getByRole("button", { name: /Lender package \(PDF\)/ });
-    expect(button).toBeDisabled();
-    expect(within(button).getByText("Later")).toBeVisible();
+    const link = screen.getByRole("link", { name: "Lender package (PDF)" });
+    expect(link).toHaveAttribute("href", `#/deals/${deal.id}/print`);
+    expect(screen.queryByRole("button", { name: /Lender package/ })).not.toBeInTheDocument();
+    expect(within(link).queryByText("Later")).not.toBeInTheDocument();
   });
 
   it("scrolls the grid and the month by month table inside boxes of their own, so a narrow page never scrolls sideways", async () => {

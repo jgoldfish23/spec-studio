@@ -13,6 +13,7 @@ import { StepPlaceholder } from "./features/deal/StepPlaceholder";
 import { StepSkeleton } from "./features/deal/StepSkeleton";
 import { STEPS, type StepId } from "./features/deal/steps";
 import { DealsPage } from "./features/deals/DealsPage";
+import { LenderPackagePage } from "./features/print/LenderPackagePage";
 import { SettingsPage } from "./features/settings/SettingsPage";
 
 // Each step's screen is its own chunk, fetched when the step is first opened, so the first load is the frame, the
@@ -70,6 +71,8 @@ function SignInRoute() {
 const routes: RouteObject[] = [
   // Outside the shell: in hosted mode it only ends the session.
   { path: "/sign-in", element: <SignInRoute /> },
+  // The lender package is a page for paper, so it has none of the shell's header or navigation.
+  { path: "/deals/:dealId/print", element: <LenderPackagePage /> },
   {
     path: "/",
     element: <Shell />,

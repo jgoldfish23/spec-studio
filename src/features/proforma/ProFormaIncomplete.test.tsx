@@ -50,7 +50,7 @@ describe("a new deal", () => {
       expect(card(name)).toBeVisible();
     }
     expect(within(card("Financing")).getByLabelText("Loan-to-cost %")).toBeVisible();
-    expect(screen.getByRole("button", { name: /Lender package \(PDF\)/ })).toBeDisabled();
+    expect(screen.getByRole("link", { name: "Lender package (PDF)" })).toHaveAttribute("href", `#/deals/${deal.id}/print`);
   });
 
   it("sends a deal that has its city but no comps to the Market step", async () => {

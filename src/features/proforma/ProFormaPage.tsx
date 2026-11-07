@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router";
 import type { DealEvaluation, DealInputs, ScenarioName } from "@engine";
 import { useDealEditorContext } from "../deal/DealEditorContext";
 import type { Edit } from "../deal/stepShared";
@@ -22,18 +23,16 @@ function NumbersWait() {
   );
 }
 
-/** The disabled button for the lender's PDF, which comes later. */
-function LenderPackage() {
+/** The link to the lender package, the deal's print view. */
+function LenderPackage({ dealId }: { dealId: string }) {
   return (
     <div className="flex justify-end">
-      <button
-        type="button"
-        disabled
-        className={`inline-flex min-h-11 cursor-not-allowed items-center gap-2 rounded-lg border border-[#DCDFD9] bg-paper px-3.5 text-sm font-semibold text-muted ${FOCUS_RING}`}
+      <Link
+        to={`/deals/${dealId}/print`}
+        className={`inline-flex min-h-11 items-center gap-2 rounded-lg border border-[#C9CEC8] bg-surface px-3.5 text-sm font-semibold text-ink no-underline hover:bg-paper ${FOCUS_RING}`}
       >
         Lender package (PDF)
-        <span className="rounded border border-[#B8BEB9] px-1.5 py-px text-[11px] font-medium">Later</span>
-      </button>
+      </Link>
     </div>
   );
 }
@@ -90,7 +89,7 @@ function ProFormaScreen({ dealId, inputs, evaluatedInputs, evaluation, edit }: P
       </div>
 
       {result !== null ? <CashFlowCard result={result} landClose={landClose} /> : null}
-      <LenderPackage />
+      <LenderPackage dealId={dealId} />
     </div>
   );
 }
