@@ -1,5 +1,6 @@
 node_modules
 dist
+dist-hosted
 coverage
 .DS_Store
 __pycache__

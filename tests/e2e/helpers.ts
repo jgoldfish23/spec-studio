@@ -5,9 +5,17 @@ import type { Page } from "@playwright/test";
 /** The five steps of a deal, as their tabs name them. */
 export type StepTitle = "Lot" | "House" | "Estimate" | "Market" | "Pro forma";
 
-/** From a fresh browser: opens the app, loads the sample deal and waits for its Pro forma step to be drawn. */
-export async function loadSampleDeal(page: Page) {
-  await page.goto("/");
+/**
+ * From a fresh browser: opens the app (at `start`, the project's own address unless another is given), loads the
+ * sample deal and waits for its Pro forma step to be drawn.
+ */
+export async function loadSampleDeal(page: Page, start = "/") {
+  await page.goto(start);
+  await startSampleDeal(page);
+}
+
+/** From the empty Deals page: loads the sample deal and waits for its Pro forma step to be drawn. */
+export async function startSampleDeal(page: Page) {
   await expect(page.getByText("No deals yet")).toBeVisible();
   await page.getByRole("button", { name: "Load sample deal" }).click();
   await expect(page.getByRole("heading", { name: "Pro forma" })).toBeAttached();

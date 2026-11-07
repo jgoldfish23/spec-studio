@@ -49,14 +49,25 @@ Each test file works in a database of its own and drops it when done.
 
 ### End-to-end tests
 
-`npm run e2e` builds the app, serves it on port 4173 and drives it in Chromium. The specs in `tests/e2e` (shared steps
-in `helpers.ts`) check four things:
+`npm run e2e` builds the app twice, serves both builds and drives them in Chromium, as two Playwright projects:
+
+- `demo`: the demo build (`npm run build`) on port 4173, for every spec but `hosted.spec.ts`.
+- `hosted`: a hosted build made against a fake Supabase (`npm run build:hosted-test`, into `dist-hosted/`) on port 4174,
+  for `hosted.spec.ts`. `tests/e2e/fakeSupabase/` answers the app's Supabase requests in the browser, through
+  Playwright's request interception, from in-memory tables seeded with the starter cost book.
+
+`npx playwright test --project demo` (or `hosted`) runs one of them. The specs in `tests/e2e` (shared steps in
+`helpers.ts`) check, among other things:
 
 - `deal-flow.spec.ts`: the sample deal is loaded into an empty browser, edited on House, Market and Estimate, saved, and
   found again with both changes after a reload and on the Deals list.
 - `deal-flow.spec.ts`: an edit is kept when the page is reloaded straight after it, before the autosave's second is up.
 - `layout.spec.ts`: the Deals list and every step fit a 390 px screen without scrolling sideways, with no console errors.
 - `chunk-failure.spec.ts`: a step whose code cannot be fetched says so, keeps the deal's tabs, and recovers on Reload.
+- `hosted.spec.ts`: signing in with the emailed code and setting up the company; an edit saved to the server; an edit
+  made offline that survives a reload and syncs when the connection is back; a deal changed on another device, kept
+  with Keep mine; a sign-in link opened in another browser; a Settings change that new deals start from; and demo deals
+  moved into the account by copy and paste, with a second import skipping them.
 
 Notes:
 

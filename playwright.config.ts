@@ -5,6 +5,14 @@ import { defineConfig, devices } from "@playwright/test";
 const chromiumPath = process.env.PW_CHROMIUM_PATH;
 const PORT = 4173;
 const BASE_URL = `http://localhost:${PORT}`;
+// The hosted build, made against the fake Supabase that `tests/e2e/fakeSupabase` puts in the browser.
+const HOSTED_PORT = 4174;
+const HOSTED_URL = `http://localhost:${HOSTED_PORT}`;
+
+const chromium = {
+  ...devices["Desktop Chrome"],
+  ...(chromiumPath ? { launchOptions: { executablePath: chromiumPath } } : {}),
+};
 
 export default defineConfig({
   testDir: "tests/e2e",
@@ -19,18 +27,32 @@ export default defineConfig({
   },
   projects: [
     {
-      name: "chromium",
-      use: {
-        ...devices["Desktop Chrome"],
-        ...(chromiumPath ? { launchOptions: { executablePath: chromiumPath } } : {}),
-      },
+      // The demo build: everything in the browser, no network.
+      name: "demo",
+      testIgnore: "hosted.spec.ts",
+      use: chromium,
+    },
+    {
+      // The hosted build against the fake Supabase. Its specs also open the demo build, at its own address.
+      name: "hosted",
+      testMatch: "hosted.spec.ts",
+      use: { ...chromium, baseURL: HOSTED_URL },
     },
   ],
-  // The production build, served as static files: what the demo page runs. A fresh build each run, never a reused server.
-  webServer: {
-    command: `npm run build && npx vite preview --port ${PORT} --strictPort`,
-    url: BASE_URL,
-    reuseExistingServer: false,
-    timeout: 180_000,
-  },
+  // The production builds, served as static files. A fresh build of each every run, never a reused server.
+  webServer: [
+    {
+      // What the demo page runs.
+      command: `npm run build && npx vite preview --port ${PORT} --strictPort`,
+      url: BASE_URL,
+      reuseExistingServer: false,
+      timeout: 180_000,
+    },
+    {
+      command: `npm run build:hosted-test && npx vite preview --outDir dist-hosted --port ${HOSTED_PORT} --strictPort`,
+      url: HOSTED_URL,
+      reuseExistingServer: false,
+      timeout: 180_000,
+    },
+  ],
 });
