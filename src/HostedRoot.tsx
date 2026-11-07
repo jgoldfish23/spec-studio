@@ -419,7 +419,9 @@ function SignedInApp({
   const [{ repository, end }] = useState(() => {
     const server = guardSession(makeRemote(company.id));
     return {
-      repository: createOfflineRepository(server.remote, storage, user.id),
+      repository: createOfflineRepository(server.remote, storage, user.id, {
+        persistent,
+      }),
       end: server.end,
     };
   });

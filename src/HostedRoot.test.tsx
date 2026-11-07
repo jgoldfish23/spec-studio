@@ -258,6 +258,32 @@ describe("HostedGate", () => {
     ).toBeVisible();
   });
 
+  it("does not call an offline edit safe on this device when the browser blocks storage: it alerts", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const world = createWorld({
+      user: ANA,
+      companies: [[ANA, ANA_CO]],
+      persistent: false,
+    });
+    const deal = await seedSampleDeal(world.server(ANA_CO.id));
+    window.history.replaceState(null, "", `/#/deals/${deal.id}/lot`);
+    world.mount();
+    await screen.findByLabelText("Deal name", undefined, { timeout: 3000 });
+    world.network.down = "offline";
+    await rename(user, "Renamed on site");
+    expect(
+      await screen.findByText(
+          /can't reach the server, and this browser can't keep your changes/,
+        undefined,
+        { timeout: 3000 },
+      ),
+    ).toBeVisible();
+    expect(
+      screen.queryByText("Offline — saved on this device, will sync"),
+    ).not.toBeInTheDocument();
+  });
+
   describe("when the server can't be reached at startup", () => {
     it("says so when the company can't be loaded, and Try again tries again", async () => {
       const user = userEvent.setup();

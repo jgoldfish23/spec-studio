@@ -1197,6 +1197,50 @@ describe("useDealEditor save problems", () => {
     expect(asks()).toBe(true);
   });
 
+  it.each([
+    ["in memory only (the browser blocks storage)", () => ({ storage: new MemoryStorage(), persistent: false })],
+    [
+      "full",
+      () => {
+        const full = new MemoryStorage();
+        full.setItem = () => {
+          throw new DOMException("full", "QuotaExceededError");
+        };
+        return { storage: full, persistent: true };
+      },
+    ],
+  ])("with the device's storage %s, an offline edit is not called safe: it alerts and asks before the page closes", async (_name, device) => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { storage, persistent } = device();
+    const s = await setup({}, (remote) =>
+      createOfflineRepository(
+        {
+          ...remote,
+          saveDeal: async () => {
+            throw new DataError("Can't reach the server — check your connection.", { kind: "offline" });
+          },
+        },
+        storage,
+        "u",
+        { persistent },
+      ),
+    );
+    const view = await ready(s);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    await advance(1000);
+    expect(view.result.current.saveStatus).toEqual({
+      kind: "error",
+      reason: "failed",
+      message: "Couldn't save — can't reach the server, and this browser can't keep your changes.",
+    });
+    expect(asks()).toBe(true);
+    // Leaving now loses the edit, and the owner is told so.
+    const lost = renderHook(() => useLostSaves());
+    view.unmount();
+    await advance(1000);
+    expect(lost.result.current).toEqual([expect.objectContaining({ dealId: s.first.id })]);
+  });
+
   it("still asks before the page closes for a failure that is not on the device", async () => {
     const s = await setup();
     s.saveDeal.mockRejectedValueOnce(new DataError("The server refused it", { kind: "failed" }));

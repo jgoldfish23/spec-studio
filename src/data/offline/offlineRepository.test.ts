@@ -136,6 +136,52 @@ describe("saveDeal", () => {
     expect(repo.pending()).toHaveLength(1);
   });
 
+  describe("says an edit is safe on this device only when it is", () => {
+    const NOT_KEPT_OFFLINE = "Couldn't save — can't reach the server, and this browser can't keep your changes.";
+    const NOT_KEPT_SIGNED_OUT =
+      "Couldn't save — you've been signed out, and this browser can't keep your changes. Sign in again to save them.";
+
+    it.each([
+      ["offline", offlineError, NOT_KEPT_OFFLINE],
+      ["signed out", signedOutError, NOT_KEPT_SIGNED_OUT],
+    ] as const)("%s, over storage that does not survive a reload, it is a failed save", async (_name, make, message) => {
+      const memoryOnly = createOfflineRepository(remote as unknown as Repository, storage, SCOPE, { persistent: false });
+      remote.saveDeal.mockRejectedValue(make());
+      const error = await memoryOnly.saveDeal(deal()).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(DataError);
+      expect((error as DataError).kind).toBe("failed");
+      expect((error as DataError).message).toBe(message);
+      // It still waits in the outbox for as long as the page is open, and syncs if the connection comes back.
+      expect(memoryOnly.pending()).toHaveLength(1);
+    });
+
+    it("offline, when the outbox write is refused (a full store), it is a failed save", async () => {
+      storage.setItem = () => {
+        throw new DOMException("full", "QuotaExceededError");
+      };
+      remote.saveDeal.mockRejectedValue(offlineError());
+      const error = await repo.saveDeal(deal()).catch((e: unknown) => e);
+      expect((error as DataError).kind).toBe("failed");
+      expect((error as DataError).message).toBe(NOT_KEPT_OFFLINE);
+    });
+
+    it("offline, when the copy of reads had to go to make room, the kept edit is safe", async () => {
+      let full = true;
+      const setItem = storage.setItem.bind(storage);
+      storage.setItem = (key: string, value: string) => {
+        if (full && key === KEY) {
+          full = false;
+          throw new DOMException("full", "QuotaExceededError");
+        }
+        setItem(key, value);
+      };
+      remote.saveDeal.mockRejectedValue(offlineError());
+      const error = await repo.saveDeal(deal()).catch((e: unknown) => e);
+      expect((error as DataError).kind).toBe("offline");
+      expect((error as DataError).message).toBe(OFFLINE);
+    });
+  });
+
   it.each(["conflict", "deleted"] as const)("marks the entry %s and rethrows unchanged", async (kind) => {
     const original = new DataError("x", { kind });
     remote.saveDeal.mockRejectedValue(original);

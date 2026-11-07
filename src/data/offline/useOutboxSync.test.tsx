@@ -247,6 +247,39 @@ describe("useOutboxSync", () => {
     expect(view.result.current.refused).toBe(first);
   });
 
+  describe("asking the browser to keep this site's storage", () => {
+    afterEach(() => {
+      delete (navigator as { storage?: unknown }).storage;
+    });
+    const browserWith = (persist: () => Promise<boolean>) =>
+      Object.defineProperty(navigator, "storage", { value: { persist }, configurable: true });
+
+    it("asks the first time an edit waits on the device, and only once", async () => {
+      const persist = vi.fn(async () => true);
+      browserWith(persist);
+      const { repo } = setup({ reachable: false });
+      renderHook(() => useOutboxSync(repo));
+      await advance(0);
+      expect(persist).not.toHaveBeenCalled();
+      act(() => repo.queue(deal(1)));
+      expect(persist).toHaveBeenCalledTimes(1);
+      act(() => repo.queue(deal(2)));
+      await advance(30_000);
+      expect(persist).toHaveBeenCalledTimes(1);
+    });
+
+    it("goes on when the browser refuses, or has no way to ask", async () => {
+      browserWith(() => Promise.reject(new Error("not allowed")));
+      const { repo } = setup({ queued: 1, reachable: false });
+      const view = renderHook(() => useOutboxSync(repo));
+      await advance(0);
+      expect(view.result.current.pendingCount).toBe(1);
+      delete (navigator as { storage?: unknown }).storage;
+      const other = setup({ queued: 1, reachable: false });
+      expect(() => renderHook(() => useOutboxSync(other.repo))).not.toThrow();
+    });
+  });
+
   it("reports a sync that throws, against its contract, once", async () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     const { repo, syncNow } = setup({ queued: 1 });

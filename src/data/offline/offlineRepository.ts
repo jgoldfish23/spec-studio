@@ -77,6 +77,10 @@ export function isOfflineRepository(repository: Repository): repository is Offli
 
 const OFFLINE = "Offline — your changes are saved on this device and will sync.";
 const SIGNED_OUT = "Signed out — sign in to sync. Your changes are saved on this device.";
+/** The same failures when the outbox could not keep the edit: nothing is safe, and the owner must hear it. */
+const OFFLINE_NOT_KEPT = "Couldn't save — can't reach the server, and this browser can't keep your changes.";
+const SIGNED_OUT_NOT_KEPT =
+  "Couldn't save — you've been signed out, and this browser can't keep your changes. Sign in again to save them.";
 const LIST_NOTICE = "Showing what's saved on this device — can't reach the server.";
 
 interface Entry {
@@ -124,7 +128,10 @@ const isQuotaError = (error: unknown): boolean =>
 
 /**
  * Wraps `remote` so every deal save lands in a per-user outbox in `storage` before the network call. The outbox is
- * best effort: if the browser refuses the write, the save still goes to the server.
+ * best effort: if the browser refuses the write, the save still goes to the server. A save that then can't reach the
+ * server, or finds the owner signed out, is said to be safe on this device only when the outbox really holds it: when
+ * the write was refused (a full store), or `persistent` is false (the browser blocks storage, and `storage` is in
+ * memory, gone with the page), it fails as `failed`, which the editor treats as a lost save.
  *
  * It also keeps a device copy of the owner's reads (`deviceCopy.ts`): each successful read, and what each successful
  * write returns, is kept, so a returning owner can open the app, a deal and its figures offline. The copy answers a
@@ -133,7 +140,13 @@ const isQuotaError = (error: unknown): boolean =>
  * still goes on: when the server answers, the copy keeps it and `onRefreshed` listeners hear it. For deals the outbox
  * still wins: an outbox copy overlays the copied deal and its row in the list.
  */
-export function createOfflineRepository(remote: Repository, storage: Storage, scope: string): OfflineRepository {
+export function createOfflineRepository(
+  remote: Repository,
+  storage: Storage,
+  scope: string,
+  options: { persistent?: boolean } = {},
+): OfflineRepository {
+  const persistent = options.persistent ?? true;
   const key = `spec-studio:outbox:${scope}`;
   const listeners = new Set<() => void>();
   const refreshListeners = new Set<(refreshed: Refreshed) => void>();
@@ -180,21 +193,28 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
     }
   }
 
-  function write(entries: Entry[]): void {
+  /** Writes the entries; false when the browser refused (once more after making room). */
+  function write(entries: Entry[]): boolean {
     const save = () => {
       if (entries.length === 0) storage.removeItem(key);
       else storage.setItem(key, JSON.stringify({ version: 1, entries }));
     };
     try {
       save();
+      return true;
     } catch (error) {
-      if (!isQuotaError(error)) return reportWrite(error);
+      if (!isQuotaError(error)) {
+        reportWrite(error);
+        return false;
+      }
       // The outbox holds work not saved anywhere else; the copy of reads can be fetched again. Make room, try once more.
       copy.forget();
       try {
         save();
+        return true;
       } catch (again) {
         reportWrite(again);
+        return false;
       }
     }
   }
@@ -354,9 +374,10 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
 
   /**
    * Writes the deal's entry, replacing any older one, on the older one's base (the edits are one change to the server's
-   * version), or with `rebase` on the deal's own `updatedAt`. Synchronous, so a closing page keeps the edit.
+   * version), or with `rebase` on the deal's own `updatedAt`. Synchronous, so a closing page keeps the edit. `kept` is
+   * whether the entry reached storage that outlives the page.
    */
-  function enqueue(deal: StoredDeal, options?: { rebase?: boolean }): Entry {
+  function enqueue(deal: StoredDeal, options?: { rebase?: boolean }): { entry: Entry; kept: boolean } {
     const entries = read();
     const previous = entries.find((e) => e.deal.id === deal.id);
     const stamp = advanced.get(deal.id);
@@ -371,13 +392,13 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
       deal,
       writer,
     };
-    write([...entries.filter((e) => e.deal.id !== deal.id), entry]);
+    const kept = write([...entries.filter((e) => e.deal.id !== deal.id), entry]) && persistent;
     notify();
-    return entry;
+    return { entry, kept };
   }
 
   async function saveDeal(deal: StoredDeal): Promise<StoredDeal> {
-    const queued = enqueue(deal);
+    const { entry: queued, kept } = enqueue(deal);
     let entry = queued;
     inFlight.set(deal.id, queued.seq);
     try {
@@ -395,11 +416,13 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
       return saved;
     } catch (error) {
       failed(entry, error);
-      if (error instanceof DataError && error.kind === "offline") {
-        throw new DataError(OFFLINE, { kind: "offline", recordId: error.recordId ?? deal.id, cause: error });
-      }
-      if (error instanceof DataError && error.kind === "signedOut") {
-        throw new DataError(SIGNED_OUT, { kind: "signedOut", recordId: error.recordId ?? deal.id, cause: error });
+      if (error instanceof DataError && (error.kind === "offline" || error.kind === "signedOut")) {
+        const offline = error.kind === "offline";
+        const recordId = error.recordId ?? deal.id;
+        if (!kept) {
+          throw new DataError(offline ? OFFLINE_NOT_KEPT : SIGNED_OUT_NOT_KEPT, { kind: "failed", recordId, cause: error });
+        }
+        throw new DataError(offline ? OFFLINE : SIGNED_OUT, { kind: error.kind, recordId, cause: error });
       }
       throw error;
     } finally {

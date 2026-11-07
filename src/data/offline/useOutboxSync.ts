@@ -32,6 +32,21 @@ const refusedOf = (repo: OfflineRepository): string =>
       .map(({ dealId, dealName, problem }) => ({ dealId, dealName, problem })),
   );
 
+/**
+ * Asks the browser to keep this site's storage, best effort. Safari can clear a site's storage, unsynced edits included,
+ * after 7 days without a visit; a site that asked (and a home-screen app) is kept. A browser that cannot ask, or says
+ * no, changes nothing.
+ */
+function askToKeepStorage(): void {
+  try {
+    const storage = globalThis.navigator?.storage;
+    if (typeof storage?.persist !== "function") return;
+    storage.persist().catch(() => {});
+  } catch {
+    // Best effort.
+  }
+}
+
 /** The sync runs one hook has started and not yet seen finish, as a store `useSyncExternalStore` can follow. */
 function createRunCount() {
   let count = 0;
@@ -97,6 +112,15 @@ export function useOutboxSync(repo: OfflineRepository): OutboxSync {
     const timer = setInterval(sync, SYNC_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [waiting, sync]);
+
+  // The first time an edit waits on this device, the browser is asked to keep it.
+  const askedToKeep = useRef(false);
+  const holdsWork = waiting || refused.length > 0;
+  useEffect(() => {
+    if (!holdsWork || askedToKeep.current) return;
+    askedToKeep.current = true;
+    askToKeepStorage();
+  }, [holdsWork]);
 
   return { pendingCount, refused, syncing };
 }
