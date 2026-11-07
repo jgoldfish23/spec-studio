@@ -1,7 +1,8 @@
+import { testSampleComps } from "../../testing/sampleIds";
 import { describe, expect, it } from "vitest";
 import { CompSchema } from "@engine";
 import type { Comp } from "@engine";
-import { sampleComps } from "../../data/sample";
+
 import { compFromForm, emptyCompForm, formFromComp, keepUnshownFields, unplacedIssues } from "./compForm";
 import type { CompFormValues } from "./compForm";
 
@@ -293,7 +294,7 @@ describe("compFromForm: what CompSchema says", () => {
 
 describe("formFromComp", () => {
   it("shows a comp's facts as the text of each box", () => {
-    const [first] = sampleComps();
+    const [first] = testSampleComps();
     expect(formFromComp(first as Comp)).toEqual({
       address: "Sample comp 1, Kaysville, UT",
       city: "Kaysville",
@@ -319,7 +320,10 @@ describe("formFromComp", () => {
   });
 
   it("turns each sample comp back into itself", () => {
-    for (const comp of sampleComps()) {
+    for (const comp of testSampleComps().map((c) => ({
+      ...c,
+      source: "manual" as const,
+    }))) {
       const back = compFromForm(formFromComp(comp), comp.region, comp.id);
       expect(back.issues).toEqual([]);
       expect(back.comp).toEqual(comp);
@@ -328,7 +332,8 @@ describe("formFromComp", () => {
 
   it("round-trips a contract date and a list price that differs from the sold price", () => {
     const comp: Comp = {
-      ...(sampleComps()[0] as Comp),
+      ...(testSampleComps()[0] as Comp),
+      source: "manual",
       contractDate: "2026-05-20",
       listPriceCents: 139_900_000,
     };
@@ -338,13 +343,13 @@ describe("formFromComp", () => {
   });
 
   it("shows a price that has cents in whole dollars, as every other amount is", () => {
-    const comp: Comp = { ...(sampleComps()[0] as Comp), soldPriceCents: 136_500_050, listPriceCents: 136_500_049 };
+    const comp: Comp = { ...(testSampleComps()[0] as Comp), soldPriceCents: 136_500_050, listPriceCents: 136_500_049 };
     expect(formFromComp(comp)).toMatchObject({ soldPrice: "1,365,001", listPrice: "1,365,000" });
   });
 
   it("leaves the boxes of a facts-less comp empty instead of showing undefined", () => {
     const comp: Comp = {
-      ...(sampleComps()[0] as Comp),
+      ...(testSampleComps()[0] as Comp),
       status: "active",
     };
     delete comp.soldDate;
@@ -359,7 +364,7 @@ describe("formFromComp", () => {
 describe("keepUnshownFields", () => {
   it("brings back the facts of the original that the form has no box for", () => {
     const original: Comp = {
-      ...(sampleComps()[0] as Comp),
+      ...(testSampleComps()[0] as Comp),
       originalListPriceCents: 140_000_000,
       priceCuts: 2,
       notes: "Corner lot",
@@ -370,7 +375,7 @@ describe("keepUnshownFields", () => {
   });
 
   it("keeps the source, the verified flag and the status of a comp that was not entered by hand", () => {
-    const original: Comp = { ...(sampleComps()[0] as Comp), source: "csv", verified: false, status: "pending" };
+    const original: Comp = { ...(testSampleComps()[0] as Comp), source: "csv", verified: false, status: "pending" };
     const edited = compFromForm(formFromComp(original), original.region, original.id).comp as Comp;
     expect(edited).toMatchObject({ source: "manual", verified: true, status: "sold" });
     expect(keepUnshownFields(edited, original)).toMatchObject({ source: "csv", verified: false, status: "pending" });
@@ -378,7 +383,7 @@ describe("keepUnshownFields", () => {
   });
 
   it("adds nothing when the original had nothing extra", () => {
-    const original = sampleComps()[0] as Comp;
+    const original = testSampleComps()[0] as Comp;
     const edited = compFromForm(formFromComp(original), original.region, original.id).comp as Comp;
     const kept = keepUnshownFields(edited, original);
     expect(Object.keys(kept).sort()).toEqual(Object.keys(edited).sort());

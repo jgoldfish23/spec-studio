@@ -23,18 +23,26 @@ export function sampleDealInputs(): DealInputs {
   return deal;
 }
 
+/** The ids Plan 2's demo build stored the sample's comps under (the golden fixture's own). */
+export const LEGACY_SAMPLE_COMP_IDS: readonly string[] = goldenComps.map((comp) => comp.id);
+
 /**
- * The ids of the sample's comps. They are sample data in the shared comps library: a deal other than the sample leaves
- * them out unless the owner puts them in, the Market step tags them "Sample", and they go with the last sample deal.
+ * Whether a comp is sample data. The sample's comps are marked by their `source`, not by fixed ids: comp ids are unique
+ * across all companies, so every company needs sample comps with ids of its own. They sit in the shared comps library:
+ * a deal other than the sample leaves them out unless the owner puts them in, the Market step tags them "Sample", and
+ * they go with the last sample deal.
  */
-export const SAMPLE_COMP_IDS: ReadonlySet<string> = new Set(goldenComps.map((comp) => comp.id));
+export const isSampleComp = (comp: Comp): boolean => comp.source === "sample";
 
 /** A deal's comp choices that leave out every sample comp in `library`, so a real deal is never priced from sample data. */
 export function leaveOutSampleComps(library: readonly Comp[]): Record<string, boolean> {
-  return Object.fromEntries(library.filter((comp) => SAMPLE_COMP_IDS.has(comp.id)).map((comp) => [comp.id, false]));
+  return Object.fromEntries(library.filter(isSampleComp).map((comp) => [comp.id, false]));
 }
 
-/** The golden deal's 8 sold comps, parsed on every call so each caller gets its own copy. */
-export function sampleComps(): Comp[] {
-  return goldenComps.map((comp) => CompSchema.parse(comp));
+/**
+ * The golden deal's 8 sold comps, marked as sample data and given new UUIDs (from `newId`, a random one by default), so
+ * each caller gets its own copies.
+ */
+export function sampleComps(newId: () => string = () => crypto.randomUUID()): Comp[] {
+  return goldenComps.map((comp) => CompSchema.parse({ ...comp, id: newId(), source: "sample" }));
 }

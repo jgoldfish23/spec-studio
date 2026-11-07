@@ -1,10 +1,14 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../App";
 import { createHarness, renderApp, seedSampleDeal } from "../../testing/renderApp";
+import { AccountMenu } from "../auth/AccountMenu";
 import { reportLostSave } from "../deal/lostSaves";
+import { SyncNote } from "./AppShell";
+import { UNREACHABLE } from "./StartupScreens";
+import type { HostedShell } from "./hostedShell";
 
 const renderAt = (hash: string) => renderApp(hash);
 
@@ -46,6 +50,18 @@ describe("app shell", () => {
       expect(within(item).getByText("Later")).toBeVisible();
     },
   );
+
+  it("has an enabled Settings link, current at #/settings and not at #/deals", async () => {
+    renderAt("#/deals");
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    const link = within(nav).getByRole("link", { name: "Settings" });
+    expect(link).toHaveAttribute("href", "#/settings");
+    expect(link).not.toHaveAttribute("aria-current");
+    await userEvent.setup().click(link);
+    expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeVisible();
+    expect(within(nav).getByRole("link", { name: "Settings" })).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getByRole("link", { name: "Deals" })).not.toHaveAttribute("aria-current");
+  });
 
   it("renders the Deals page at #/deals", () => {
     renderAt("#/deals");
@@ -211,5 +227,138 @@ describe("app shell", () => {
         /^Couldn't save your last changes to Maple Street: browser storage is full or unavailable/,
       );
     });
+  });
+});
+
+describe("app shell in hosted mode", () => {
+  const ANA = { id: "11111111-1111-4111-8111-111111111111", email: "ana@example.com" };
+
+  beforeEach(() => {
+    window.location.hash = "";
+  });
+
+  /** The pieces the hosted gate hands the app: the account menu, the sync note and the sign-out. */
+  const hosted = (pending = 0, signOut = vi.fn(async () => true)): HostedShell => ({
+    account: <AccountMenu user={ANA} pendingCount={pending} onSignOut={signOut} />,
+    syncNote: <SyncNote count={pending} />,
+    signOut,
+  });
+
+  const renderHosted = (hash: string, shell: HostedShell, persistentStorage = true) => {
+    window.location.hash = hash;
+    const harness = createHarness();
+    return render(<App persistentStorage={persistentStorage} hosted={shell} />, { wrapper: harness.Providers });
+  };
+
+  it("shows the account menu in place of the demo pill", () => {
+    renderHosted("#/deals", hosted());
+    const header = screen.getByRole("banner");
+    expect(within(header).getByRole("button", { name: "ana@example.com" })).toBeVisible();
+    expect(within(header).queryByText(/Demo mode/)).not.toBeInTheDocument();
+    expect(within(header).queryByText(/this browser blocks storage/)).not.toBeInTheDocument();
+    // The rest of the Plan 2 shell is as it was.
+    expect(within(header).getByRole("link", { name: "Spec Studio" })).toHaveAttribute("href", "#/deals");
+    expect(within(header).getByRole("link", { name: "Deals" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("says, beside the account, that nothing is kept when the browser blocks storage", () => {
+    renderHosted("#/deals", hosted(), false);
+    const header = screen.getByRole("banner");
+    expect(within(header).getByText("Not saved on this device — this browser blocks storage")).toBeVisible();
+    expect(within(header).getByRole("button", { name: "ana@example.com" })).toBeVisible();
+    expect(within(header).queryByText(/Demo mode/)).not.toBeInTheDocument();
+  });
+
+  it("says how many changes wait to sync in a polite status region, with nothing in it while none do", () => {
+    const view = renderHosted("#/deals", hosted(0));
+    const header = screen.getByRole("banner");
+    const status = within(header).getByRole("status");
+    expect(status).toBeEmptyDOMElement();
+
+    view.rerender(<App hosted={hosted(2)} />);
+    // The same region, so a screen reader hears the change.
+    expect(within(header).getByRole("status")).toBe(status);
+    expect(status).toHaveTextContent(/^2 changes waiting to sync$/);
+
+    view.rerender(<App hosted={hosted(1)} />);
+    expect(status).toHaveTextContent(/^1 change waiting to sync$/);
+
+    view.rerender(<App hosted={hosted(0)} />);
+    expect(status).toBeEmptyDOMElement();
+    expect(screen.queryByText(/waiting to sync/)).not.toBeInTheDocument();
+  });
+
+  it("names each deal whose edit the server refused, linked to it, in the same status region as the waiting count", () => {
+    const view = renderHosted("#/deals", hosted(0));
+    const status = within(screen.getByRole("banner")).getByRole("status");
+    const maple = { dealId: "22222222-2222-4222-8222-222222222222", dealName: "Maple Street", problem: "conflict" as const };
+    const oak = { dealId: "33333333-3333-4333-8333-333333333333", dealName: "Oak Hollow", problem: "deleted" as const };
+    view.rerender(<App hosted={{ ...hosted(1), syncNote: <SyncNote count={1} refused={[maple]} /> }} />);
+    expect(status).toHaveTextContent("1 deal needs your choice: Maple Street");
+    expect(status).toHaveTextContent("1 change waiting to sync");
+    expect(within(status).getByRole("link", { name: "Maple Street" })).toHaveAttribute("href", `#/deals/${maple.dealId}/lot`);
+
+    view.rerender(<App hosted={{ ...hosted(0), syncNote: <SyncNote count={0} refused={[maple, oak]} /> }} />);
+    expect(status).toHaveTextContent(/^2 deals need your choice: Maple Street, Oak Hollow$/);
+    expect(within(status).getByRole("link", { name: "Oak Hollow" })).toHaveAttribute("href", `#/deals/${oak.dealId}/lot`);
+  });
+
+  it("passes the waiting count to the account menu, which asks before signing out", async () => {
+    const user = userEvent.setup();
+    const signOut = vi.fn(async () => true);
+    renderHosted("#/deals", hosted(2, signOut));
+    await user.click(screen.getByRole("button", { name: "ana@example.com" }));
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("2 changes haven't synced yet.");
+    expect(signOut).not.toHaveBeenCalled();
+  });
+
+  it("ends the session at #/sign-in, once, even under StrictMode", async () => {
+    const signOut = vi.fn(() => new Promise<boolean>(() => {}));
+    window.location.hash = "#/sign-in";
+    render(
+      <StrictMode>
+        <App hosted={hosted(0, signOut)} />
+      </StrictMode>,
+      { wrapper: createHarness().Providers },
+    );
+    await waitFor(() => expect(signOut).toHaveBeenCalledTimes(1));
+    // Outside the shell: nothing of the app shows while the gate swaps to the sign-in page.
+    expect(screen.queryByRole("banner")).not.toBeInTheDocument();
+    expect(screen.getByText("Signing out…")).toBeVisible();
+  });
+
+  it("does not wait forever on a sign-out that never answers: after 15 s it says so, and Try again asks again", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const signOut = vi.fn(() => new Promise<boolean>(() => {}));
+      renderHosted("#/sign-in", hosted(0, signOut));
+      expect(screen.getByText("Signing out…")).toBeVisible();
+      await act(() => vi.advanceTimersByTimeAsync(15_000));
+      expect(screen.getByRole("alert")).toHaveTextContent(UNREACHABLE);
+      await user.click(screen.getByRole("button", { name: "Try again" }));
+      expect(signOut).toHaveBeenCalledTimes(2);
+      expect(screen.getByText("Signing out…")).toBeVisible();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("goes on to the deals when the session could not be ended, rather than wait on Signing out…", async () => {
+    const signOut = vi.fn(async () => false);
+    renderHosted("#/sign-in", hosted(0, signOut));
+    expect(await screen.findByRole("heading", { level: 1, name: "Deals" })).toBeVisible();
+    expect(window.location.hash).toBe("#/deals");
+    expect(signOut).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("#/sign-in in demo mode", () => {
+  it("goes to the deals, as there is no one to sign in", async () => {
+    renderAt("#/sign-in");
+    expect(await screen.findByRole("heading", { level: 1, name: "Deals" })).toBeVisible();
+    expect(window.location.hash).toBe("#/deals");
+    expect(screen.getByText("Demo mode · saved in this browser")).toBeVisible();
   });
 });

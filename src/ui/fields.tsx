@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { Cents, ISODate, YearMonth } from "@engine";
 import {
   formatMoney,
@@ -134,6 +134,8 @@ interface ParsedInputProps<V> extends FieldProps {
   type?: "text" | "month" | "date";
   /** Shown in an empty box; a browser that draws its own picker for `type` ignores it. */
   placeholder?: string;
+  /** Told when the box starts or stops holding text that is not a value (unparseable, empty or out of range). */
+  onInvalidChange?: (invalid: boolean) => void;
 }
 
 /**
@@ -155,9 +157,20 @@ function ParsedInput<V>({
   suffix,
   type = "text",
   placeholder,
+  onInvalidChange,
 }: ParsedInputProps<V>) {
   const [text, setText] = useState(() => format(value));
   const [inlineError, setInlineError] = useState<string | null>(null);
+  const told = useRef(onInvalidChange);
+  useEffect(() => {
+    told.current = onInvalidChange;
+  });
+  const invalid = inlineError !== null;
+  useEffect(() => {
+    told.current?.(invalid);
+  }, [invalid]);
+  // A box that goes away holds no invalid text any more.
+  useEffect(() => () => told.current?.(false), []);
   const [seenValue, setSeenValue] = useState(value);
 
   // Adjusting state while rendering (React's documented way to react to a prop change without an effect).
@@ -227,10 +240,11 @@ interface MoneyBounds {
 export interface MoneyFieldProps extends FieldProps, MoneyBounds {
   valueCents: Cents;
   onChange: (cents: Cents) => void;
+  onInvalidChange?: (invalid: boolean) => void;
 }
 
 /** A dollar amount, typed in dollars and stored as integer cents. */
-export function MoneyField({ label, valueCents, onChange, allowCents = false, min, max, hint, error }: MoneyFieldProps) {
+export function MoneyField({ label, valueCents, onChange, allowCents = false, min, max, hint, error, onInvalidChange }: MoneyFieldProps) {
   return (
     <ParsedInput<Cents>
       label={label}
@@ -243,6 +257,7 @@ export function MoneyField({ label, valueCents, onChange, allowCents = false, mi
       invalidMessage="Enter a dollar amount"
       rangeMessage={(cents) => rangeMessage(cents, min, max, (bound) => formatMoney(bound, { cents: allowCents }))}
       prefix="$"
+      onInvalidChange={onInvalidChange}
     />
   );
 }
@@ -289,10 +304,11 @@ export interface PercentFieldProps extends FieldProps {
   digits?: number;
   min?: number;
   max?: number;
+  onInvalidChange?: (invalid: boolean) => void;
 }
 
 /** A percentage, typed as `9` or `9.5%` and stored as a decimal. */
-export function PercentField({ label, value, onChange, digits = 2, min, max, hint, error }: PercentFieldProps) {
+export function PercentField({ label, value, onChange, digits = 2, min, max, hint, error, onInvalidChange }: PercentFieldProps) {
   return (
     <ParsedInput<number>
       label={label}
@@ -305,6 +321,7 @@ export function PercentField({ label, value, onChange, digits = 2, min, max, hin
       invalidMessage="Enter a percent"
       rangeMessage={(decimal) => rangeMessage(decimal, min, max, (bound) => formatPercentCompact(bound, digits))}
       suffix="%"
+      onInvalidChange={onInvalidChange}
     />
   );
 }
@@ -318,10 +335,11 @@ export interface NumberFieldProps extends FieldProps {
   integer?: boolean;
   min?: number;
   max?: number;
+  onInvalidChange?: (invalid: boolean) => void;
 }
 
 /** A plain number such as an area or a count. */
-export function NumberField({ label, value, onChange, unit, integer = false, min, max, hint, error }: NumberFieldProps) {
+export function NumberField({ label, value, onChange, unit, integer = false, min, max, hint, error, onInvalidChange }: NumberFieldProps) {
   const show = (bound: number) => (unit ? `${formatNumberInput(bound)} ${unit}` : formatNumberInput(bound));
   return (
     <ParsedInput<number>
@@ -335,6 +353,7 @@ export function NumberField({ label, value, onChange, unit, integer = false, min
       invalidMessage="Enter a number"
       rangeMessage={(n) => rangeMessage(n, min, max, show)}
       suffix={unit}
+      onInvalidChange={onInvalidChange}
     />
   );
 }
@@ -443,15 +462,17 @@ export interface TextFieldProps extends FieldProps {
   onChange: (text: string) => void;
   onBlur?: () => void;
   /** `date` draws the browser's own date picker; the value is then `YYYY-MM-DD` or empty. */
-  type?: "text" | "date";
+  type?: "text" | "date" | "email";
   /** The keyboard a phone offers. */
-  inputMode?: "text" | "decimal" | "numeric";
+  inputMode?: "text" | "decimal" | "numeric" | "email";
+  /** The browser's autofill hint, e.g. `one-time-code` so a phone offers the code from an email. */
+  autoComplete?: string;
   /** A symbol before the text, e.g. `$`. */
   prefix?: string;
 }
 
 /** Plain text. Fully controlled: there is nothing to parse, so the box holds exactly what was typed. */
-export function TextField({ label, value, onChange, onBlur, hint, error, type = "text", inputMode, prefix }: TextFieldProps) {
+export function TextField({ label, value, onChange, onBlur, hint, error, type = "text", inputMode, autoComplete, prefix }: TextFieldProps) {
   return (
     <FieldFrame label={label} hint={hint} message={error}>
       {(control, invalid) => (
@@ -460,6 +481,7 @@ export function TextField({ label, value, onChange, onBlur, hint, error, type = 
             {...control}
             type={type}
             inputMode={inputMode}
+            autoComplete={autoComplete}
             value={value}
             onChange={(event) => onChange(event.target.value)}
             onBlur={onBlur}

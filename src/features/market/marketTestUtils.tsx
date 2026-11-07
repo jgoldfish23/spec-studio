@@ -1,7 +1,8 @@
+import { testSampleComps } from "../../testing/sampleIds";
 // Shared set-up for the market page's tests (not a test itself).
 import { fireEvent, screen, within } from "@testing-library/react";
 import type { Comp, DomEstimate, PriceEstimate } from "@engine";
-import { sampleComps } from "../../data/sample";
+
 import type { StoredDeal } from "../../data/types";
 import { pasteOver } from "../../testing/editorTiming";
 import type { User } from "../../testing/editorTiming";
@@ -57,8 +58,9 @@ export async function sampleScored() {
 /** A sold comp far from the sample deal: another county, older and smaller, so it scores under the threshold. */
 export function farComp(change: Partial<Comp> = {}): Comp {
   return {
-    ...(sampleComps()[0] as Comp),
+    ...(testSampleComps()[0] as Comp),
     id: "2f5b9d3a-0d7e-4a52-8d51-0c6c5f4f7a10",
+    source: "manual",
     address: "9 Far Street, Ogden, UT",
     city: "Ogden",
     county: "Weber",

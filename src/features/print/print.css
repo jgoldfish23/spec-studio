@@ -1,0 +1,19 @@
+/* The lender package's paper rules. Tailwind's `print:` variant hides the buttons; these keep the content whole. */
+@page {
+  size: letter;
+  margin: 0.6in;
+}
+
+@media print {
+  /* A section, and a row of a table, is never cut across two pages. */
+  .print-block,
+  .print-row {
+    break-inside: avoid;
+  }
+
+  /* The verdict's tint and the page's tints print as drawn, not stripped to save ink. */
+  .print-exact {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

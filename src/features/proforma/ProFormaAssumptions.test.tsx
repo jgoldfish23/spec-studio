@@ -1,9 +1,8 @@
-import { render, screen, within } from "@testing-library/react";
+import { within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { advance, installFakeClock, newUser, pasteOver, savedAfterAutosave } from "../../testing/editorTiming";
-import { sampleSetup, setupWith } from "../../testing/stepHarness";
+import { harnessOver, sampleSetup, setupWith } from "../../testing/stepHarness";
 import { card, openProForma } from "./proformaTestUtils";
-import { RulesCard } from "./RulesCard";
 
 installFakeClock();
 
@@ -227,17 +226,16 @@ describe("the Carrying card", () => {
 });
 
 describe("the Your rules card", () => {
-  it("shows the three rules as text, with a note that they are edited in Settings later", async () => {
+  it("shows the three rules in editable boxes, with no note about Settings later", async () => {
     const { harness, deal } = await sampleSetup();
     await openProForma(harness, deal);
 
-    const rules = card("Your rules");
-    expect(within(rules).getByText("Minimum margin on sale").nextElementSibling).toHaveTextContent("15.0%");
-    expect(within(rules).getByText("Minimum annualized return").nextElementSibling).toHaveTextContent("25.0%");
-    expect(within(rules).getByText("Minimum downside profit").nextElementSibling).toHaveTextContent("$0");
-    expect(within(rules).getByText("Edit in Settings (later).")).toBeVisible();
-    expect(within(rules).queryByRole("textbox")).not.toBeInTheDocument();
-    expect(within(rules).queryByRole("button")).not.toBeInTheDocument();
+    const rules = within(card("Your rules"));
+    expect(rules.getByLabelText("Minimum margin on sale %")).toHaveValue("15.00");
+    expect(rules.getByLabelText("Minimum annualized return %")).toHaveValue("25.00");
+    expect(rules.getByLabelText("Minimum downside profit $")).toHaveValue("0");
+    expect(rules.queryByText("Edit in Settings (later).")).not.toBeInTheDocument();
+    expect(rules.getByRole("button", { name: "Use company rules" })).toBeEnabled();
   });
 
   it("shows the rules the deal holds", async () => {
@@ -246,22 +244,64 @@ describe("the Your rules card", () => {
     });
     await openProForma(harness, deal);
 
-    const rules = card("Your rules");
-    expect(within(rules).getByText("Minimum margin on sale").nextElementSibling).toHaveTextContent("20.0%");
-    expect(within(rules).getByText("Minimum annualized return").nextElementSibling).toHaveTextContent("30.0%");
-    expect(within(rules).getByText("Minimum downside profit").nextElementSibling).toHaveTextContent("$50,000");
-    expect(
-      within(card("Verdict")).getByText("Margin 9.9% — your rule is 20.0% or better"),
-    ).toBeVisible();
+    const rules = within(card("Your rules"));
+    expect(rules.getByLabelText("Minimum margin on sale %")).toHaveValue("20.00");
+    expect(rules.getByLabelText("Minimum annualized return %")).toHaveValue("30.00");
+    expect(rules.getByLabelText("Minimum downside profit $")).toHaveValue("50,000");
+    expect(within(card("Verdict")).getByText("Margin 9.9% — your rule is 20.0% or better")).toBeVisible();
   });
 
-  it("writes a dash for a rule that is not a number, not NaN", () => {
-    render(<RulesCard rules={{ minMarginOnSale: Number.NaN, minAnnualizedReturn: 0.25, minDownsideProfitCents: Number.NaN }} />);
+  it("autosaves an edited rule as a fraction or integer cents, like every other input", async () => {
+    const { harness, deal } = await sampleSetup();
+    await openProForma(harness, deal);
+    const user = newUser();
 
-    const rules = screen.getByRole("region", { name: "Your rules" });
-    expect(rules.textContent).not.toMatch(/NaN/);
-    expect(within(rules).getByText("Minimum margin on sale").nextElementSibling).toHaveTextContent("—");
-    expect(within(rules).getByText("Minimum annualized return").nextElementSibling).toHaveTextContent("25.0%");
-    expect(within(rules).getByText("Minimum downside profit").nextElementSibling).toHaveTextContent("—");
+    await pasteOver(user, "Minimum margin on sale %", "12.5", card("Your rules"));
+    await pasteOver(user, "Minimum annualized return %", "30", card("Your rules"));
+    await pasteOver(user, "Minimum downside profit $", "25,000", card("Your rules"));
+    const stored = await savedAfterAutosave(harness, deal);
+    expect(stored.rules).toEqual({ minMarginOnSale: 0.125, minAnnualizedReturn: 0.3, minDownsideProfitCents: 2_500_000 });
+    // The verdict reads the new rule.
+    expect(within(card("Verdict")).getByText("Margin 9.9% — your rule is 12.5% or better")).toBeVisible();
+  });
+
+  it("shows the engine's message for a rule out of range, and does not save it", async () => {
+    const { harness, deal } = await sampleSetup();
+    await openProForma(harness, deal);
+
+    await pasteOver(newUser(), "Minimum margin on sale %", "150", card("Your rules"));
+    expect(within(card("Your rules")).getByLabelText("Minimum margin on sale %")).toHaveAttribute("aria-invalid", "true");
+    await advance(1200);
+    expect((await harness.repository.getDeal(deal.id))?.inputs.rules.minMarginOnSale).toBe(0.15);
+  });
+
+  it("copies the company's rules into the deal with Use company rules", async () => {
+    const { harness, deal } = await setupWith((inputs) => {
+      inputs.rules = { minMarginOnSale: 0.2, minAnnualizedReturn: 0.3, minDownsideProfitCents: 5_000_000 };
+    });
+    await harness.repository.saveCompanySettings({
+      rules: { minMarginOnSale: 0.1, minAnnualizedReturn: 0.18, minDownsideProfitCents: 100_000 },
+      contingencyPct: 0.06,
+    });
+    await openProForma(harness, deal);
+    const user = newUser();
+
+    await user.click(within(card("Your rules")).getByRole("button", { name: "Use company rules" }));
+    const rules = within(card("Your rules"));
+    expect(rules.getByLabelText("Minimum margin on sale %")).toHaveValue("10.00");
+    expect(rules.getByLabelText("Minimum annualized return %")).toHaveValue("18.00");
+    expect(rules.getByLabelText("Minimum downside profit $")).toHaveValue("1,000");
+    const stored = await savedAfterAutosave(harness, deal);
+    expect(stored.rules).toEqual({ minMarginOnSale: 0.1, minAnnualizedReturn: 0.18, minDownsideProfitCents: 100_000 });
+    // Only the rules: the deal's contingency is its own.
+    expect(stored.contingencyPct).toBe(deal.inputs.contingencyPct);
+  });
+
+  it("holds Use company rules back until the company's settings have loaded", async () => {
+    const { harness, deal } = await sampleSetup();
+    const pending = new Promise<never>(() => {});
+    const slow = { ...harness.repository, getCompanySettings: () => pending };
+    await openProForma(harnessOver(harness, slow), deal);
+    expect(within(card("Your rules")).getByRole("button", { name: "Use company rules" })).toBeDisabled();
   });
 });

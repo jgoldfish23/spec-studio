@@ -33,7 +33,10 @@ export function dismissLostSave(dealId: string): void {
   publish(entries.filter((entry) => entry.dealId !== dealId));
 }
 
-/** Empties the store. For tests, so one test's entries do not reach the next. */
+/**
+ * Empties the store: when a different owner signs in on this device (the notices name the last owner's deals), and in
+ * tests, so one test's entries do not reach the next.
+ */
 export function resetLostSaves(): void {
   if (entries.length > 0) publish([]);
 }

@@ -1,9 +1,11 @@
+import { TEST_SAMPLE_IDS, testSampleComps } from "../../testing/sampleIds";
+import { sampleComps } from "../../data/sample";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Comp } from "@engine";
 import { DEALS_KEY } from "../../data/local/localRepository";
-import { SAMPLE_COMP_IDS, SAMPLE_DEAL_NAME, sampleComps, sampleDealInputs } from "../../data/sample";
+import { isSampleComp, SAMPLE_DEAL_NAME, sampleDealInputs } from "../../data/sample";
 import { createHarness, renderApp, seedSampleDeal } from "../../testing/renderApp";
 
 const EMPTY = "No deals yet — start one, or load the sample deal to look around.";
@@ -21,7 +23,7 @@ const main = () => screen.getByRole("main");
 
 const OWN_COMP_ID = "0b6f6c0e-6a43-4c1f-9b55-3a6c7f2f0e11";
 /** A sold comp the owner added: not one of the sample's. */
-const ownComp = (): Comp => ({ ...(sampleComps()[0] as Comp), id: OWN_COMP_ID, address: "12 Own Street, Layton, UT" });
+const ownComp = (): Comp => ({ ...(testSampleComps()[0] as Comp), id: OWN_COMP_ID, source: "manual", address: "12 Own Street, Layton, UT" });
 
 describe("Deals page", () => {
   it("shows the title, the subtitle and the empty state when there are no deals", async () => {
@@ -57,8 +59,8 @@ describe("Deals page", () => {
     expect(within(rules).getByText("≥ 25%")).toBeVisible();
     expect(within(rules).getByText("Downside case profit")).toBeVisible();
     expect(within(rules).getByText("≥ $0")).toBeVisible();
-    expect(within(rules).getByRole("button", { name: "Edit" })).toBeDisabled();
-    expect(within(rules).getByText("Later")).toBeVisible();
+    expect(within(rules).getByRole("link", { name: "Edit" })).toHaveAttribute("href", "#/settings");
+    expect(within(rules).queryByText("Later")).not.toBeInTheDocument();
 
     const costBook = screen.getByRole("region", { name: "Cost book" });
     expect(
@@ -103,8 +105,12 @@ describe("Deals page", () => {
     await waitFor(() => expect(window.location.hash).toMatch(/^#\/deals\/[^/]+\/lot$/));
     const id = window.location.hash.split("/")[2] as string;
 
-    expect(await within(main()).findByText("Needs info")).toBeVisible();
-    expect(within(main()).getByText("Needs:")).toBeVisible();
+    // Right after the address changes, the list (whose new row also says "Needs info") can still be on screen, and
+    // the deal's skeleton comes next: wait for the deal's own summary, which is the only place "Needs:" appears.
+    await waitFor(() => {
+      expect(within(main()).getByText("Needs:")).toBeVisible();
+      expect(within(main()).getByText("Needs info")).toBeVisible();
+    });
     const city = within(main()).getByRole("link", { name: "City: Required" });
     expect(city).toHaveAttribute("href", `#/deals/${id}/lot`);
     expect(within(main()).getByLabelText("Deal name")).toHaveValue("Untitled deal");
@@ -150,8 +156,37 @@ describe("Deals page", () => {
       await user.click(await screen.findByRole("button", { name: "Load sample deal" }));
       await waitFor(() => expect(window.location.hash).toMatch(/\/proforma$/));
       const comps = await harness.repository.listComps("utah-north");
-      expect(comps.map((comp) => comp.id).sort()).toEqual([...SAMPLE_COMP_IDS].sort());
+      expect(comps).toHaveLength(8);
+      expect(comps.every(isSampleComp)).toBe(true);
       expect(comps.find((comp) => comp.id === first.id)?.soldPriceCents).toBe(123_456_700);
+    });
+
+    it("are told apart as an import tells comps apart: an address retyped with other case or spacing is the same comp", async () => {
+      const user = userEvent.setup();
+      const harness = createHarness();
+      const [first] = sampleComps() as [Comp];
+      await harness.repository.saveComp({ ...first, address: `  ${first.address.toUpperCase().replace(/ /g, "  ")} ` });
+      renderApp("#/", harness);
+
+      await user.click(await screen.findByRole("button", { name: "Load sample deal" }));
+      await waitFor(() => expect(window.location.hash).toMatch(/\/proforma$/));
+      expect(await harness.repository.listComps("utah-north")).toHaveLength(8);
+    });
+
+    it("get their own ids in each company's library, so two companies can both load the sample", async () => {
+      const user = userEvent.setup();
+      const ids: string[][] = [];
+      for (let i = 0; i < 2; i++) {
+        const harness = createHarness();
+        const view = renderApp("#/", harness);
+        await user.click(await screen.findByRole("button", { name: "Load sample deal" }));
+        await waitFor(() => expect(window.location.hash).toMatch(/\/proforma$/));
+        ids.push((await harness.repository.listComps("utah-north")).map((comp) => comp.id));
+        view.unmount();
+        window.location.hash = "#/";
+      }
+      expect(ids.map((list) => list.length)).toEqual([8, 8]);
+      expect(new Set(ids.flat()).size).toBe(16);
     });
 
     it("are left out of a new deal (as choices the owner can change on Market); the owner's own comps are not", async () => {
@@ -165,7 +200,7 @@ describe("Deals page", () => {
       await waitFor(() => expect(window.location.hash).toMatch(/^#\/deals\/[^/]+\/lot$/));
       const id = window.location.hash.split("/")[2] as string;
       const stored = await harness.repository.getDeal(id);
-      expect(stored?.inputs.compSelections).toEqual(Object.fromEntries([...SAMPLE_COMP_IDS].map((compId) => [compId, false])));
+      expect(stored?.inputs.compSelections).toEqual(Object.fromEntries(TEST_SAMPLE_IDS.map((compId) => [compId, false])));
     });
 
     it("are not chosen for a new deal when the library has none of them", async () => {
@@ -401,6 +436,30 @@ describe("Deals page", () => {
     expect(harness.storage.getItem(DEALS_KEY)).toBeNull();
   });
 
+  it("offers to download a copy before removing everything, and keeps the dialog open", async () => {
+    const user = userEvent.setup();
+    const harness = createHarness();
+    harness.storage.setItem(DEALS_KEY, "{ not json");
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    const createObjectURL = (URL.createObjectURL = vi.fn(() => "blob:copy"));
+    URL.revokeObjectURL = vi.fn();
+    renderApp("#/", harness);
+    await user.click(await screen.findByRole("button", { name: "Remove" }));
+    const dialog = screen.getByRole("alertdialog");
+    await user.click(within(dialog).getByRole("button", { name: "Download a copy first" }));
+    await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(
+      await within(dialog).findByText(
+        "Downloaded spec-studio-export-2026-10-31.json. Your saved deals couldn't be read and aren't in the file.",
+      ),
+    ).toBeVisible();
+    expect(within(dialog).getByRole("button", { name: "Download a copy first" })).toBeEnabled();
+    expect(screen.getByRole("alertdialog")).toBeVisible();
+    expect(harness.storage.getItem(DEALS_KEY)).toBe("{ not json");
+    click.mockRestore();
+  });
+
   it("says so when an action fails, and keeps working", async () => {
     const user = userEvent.setup();
     const harness = createHarness();
@@ -413,5 +472,45 @@ describe("Deals page", () => {
     await user.click(screen.getByRole("button", { name: "New deal" }));
     await waitFor(() => expect(window.location.hash).toMatch(/\/lot$/));
     expect(createDeal).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("Deals page notice", () => {
+  it("says a copy downloaded before removing everything is what this device holds, when the list came from it", async () => {
+    const user = userEvent.setup();
+    const harness = createHarness();
+    harness.storage.setItem(DEALS_KEY, "{ not json");
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    URL.createObjectURL = vi.fn(() => "blob:copy");
+    URL.revokeObjectURL = vi.fn();
+    const listDeals = harness.repository.listDeals.bind(harness.repository);
+    vi.spyOn(harness.repository, "listDeals").mockImplementation(async () => ({
+      ...(await listDeals()),
+      notice: "Showing what's saved on this device — can't reach the server.",
+    }));
+    renderApp("#/", harness);
+    await user.click(await screen.findByRole("button", { name: "Remove" }));
+    const dialog = screen.getByRole("alertdialog");
+    await user.click(within(dialog).getByRole("button", { name: "Download a copy first" }));
+    expect(
+      await within(dialog).findByText(
+        /^Downloaded spec-studio-export-2026-10-31\.json\. Your saved deals couldn't be read and aren't in the file\. The server couldn't be reached, so this is what's saved on this device\./,
+      ),
+    ).toBeVisible();
+  });
+
+  it("shows the list's notice as a plain line, not an alert or a problem row", async () => {
+    const harness = createHarness();
+    const stored = await seedSampleDeal(harness.repository);
+    vi.spyOn(harness.repository, "listDeals").mockResolvedValue({
+      deals: [stored],
+      problems: [],
+      notice: "Showing what's saved on this device — can't reach the server.",
+    });
+    renderApp("#/", harness);
+    const notice = await screen.findByText("Showing what's saved on this device — can't reach the server.");
+    expect(notice).toBeVisible();
+    expect(notice).not.toHaveAttribute("role", "alert");
+    expect(screen.queryByRole("button", { name: /Remove/ })).not.toBeInTheDocument();
   });
 });

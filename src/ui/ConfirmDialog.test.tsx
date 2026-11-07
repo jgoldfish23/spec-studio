@@ -75,3 +75,30 @@ describe("ConfirmDialog", () => {
     opener.remove();
   });
 });
+
+describe("ConfirmDialog extra action", () => {
+  it("runs the extra action without closing, keeps Tab inside, and shows the note", async () => {
+    const onExtra = vi.fn();
+    const onConfirm = vi.fn();
+    const onCancel = vi.fn();
+    render(
+      <ConfirmDialog
+        message="Remove all?"
+        confirmLabel="Remove all"
+        onConfirm={onConfirm}
+        onCancel={onCancel}
+        extraAction={{ label: "Download a copy first", onClick: onExtra }}
+        note="Downloaded."
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Download a copy first" }));
+    expect(onExtra).toHaveBeenCalledTimes(1);
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(screen.getByRole("status")).toHaveTextContent("Downloaded.");
+    await user.tab({ shift: true });
+    await user.tab({ shift: true });
+    expect(screen.getByRole("button", { name: "Remove all" })).toHaveFocus();
+  });
+});

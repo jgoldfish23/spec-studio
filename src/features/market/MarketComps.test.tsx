@@ -1,7 +1,8 @@
+import { testSampleComps } from "../../testing/sampleIds";
 import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { compDomDays, DEFAULT_MARKET_SETTINGS } from "@engine";
-import { sampleComps } from "../../data/sample";
+
 import { formatMoney } from "../../lib/format";
 import { advance, installFakeClock, newUser, savedAfterAutosave } from "../../testing/editorTiming";
 import { evaluated } from "../../testing/engineContext";
@@ -53,7 +54,7 @@ describe("the comps table", () => {
     await openMarket(harness, deal);
 
     const header = (address: string) => within(compRow(address)).getByRole("rowheader");
-    for (const comp of sampleComps()) expect(within(header(comp.address)).getByText("Sample")).toBeVisible();
+    for (const comp of testSampleComps()) expect(within(header(comp.address)).getByText("Sample")).toBeVisible();
     expect(within(header(far.address)).queryByText("Sample")).not.toBeInTheDocument();
     // The tag is beside the address, not part of it.
     expect(listedAddresses()).toContain(TOP);
@@ -63,14 +64,14 @@ describe("the comps table", () => {
     const { harness, deal } = await sampleSetup();
     await openMarket(harness, deal);
     const price = await samplePrice();
-    const implied = price.comps.find((comp) => comp.id === "comp-1")?.impliedCents;
+    const implied = price.comps.find((comp) => comp.id === "5a3e0c0e-5a3e-4000-8000-000000000001")?.impliedCents;
 
     const cells = within(compRow(TOP)).getAllByRole("cell");
     expect(within(compRow(TOP)).getByRole("rowheader")).toHaveTextContent(`${TOP}SampleKaysville`);
     // Built, finished sf (2,173 above grade and 1,777 in the basement), sold price, price per finished sf.
     expect(cells.slice(0, 4).map((cell) => cell.textContent)).toEqual(["2025", "3,950", "$1,365,000", "$346"]);
     // Days to contract, listed → sold, match, adjusted value.
-    expect(cells[4]).toHaveTextContent(String(compDomDays(sampleComps()[0]!, DEFAULT_MARKET_SETTINGS)));
+    expect(cells[4]).toHaveTextContent(String(compDomDays(testSampleComps()[0]!, DEFAULT_MARKET_SETTINGS)));
     expect(cells[4]).toHaveTextContent("26");
     expect(cells[5]).toHaveTextContent("Apr 2026 → Jun 2026");
     expect(cells[6]).toHaveTextContent("98%");
@@ -91,7 +92,7 @@ describe("the comps table", () => {
 
   it("uses the engine's adjusted value for each included comp, and a dash for one that is left out", async () => {
     const { harness, deal } = await setupWith((inputs) => {
-      inputs.compSelections["comp-8"] = false;
+      inputs.compSelections["5a3e0c0e-5a3e-4000-8000-000000000008"] = false;
     });
     await openMarket(harness, deal);
     const evaluation = await evaluated((await harness.repository.getDeal(deal.id))!.inputs);
@@ -103,7 +104,7 @@ describe("the comps table", () => {
       const cell = within(compRow(comp.address)).getAllByRole("cell")[7] as HTMLElement;
       expect(cell).toHaveTextContent(implied === undefined ? /^—$/ : formatMoney(implied));
     }
-    expect(used.some((entry) => entry.id === "comp-8")).toBe(false);
+    expect(used.some((entry) => entry.id === "5a3e0c0e-5a3e-4000-8000-000000000008")).toBe(false);
   });
 
   it("shows a dash for days to contract when a comp has no list date", async () => {
@@ -177,15 +178,15 @@ describe("choosing which comps count", () => {
 
     expect(within(compRow(TOP)).getByRole("button", { name: "Excluded" })).toBeVisible();
     const inputs = (await harness.repository.getDeal(deal.id))!.inputs;
-    const expected = await evaluated({ ...inputs, compSelections: { "comp-1": false } });
+    const expected = await evaluated({ ...inputs, compSelections: { "5a3e0c0e-5a3e-4000-8000-000000000001": false } });
     if (expected.price.status !== "ok") throw new Error("no price");
     expect(expected.price.value.midCents).not.toBe(before.midCents);
     expect(midPrice()).toHaveTextContent(formatMoney(expected.price.value.midCents));
     expect(midPrice()).not.toHaveTextContent(formatMoney(before.midCents));
 
     const stored = await savedAfterAutosave(harness, deal);
-    expect(stored.compSelections["comp-1"]).toBe(false);
-    expect(stored.compSelections).toEqual({ "comp-1": false });
+    expect(stored.compSelections["5a3e0c0e-5a3e-4000-8000-000000000001"]).toBe(false);
+    expect(stored.compSelections).toEqual({ "5a3e0c0e-5a3e-4000-8000-000000000001": false });
   });
 
   it("drops the excluded comp from the price's comps count and from its adjusted value", async () => {
@@ -237,12 +238,12 @@ describe("choosing which comps count", () => {
     expect(midPrice()).toHaveTextContent(formatMoney(before.midCents));
     const stored = await savedAfterAutosave(harness, deal);
     expect(stored.compSelections).toEqual({});
-    expect("comp-1" in stored.compSelections).toBe(false);
+    expect("5a3e0c0e-5a3e-4000-8000-000000000001" in stored.compSelections).toBe(false);
   });
 
   it("shows Reset to automatic for a choice that happens to agree with the automatic rule", async () => {
     const { harness, deal } = await setupWith((inputs) => {
-      inputs.compSelections["comp-1"] = true;
+      inputs.compSelections["5a3e0c0e-5a3e-4000-8000-000000000001"] = true;
     });
     await openMarket(harness, deal);
 
@@ -252,7 +253,7 @@ describe("choosing which comps count", () => {
 
   it("flips a stored choice to its opposite", async () => {
     const { harness, deal } = await setupWith((inputs) => {
-      inputs.compSelections["comp-8"] = false;
+      inputs.compSelections["5a3e0c0e-5a3e-4000-8000-000000000008"] = false;
     });
     await openMarket(harness, deal);
     const address = "Sample comp 8, Layton, UT";
@@ -261,7 +262,7 @@ describe("choosing which comps count", () => {
     await newUser().click(within(compRow(address)).getByRole("button", { name: "Excluded" }));
     await advance(200);
 
-    expect((await savedAfterAutosave(harness, deal)).compSelections).toEqual({ "comp-8": true });
+    expect((await savedAfterAutosave(harness, deal)).compSelections).toEqual({ "5a3e0c0e-5a3e-4000-8000-000000000008": true });
   });
 
   it("can be undone from the header", async () => {
@@ -312,15 +313,15 @@ describe("deleting a comp", () => {
     await waitFor(() => expect(listedAddresses()).toHaveLength(7));
     expect(listedAddresses()).not.toContain(TARGET);
     const library = await harness.repository.listComps("utah-north");
-    expect(library.map((comp) => comp.id)).not.toContain("comp-8");
+    expect(library.map((comp) => comp.id)).not.toContain("5a3e0c0e-5a3e-4000-8000-000000000008");
     expect(library).toHaveLength(7);
     expect(within(card("Sale price estimate")).getByText("Based on 7 comps")).toBeVisible();
   });
 
   it("removes the deal's choice for that comp, so no key is left behind", async () => {
     const { harness, deal } = await setupWith((inputs) => {
-      inputs.compSelections["comp-8"] = false;
-      inputs.compSelections["comp-1"] = false;
+      inputs.compSelections["5a3e0c0e-5a3e-4000-8000-000000000008"] = false;
+      inputs.compSelections["5a3e0c0e-5a3e-4000-8000-000000000001"] = false;
     });
     await openMarket(harness, deal);
     const user = newUser();
@@ -331,7 +332,7 @@ describe("deleting a comp", () => {
     await advance(200);
 
     const stored = await savedAfterAutosave(harness, deal);
-    expect(stored.compSelections).toEqual({ "comp-1": false });
+    expect(stored.compSelections).toEqual({ "5a3e0c0e-5a3e-4000-8000-000000000001": false });
   });
 
   it("puts focus back in the comps card once the row it was on is gone", async () => {

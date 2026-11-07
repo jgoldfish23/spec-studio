@@ -3,8 +3,8 @@ import type { DealEvaluation, DealInputs } from "@engine";
 import { Card } from "../../ui/Card";
 import { MoneyField, PercentField } from "../../ui/fields";
 import { fieldError } from "../deal/fieldErrors";
+import { FIELD_GRID } from "../deal/stepShared";
 import type { Edit } from "../deal/stepShared";
-import { FIELD_GRID } from "./FinancingCard";
 
 interface CardProps {
   inputs: DealInputs;

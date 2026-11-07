@@ -1,7 +1,8 @@
+import { testSampleComps } from "../../testing/sampleIds";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_MARKET_SETTINGS, DEFAULT_RULES } from "@engine";
 import type { Comp, DefaultPrice, PriceBookEntry } from "@engine";
-import { sampleComps, sampleDealInputs } from "../sample";
+import { sampleDealInputs } from "../sample";
 import { DataError } from "../types";
 import type { StoredDeal } from "../types";
 import {
@@ -80,6 +81,14 @@ describe("dealToRow and dealFromRow", () => {
     });
   });
 
+  it("passes the timestamps through verbatim, microseconds and offset included", () => {
+    const stamp = "2026-11-01T02:17:17.123456+00:00";
+    const deal = dealFromRow(dealRow({ created_at: stamp, updated_at: stamp }));
+    expect(deal.updatedAt).toBe(stamp);
+    expect(deal.createdAt).toBe(stamp);
+    expect(dealToRow(deal, CO).updated_at).toBe(stamp);
+  });
+
   it("round-trips a deal", () => {
     const deal = storedDeal();
     expect(dealFromRow(dealToRow(deal, CO))).toEqual(deal);
@@ -133,7 +142,7 @@ describe("dealToRow and dealFromRow", () => {
 });
 
 describe("compToRow and compFromRow", () => {
-  const comp = (): Comp => sampleComps()[0] as Comp;
+  const comp = (): Comp => testSampleComps()[0] as Comp;
 
   it("keeps the id and region in their columns and the rest in data", () => {
     const original = comp();

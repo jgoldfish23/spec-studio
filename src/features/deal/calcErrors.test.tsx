@@ -208,8 +208,11 @@ describe("a deal screen", () => {
     expect(within(screen.getByRole("region", { name: "Deal summary" })).getAllByText("—")).toHaveLength(5);
     expect(screen.getByText("Needs info")).toBeVisible();
 
-    // Logged once, with the hash, for whoever has to find the bug.
-    expect(engineFailures()).toEqual([[expect.stringContaining(hash), expect.objectContaining({ message: "engine fell over" })]]);
+    // Logged once, with the hash, for whoever has to find the bug. The log is an effect that runs after the panel is
+    // drawn, so on a slow machine it can land a moment later: wait for it.
+    await waitFor(() =>
+      expect(engineFailures()).toEqual([[expect.stringContaining(hash), expect.objectContaining({ message: "engine fell over" })]]),
+    );
     // The edit is kept like any other: it is saved, so nothing the owner typed is lost.
     await waitFor(async () => expect((await harness.repository.getDeal(deal.id))?.inputs.lot.city).toBe("Boomtown"), { timeout: 3000 });
   });
@@ -223,6 +226,8 @@ describe("a deal screen", () => {
 
     await user.click(await screen.findByRole("button", { name: "Move to Boomtown" }));
     expect(await screen.findByText("Couldn't calculate — details")).toBeVisible();
+    // The first failure is logged by an effect after the panel is drawn: wait for it before going on.
+    await waitFor(() => expect(engineFailures()).toHaveLength(1));
 
     await user.click(screen.getByRole("button", { name: "Undo" }));
     await waitFor(() => expect(screen.queryByText("Couldn't calculate — details")).not.toBeInTheDocument());

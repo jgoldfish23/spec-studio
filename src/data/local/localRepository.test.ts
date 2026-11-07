@@ -1,11 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { testSampleComps } from "../../testing/sampleIds";
 import { DEFAULT_MARKET_SETTINGS, DEFAULT_RULES, type Comp } from "@engine";
-import { sampleComps, sampleDealInputs } from "../sample";
+import { isSampleComp, LEGACY_SAMPLE_COMP_IDS, sampleDealInputs } from "../sample";
+import goldenComps from "../../engine/__fixtures__/golden-comps.json";
+import { isUuid } from "../../lib/uuid";
 import { STARTER_COST_BOOK } from "../starterCostBook";
 import { newDealInputs } from "../newDeal";
 import { MemoryStorage } from "./memoryStorage";
 import { DataError, type StoredDeal } from "../types";
-import { COMPS_KEY, createLocalRepository, DEALS_KEY, SETTINGS_KEY } from "./localRepository";
+import { COMPS_KEY, createLocalRepository, COMPANY_SETTINGS_KEY, DEALS_KEY, marketSettingsKey } from "./localRepository";
 
 const T0 = "2026-10-31T09:00:00.000Z";
 const SAVE_FAILED = "Couldn't save — browser storage is full or unavailable";
@@ -52,15 +55,19 @@ function putDeals(storage: Storage, deals: Record<string, unknown>): void {
 }
 
 function comp(id: string, region = "utah-north"): Comp {
-  const base = sampleComps()[0] as Comp;
-  return { ...base, id, region };
+  const base = testSampleComps()[0] as Comp;
+  return { ...base, id, region, source: "manual" };
 }
 
 describe("storage keys", () => {
   it("are versioned", () => {
     expect(DEALS_KEY).toBe("spec-studio:v1:deals");
     expect(COMPS_KEY).toBe("spec-studio:v1:comps");
-    expect(SETTINGS_KEY).toBe("spec-studio:v1:settings");
+  });
+
+  it("are the settings keys the hosted build's tables mirror", () => {
+    expect(COMPANY_SETTINGS_KEY).toBe("spec-studio:company-settings");
+    expect(marketSettingsKey("utah-north")).toBe("spec-studio:market-settings:utah-north");
   });
 });
 
@@ -203,11 +210,12 @@ describe("saveDeal", () => {
 
 describe("ids that look like object properties", () => {
   it("are ordinary ids: unknown ones read as missing, and they can be stored", async () => {
-    const { repo } = setup();
+    const { repo, storage } = setup();
     for (const id of ["constructor", "toString", "__proto__"]) {
       expect(await repo.getDeal(id)).toBeNull();
       await expect(repo.deleteDeal(id)).resolves.toBeUndefined();
     }
+    putDeals(storage, { ["__proto__"]: storedDeal("__proto__") });
     const saved = await repo.saveDeal(storedDeal("__proto__"));
     expect(await repo.getDeal("__proto__")).toEqual(saved);
     expect((await repo.listDeals()).deals.map((d) => d.id)).toEqual(["__proto__"]);
@@ -545,7 +553,7 @@ describe("company settings", () => {
       rules: { minMarginOnSale: 0.2, minAnnualizedReturn: 0.3, minDownsideProfitCents: 500_000 },
       contingencyPct: 0.08,
     };
-    storage.setItem(SETTINGS_KEY, JSON.stringify(stored));
+    storage.setItem(COMPANY_SETTINGS_KEY, JSON.stringify(stored));
     expect(await repo.getCompanySettings()).toEqual(stored);
   });
 
@@ -555,10 +563,13 @@ describe("company settings", () => {
     ["a list", "[]"],
     ["the wrong shape", JSON.stringify({ rules: "strict", contingencyPct: "5%" })],
     ["missing rules", JSON.stringify({ contingencyPct: 0.05 })],
-  ])("falls back to the defaults when the stored settings are %s", async (_name, raw) => {
+  ])("falls back to the defaults when the stored settings are %s, and says so once", async (_name, raw) => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     const { repo, storage } = setup();
-    storage.setItem(SETTINGS_KEY, raw);
+    storage.setItem(COMPANY_SETTINGS_KEY, raw);
     expect(await repo.getCompanySettings()).toEqual(defaults);
+    expect(await repo.getCompanySettings()).toEqual(defaults);
+    expect(logged).toHaveBeenCalledTimes(1);
   });
 
   it("hands out a copy, so the default rules cannot be changed through it", async () => {
@@ -665,7 +676,7 @@ describe("a save that would not read back", () => {
 
 describe("a write that fails", () => {
   it("turns a full or blocked store into a DataError for saveDeal", async () => {
-    const { repo } = setup(new FullStorage());
+    const { repo } = setup(new FullStorage({ [DEALS_KEY]: JSON.stringify({ a: storedDeal("a") }) }));
     const error = (await repo.saveDeal(storedDeal("a")).catch((e: unknown) => e)) as DataError;
     expect(error).toBeInstanceOf(DataError);
     expect(error.message).toBe(SAVE_FAILED);
@@ -693,5 +704,258 @@ describe("a write that fails", () => {
     const { repo } = setup(storage);
     await expect(repo.saveDeal(storedDeal("a"))).rejects.toBeInstanceOf(DataError);
     expect(storage.getItem(DEALS_KEY)).toBe(stored);
+  });
+});
+
+const T1 = "2026-10-31T10:00:00.000Z";
+const CONFLICT = "This deal was changed on another device or tab.";
+const DELETED = "This deal was deleted on another device or tab.";
+
+async function failure(promise: Promise<unknown>): Promise<DataError> {
+  const caught = await promise.then(
+    () => undefined,
+    (e: unknown) => e,
+  );
+  expect(caught).toBeInstanceOf(DataError);
+  return caught as DataError;
+}
+
+describe("saveDeal conflict and deletion checks", () => {
+  it("returns a fresh updatedAt on a normal save", async () => {
+    const { repo, clock } = setup();
+    const created = await repo.createDeal({ name: "A", inputs: sampleDealInputs() });
+    clock.now = T1;
+    const saved = await repo.saveDeal(created);
+    expect(saved.updatedAt).toBe(T1);
+    expect((await repo.saveDeal(saved)).updatedAt).toBe(T1);
+  });
+
+  it("throws a conflict when another save happened in between", async () => {
+    const { repo, clock } = setup();
+    const created = await repo.createDeal({ name: "A", inputs: sampleDealInputs() });
+    clock.now = T1;
+    await repo.saveDeal({ ...created, name: "Other tab" });
+    const caught = await failure(repo.saveDeal({ ...created, name: "This tab" }));
+    expect(caught.kind).toBe("conflict");
+    expect(caught.message).toBe(CONFLICT);
+    expect(caught.recordId).toBe(created.id);
+    expect((await repo.getDeal(created.id))?.name).toBe("Other tab");
+  });
+
+  it("says which updatedAt the stored deal has on a conflict, and a save made from it goes through", async () => {
+    const { repo, clock } = setup();
+    const created = await repo.createDeal({ name: "A", inputs: sampleDealInputs() });
+    clock.now = T1;
+    await repo.saveDeal({ ...created, name: "Other tab" });
+    const caught = await failure(repo.saveDeal({ ...created, name: "This tab" }));
+    expect(caught.storedUpdatedAt).toBe(T1);
+    // "Keep mine": this tab's version, on top of the one it was shown.
+    const saved = await repo.saveDeal({ ...created, name: "This tab", updatedAt: T1 });
+    expect(saved.name).toBe("This tab");
+    expect((await repo.getDeal(created.id))?.name).toBe("This tab");
+  });
+
+  it("throws deleted when the deal is gone", async () => {
+    const { repo } = setup();
+    const created = await repo.createDeal({ name: "A", inputs: sampleDealInputs() });
+    await repo.deleteDeal(created.id);
+    const caught = await failure(repo.saveDeal(created));
+    expect(caught.kind).toBe("deleted");
+    expect(caught.message).toBe(DELETED);
+    expect((await repo.listDeals()).deals).toEqual([]);
+  });
+
+  it("still refuses a deal that would not read back before checking anything", async () => {
+    const { repo } = setup();
+    const created = await repo.createDeal({ name: "A", inputs: sampleDealInputs() });
+    await repo.deleteDeal(created.id);
+    const caught = await failure(repo.saveDeal({ ...created, name: "" }));
+    expect(caught.kind).toBe("unreadable");
+  });
+
+  it("marks a full store as failed", async () => {
+    const created = storedDeal("d1");
+    const storage = new FullStorage({ [DEALS_KEY]: JSON.stringify({ d1: created }) });
+    const caught = await failure(setup(storage).repo.saveDeal(created));
+    expect(caught.kind).toBe("failed");
+  });
+});
+
+describe("DataError kinds", () => {
+  it("defaults to unreadable and accepts a kind", () => {
+    expect(new DataError("x").kind).toBe("unreadable");
+    expect(new DataError("x", { kind: "offline" }).kind).toBe("offline");
+  });
+
+  it("marks an unreadable stored deal as unreadable", async () => {
+    const storage = new MemoryStorage();
+    putDeals(storage, { bad: badPriceDeal("bad") });
+    expect((await failure(setup(storage).repo.getDeal("bad"))).kind).toBe("unreadable");
+  });
+});
+
+describe("the legacy sample comp ids", () => {
+  const legacy = (n: number) => `comp-${n}`;
+
+  function legacyStorage(): MemoryStorage {
+    const storage = new MemoryStorage();
+    const comps: Record<string, unknown> = Object.fromEntries(
+      goldenComps.map((c, i) => [legacy(i + 1), { ...c, id: legacy(i + 1), source: "manual" }]),
+    );
+    comps["my-comp"] = { ...comp("my-comp") };
+    storage.setItem(COMPS_KEY, JSON.stringify(comps));
+    const inputs = sampleDealInputs();
+    inputs.compSelections = { [legacy(1)]: false, [legacy(8)]: true, "my-comp": false };
+    putDeals(storage, { d1: { ...storedDeal("d1"), inputs } });
+    return storage;
+  }
+
+  /** A repository whose ids are 00000000-0000-4000-8000-000000000001, ...002, ... in the order they are asked for. */
+  function open(storage: Storage) {
+    let n = 0;
+    return createLocalRepository(storage, {
+      now: () => T0,
+      newId: () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`,
+    });
+  }
+
+  it("lists the fixture's eight ids", () => {
+    expect(LEGACY_SAMPLE_COMP_IDS).toEqual([1, 2, 3, 4, 5, 6, 7, 8].map(legacy));
+  });
+
+  it("gives the eight comps new UUIDs and the sample mark, and renames every deal's compSelections to match, once", async () => {
+    const storage = legacyStorage();
+    const repo = open(storage);
+    const comps = await repo.listComps("utah-north");
+    const sample = comps.filter(isSampleComp);
+    expect(sample).toHaveLength(8);
+    for (const c of sample) expect(isUuid(c.id), c.id).toBe(true);
+    expect(new Set(sample.map((c) => c.id)).size).toBe(8);
+    expect(comps.find((c) => c.id === "my-comp")?.source).toBe("manual");
+    const idOf = (n: number) => sample.find((c) => c.address === goldenComps[n - 1]?.address)?.id as string;
+    const deal = await repo.getDeal("d1");
+    expect(deal?.inputs.compSelections).toEqual({ [idOf(1)]: false, [idOf(8)]: true, "my-comp": false });
+    expect(storage.getItem(DEALS_KEY)).not.toMatch(/"comp-\d"/);
+    expect(storage.getItem(COMPS_KEY)).not.toMatch(/"comp-\d"/);
+  });
+
+  it("is idempotent: a second open changes nothing and writes nothing", async () => {
+    const storage = legacyStorage();
+    open(storage);
+    const after = [storage.getItem(COMPS_KEY), storage.getItem(DEALS_KEY)];
+    let writes = 0;
+    const counting = new (class extends MemoryStorage {
+      override setItem(key: string, value: string) {
+        writes++;
+        super.setItem(key, value);
+      }
+    })();
+    counting.setItem(COMPS_KEY, after[0] as string);
+    counting.setItem(DEALS_KEY, after[1] as string);
+    writes = 0;
+    open(counting);
+    expect(writes).toBe(0);
+    expect(JSON.parse(after[0] as string)["my-comp"].id).toBe("my-comp");
+  });
+
+  it("leaves a store it cannot read untouched", () => {
+    const storage = new MemoryStorage();
+    storage.setItem(COMPS_KEY, "not json");
+    storage.setItem(DEALS_KEY, "[1]");
+    open(storage);
+    expect(storage.getItem(COMPS_KEY)).toBe("not json");
+    expect(storage.getItem(DEALS_KEY)).toBe("[1]");
+  });
+
+  it("keeps a deal that cannot be read as it is and rewrites the others", async () => {
+    const storage = legacyStorage();
+    const deals = JSON.parse(storage.getItem(DEALS_KEY) as string);
+    deals.bad = badPriceDeal("bad");
+    putDeals(storage, deals);
+    const repo = open(storage);
+    expect(Object.keys((await repo.getDeal("d1"))?.inputs.compSelections ?? {})).not.toContain(legacy(1));
+    expect((await repo.listDeals()).problems.map((p) => p.id)).toEqual(["bad"]);
+  });
+});
+
+afterEach(() => vi.restoreAllMocks());
+
+describe("saveCompanySettings", () => {
+  const next = {
+    rules: { minMarginOnSale: 0.2, minAnnualizedReturn: 0.3, minDownsideProfitCents: 500_000 },
+    contingencyPct: 0.08,
+  };
+
+  it("reads back from getCompanySettings, under its own key", async () => {
+    const { repo, storage } = setup();
+    expect(await repo.saveCompanySettings(next)).toEqual(next);
+    expect(await repo.getCompanySettings()).toEqual(next);
+    expect(JSON.parse(storage.getItem("spec-studio:company-settings") ?? "null")).toEqual(next);
+  });
+
+  it("returns a copy", async () => {
+    const { repo } = setup();
+    const saved = await repo.saveCompanySettings(next);
+    saved.rules.minMarginOnSale = 0.99;
+    expect((await repo.getCompanySettings()).rules.minMarginOnSale).toBe(0.2);
+  });
+
+  it("refuses settings that would not read back, before writing anything", async () => {
+    const { repo, storage } = setup();
+    const caught = await repo.saveCompanySettings({ ...next, contingencyPct: Number.NaN }).catch((e: unknown) => e);
+    expect(caught).toBeInstanceOf(DataError);
+    expect((caught as DataError).message).toMatch(/^Couldn't save — contingencyPct: /);
+    expect((caught as DataError).kind).toBe("failed");
+    expect(storage.getItem(COMPANY_SETTINGS_KEY)).toBeNull();
+  });
+
+  it("reports a full store as a failed save", async () => {
+    const { repo } = setup(new FullStorage());
+    await expect(repo.saveCompanySettings(next)).rejects.toMatchObject({ message: SAVE_FAILED, kind: "failed" });
+  });
+});
+
+describe("saveMarketSettings", () => {
+  const next = { ...DEFAULT_MARKET_SETTINGS, elasticity: 4.5, marketCondition: "slow" as const };
+
+  it("reads back from getMarketSettings, under a key for the region", async () => {
+    const { repo, storage } = setup();
+    expect(await repo.saveMarketSettings(next)).toEqual(next);
+    expect(await repo.getMarketSettings("utah-north")).toEqual(next);
+    expect(storage.getItem("spec-studio:market-settings:utah-north")).not.toBeNull();
+    expect(await repo.getMarketSettings("elsewhere")).toEqual({ ...DEFAULT_MARKET_SETTINGS, region: "elsewhere" });
+  });
+
+  it("returns a copy", async () => {
+    const { repo } = setup();
+    const saved = await repo.saveMarketSettings(next);
+    saved.seasonalFactors[0] = 99;
+    expect((await repo.getMarketSettings("utah-north")).seasonalFactors[0]).toBe(DEFAULT_MARKET_SETTINGS.seasonalFactors[0]);
+  });
+
+  it("refuses settings that would not read back, before writing anything", async () => {
+    const { repo, storage } = setup();
+    const caught = await repo.saveMarketSettings({ ...next, includeThreshold: 500 }).catch((e: unknown) => e);
+    expect(caught).toBeInstanceOf(DataError);
+    expect((caught as DataError).message).toMatch(/^Couldn't save — includeThreshold: /);
+    expect((caught as DataError).kind).toBe("failed");
+    expect(storage.getItem(marketSettingsKey("utah-north"))).toBeNull();
+  });
+
+  it("falls back to the defaults for an unreadable stored value and says so once", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { repo, storage } = setup();
+    storage.setItem(marketSettingsKey("utah-north"), "{oops");
+    expect(await repo.getMarketSettings("utah-north")).toEqual(DEFAULT_MARKET_SETTINGS);
+    expect(await repo.getMarketSettings("utah-north")).toEqual(DEFAULT_MARKET_SETTINGS);
+    expect(logged).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays quiet when nothing was ever saved", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { repo } = setup();
+    await repo.getMarketSettings("utah-north");
+    await repo.getCompanySettings();
+    expect(logged).not.toHaveBeenCalled();
   });
 });

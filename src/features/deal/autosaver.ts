@@ -1,11 +1,19 @@
+import { DataError } from "../../data/types";
+import type { DataErrorKind } from "../../data/types";
+
+/** Why a save failed: the `DataError` kind, or `"unknown"` for any other failure. */
+export type SaveFailureReason = DataErrorKind | "unknown";
+
 export type SaveStatus =
   | { kind: "saved" }
   | { kind: "pending" }
   | { kind: "saving" }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string; reason: SaveFailureReason };
 
 export interface AutosaverOptions<T> {
   save: (value: T) => Promise<unknown>;
+  /** Whether a failed save is tried again on its own after `retryMs`. Default: always. A later edit tries again either way. */
+  shouldRetry?: (error: unknown) => boolean;
   /** Quiet time after the last `schedule` before the value is saved. */
   delayMs?: number;
   /** How long to wait before trying a failed save again. */
@@ -15,14 +23,19 @@ export interface AutosaverOptions<T> {
    * Called once with the newest unsaved value when a save fails after `dispose()`. A disposed autosaver shows no
    * status and arms no retry, so this is the only way the owner of the value learns that it never reached the store.
    */
-  onAbandoned?: (value: T, message: string) => void;
+  onAbandoned?: (value: T, message: string, reason: SaveFailureReason) => void;
 }
 
 export interface Autosaver<T> {
   /** Replaces whatever is waiting with `value` and saves it once `delayMs` pass without another call. */
   schedule(value: T): void;
-  /** Saves the waiting value now. Resolves when no save is running or waiting; never rejects (a failure is a status). */
+  /**
+   * Saves the waiting value now, a failed one included (one that is not retried by itself, too). Resolves when no save
+   * is running or waiting; never rejects (a failure is a status).
+   */
   flush(): Promise<void>;
+  /** The value that is waiting to be saved (or that failed and is still unsaved), if any. */
+  pending(): T | undefined;
   /** Cancels what is waiting and silences the status. A save already started, or already asked for by `flush`, finishes. */
   dispose(): void;
   /**
@@ -31,6 +44,11 @@ export interface Autosaver<T> {
    */
   discard(): void;
 }
+
+/** Failures that retrying cannot fix: they wait for the owner to choose a version. */
+export const needsChoice = (reason: SaveFailureReason): boolean => reason === "conflict" || reason === "deleted";
+
+const reasonOf = (error: unknown): SaveFailureReason => (error instanceof DataError ? error.kind : "unknown");
 
 const messageOf = (error: unknown): string =>
   (error instanceof Error ? error.message : String(error)) || "Couldn't save";
@@ -42,6 +60,7 @@ const messageOf = (error: unknown): string =>
  */
 export function createAutosaver<T>({
   save,
+  shouldRetry = () => true,
   delayMs = 1000,
   retryMs = 5000,
   onStatus,
@@ -62,7 +81,7 @@ export function createAutosaver<T>({
 
   function setStatus(next: SaveStatus): void {
     if (disposed) return;
-    if (next.kind === status.kind && (next.kind !== "error" || (status.kind === "error" && next.message === status.message))) {
+    if (next.kind === status.kind && (next.kind !== "error" || (status.kind === "error" && next.message === status.message && next.reason === status.reason))) {
       return;
     }
     status = next;
@@ -93,10 +112,14 @@ export function createAutosaver<T>({
         setStatus({ kind: "saving" });
         const discardsBefore = discards;
         let failure: string | undefined;
+        let reason: SaveFailureReason = "unknown";
+        let retry = true;
         try {
           await save(value);
         } catch (error) {
           failure = messageOf(error);
+          reason = reasonOf(error);
+          retry = shouldRetry(error);
         }
         // A value given up during its own save is not retried, and its failure is no longer news.
         if (discards !== discardsBefore) failure = undefined;
@@ -109,10 +132,10 @@ export function createAutosaver<T>({
         } else if (disposed) {
           // Nothing will retry this: hand the newest unsaved value to whoever owns it.
           dirty = false;
-          onAbandoned?.(latest as T, failure);
+          onAbandoned?.(latest as T, failure, reason);
         } else {
-          setStatus({ kind: "error", message: failure });
-          if (!replaced) startTimer(retryMs);
+          setStatus({ kind: "error", message: failure, reason });
+          if (!replaced && retry) startTimer(retryMs);
         }
       }
     } finally {
@@ -135,6 +158,9 @@ export function createAutosaver<T>({
       due = false;
       setStatus(running ? { kind: "saving" } : { kind: "pending" });
       startTimer(delayMs);
+    },
+    pending() {
+      return dirty ? latest : undefined;
     },
     flush() {
       clearTimer();

@@ -1,3 +1,4 @@
+import { testSampleComps } from "../testing/sampleIds";
 import { QueryClientProvider } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
@@ -18,9 +19,11 @@ import {
   useRepository,
   useResetDeals,
   useSaveComp,
+  useSaveCompanySettings,
+  useSaveMarketSettings,
 } from "./queries";
 import { RepositoryProvider } from "./RepositoryProvider";
-import { sampleComps, sampleDealInputs } from "./sample";
+import { sampleDealInputs } from "./sample";
 import { STARTER_COST_BOOK } from "./starterCostBook";
 import { MemoryStorage } from "./local/memoryStorage";
 import { DataError } from "./types";
@@ -158,7 +161,7 @@ describe("useResetDeals", () => {
 describe("comp hooks", () => {
   it("useComps lists a region's comps; saving and deleting a comp refresh it", async () => {
     const { wrapper } = setup();
-    const [first, second] = sampleComps();
+    const [first, second] = testSampleComps();
     if (!first || !second) throw new Error("the sample has comps");
     const { result } = renderHook(() => ({ comps: useComps("utah-north"), save: useSaveComp(), del: useDeleteComp() }), { wrapper });
     await waitFor(() => expect(result.current.comps.data).toEqual([]));
@@ -197,7 +200,7 @@ describe("useEngineContext", () => {
   it("combines the cost book, comps, market settings and quantity rules, with today's local date", async () => {
     vi.useFakeTimers({ toFake: ["Date"], now: new Date(2026, 9, 31, 20, 0) });
     const { base, wrapper } = setup();
-    const comps = sampleComps();
+    const comps = testSampleComps();
     for (const comp of comps) await base.saveComp(comp);
 
     const { result } = renderHook(() => useEngineContext("utah-north"), { wrapper });
@@ -242,5 +245,27 @@ describe("useEngineContext", () => {
     await waitFor(() => expect(result.current.error).toBe(boom));
     expect(result.current.data).toBeUndefined();
     expect(result.current.isLoading).toBe(false);
+  });
+});
+
+describe("settings hooks", () => {
+  it("useCompanySettings returns the new value after useSaveCompanySettings", async () => {
+    const { wrapper } = setup();
+    const { result } = renderHook(() => ({ read: useCompanySettings(), save: useSaveCompanySettings() }), { wrapper });
+    await waitFor(() => expect(result.current.read.data?.contingencyPct).toBe(0.05));
+    await act(() => result.current.save.mutateAsync({ rules: DEFAULT_RULES, contingencyPct: 0.09 }));
+    await waitFor(() => expect(result.current.read.data?.contingencyPct).toBe(0.09));
+  });
+
+  it("an engine context re-read picks up new market settings, and leaves the cost book alone", async () => {
+    const { wrapper, client } = setup();
+    const { result } = renderHook(() => ({ ctx: useEngineContext("utah-north"), save: useSaveMarketSettings() }), { wrapper });
+    await waitFor(() => expect(result.current.ctx.data).toBeDefined());
+    const before = result.current.ctx.data;
+    await act(() => result.current.save.mutateAsync({ ...DEFAULT_MARKET_SETTINGS, elasticity: 4.5 }));
+    await waitFor(() => expect(result.current.ctx.data?.marketSettings.elasticity).toBe(4.5));
+    expect(result.current.ctx.data).not.toBe(before);
+    expect(result.current.ctx.data?.costBook).toBe(before?.costBook);
+    expect(isInvalidated(client, ["costBook", "utah-north"])).toBe(false);
   });
 });

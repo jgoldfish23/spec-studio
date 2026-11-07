@@ -1,4 +1,5 @@
 import { useContext } from "react";
+import type { ReactNode } from "react";
 import { Link, Outlet, useMatches } from "react-router";
 import { withoutSavePrefix } from "../../lib/errorMessage";
 import { dismissLostSave, useLostSaves } from "../deal/lostSaves";
@@ -14,8 +15,11 @@ const LATER_SECTIONS = ["Cost book", "Comps", "Plans", "Builds"] as const;
  */
 export const DEALS_SECTION = { section: "deals" } as const;
 
-const isDealsSection = (handle: unknown): boolean =>
-  typeof handle === "object" && handle !== null && "section" in handle && handle.section === DEALS_SECTION.section;
+/** Marks the Settings route, read the same way. */
+export const SETTINGS_SECTION = { section: "settings" } as const;
+
+const isSection = (handle: unknown, section: string): boolean =>
+  typeof handle === "object" && handle !== null && "section" in handle && handle.section === section;
 
 /** The banner's sentence. The reason often starts "Couldn't save — " already, which the sentence says. */
 function lostSaveText({ dealName, message }: LostSave): string {
@@ -47,8 +51,66 @@ function HouseLogo() {
   );
 }
 
-export function AppShell() {
-  const dealsActive = useMatches().some((match) => isDealsSection(match.handle));
+/** A small rounded note on the dark header, with a clay dot: the demo pill, and its hosted-mode counterparts. */
+const PILL = "m-0 flex items-center gap-2 rounded-full border border-nav-line px-3 py-1 text-xs text-nav-text";
+
+function PillDot() {
+  return <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-clay" />;
+}
+
+/** A deal whose waiting edit the server refused, as the header names it. */
+export interface RefusedDeal {
+  dealId: string;
+  dealName: string;
+}
+
+/**
+ * Hosted mode: how many edits on this device have not reached the server, and each deal whose edit the server refused
+ * (it changed or was deleted elsewhere), linked to the deal, where the owner chooses. A refused edit is never sent
+ * again by itself, so it is not counted as waiting. The region is always there and polite, so a screen reader hears
+ * a change; it is empty while nothing waits.
+ */
+export function SyncNote({ count, refused = [] }: { count: number; refused?: readonly RefusedDeal[] }) {
+  return (
+    <div role="status" className="flex min-w-0 flex-wrap items-center gap-x-2">
+      {refused.length > 0 ? (
+        <p className="m-0 flex min-w-0 flex-wrap items-center gap-x-1 text-xs text-nav-text">
+          <PillDot />
+          {refused.length === 1 ? "1 deal needs your choice: " : `${refused.length} deals need your choice: `}
+          {refused.map((deal, index) => (
+            <span key={deal.dealId} className="inline-flex min-w-0 items-center">
+              <Link
+                to={`/deals/${deal.dealId}/lot`}
+                className={`inline-flex min-h-11 max-w-48 items-center rounded-md px-1 font-semibold text-paper underline underline-offset-2 hover:bg-white/10 ${focusRing}`}
+              >
+                <span className="truncate">{deal.dealName}</span>
+              </Link>
+              {index < refused.length - 1 ? ", " : null}
+            </span>
+          ))}
+        </p>
+      ) : null}
+      {count > 0 ? (
+        <p className={PILL}>
+          <PillDot />
+          {count === 1 ? "1 change waiting to sync" : `${count} changes waiting to sync`}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+export interface AppShellProps {
+  /** Hosted mode: the signed-in owner's account menu, in place of the demo pill. */
+  account?: ReactNode;
+  /** Hosted mode: what is waiting to sync (`SyncNote`), beside the account. */
+  syncNote?: ReactNode;
+}
+
+export function AppShell({ account, syncNote }: AppShellProps) {
+  const matches = useMatches();
+  const dealsActive = matches.some((match) => isSection(match.handle, DEALS_SECTION.section));
+  const settingsActive = matches.some((match) => isSection(match.handle, SETTINGS_SECTION.section));
   const lostSaves = useLostSaves();
   const persistent = useContext(PersistentStorageContext);
 
@@ -91,13 +153,37 @@ export function AppShell() {
                   </span>
                 </li>
               ))}
+              <li>
+                <Link
+                  to="/settings"
+                  aria-current={settingsActive ? "page" : undefined}
+                  className={`flex min-h-11 items-center rounded-md px-3 no-underline ${focusRing} ${
+                    settingsActive ? "bg-nav-active font-semibold text-white" : "text-nav-text"
+                  }`}
+                >
+                  Settings
+                </Link>
+              </li>
             </ul>
           </nav>
 
-          <p className="order-2 ml-auto flex items-center gap-2 rounded-full border border-nav-line px-3 py-1 text-xs text-nav-text md:order-3">
-            <span aria-hidden="true" className="size-1.5 rounded-full bg-clay" />
-            {persistent ? "Demo mode · saved in this browser" : "Demo mode · not saved — this browser blocks storage"}
-          </p>
+          {account === undefined ? (
+            <p className="order-2 ml-auto flex items-center gap-2 rounded-full border border-nav-line px-3 py-1 text-xs text-nav-text md:order-3">
+              <span aria-hidden="true" className="size-1.5 rounded-full bg-clay" />
+              {persistent ? "Demo mode · saved in this browser" : "Demo mode · not saved — this browser blocks storage"}
+            </p>
+          ) : (
+            <div className="order-2 ml-auto flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 md:order-3">
+              {syncNote}
+              {persistent ? null : (
+                <p className={PILL}>
+                  <PillDot />
+                  Not saved on this device — this browser blocks storage
+                </p>
+              )}
+              {account}
+            </div>
+          )}
         </div>
       </header>
 

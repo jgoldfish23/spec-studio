@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { DEFAULT_MARKET_SETTINGS } from "@engine";
 import type { Comp } from "@engine";
+import { buildExport, deviceCopyNote, downloadExport, unreadableNote } from "../../data/exportFile";
+import { compIdentity } from "../../data/messages";
 import { newDealInputs } from "../../data/newDeal";
 import {
   useCompanySettings,
@@ -14,7 +16,7 @@ import {
   useResetDeals,
   useSaveComp,
 } from "../../data/queries";
-import { leaveOutSampleComps, SAMPLE_COMP_IDS, SAMPLE_DEAL_NAME, sampleComps, sampleDealInputs } from "../../data/sample";
+import { isSampleComp, leaveOutSampleComps, SAMPLE_DEAL_NAME, sampleComps, sampleDealInputs } from "../../data/sample";
 import type { StoredDeal } from "../../data/types";
 import { errorMessage } from "../../lib/errorMessage";
 import { formatMoney, formatPercentCompact } from "../../lib/format";
@@ -70,16 +72,12 @@ function RulesCard() {
     <Card
       title="Go/no-go rules"
       actions={
-        <span className="flex items-center gap-2">
-          <button
-            type="button"
-            disabled
-            className="inline-flex min-h-11 items-center rounded-lg border border-[#C9CEC8] px-3.5 text-sm font-semibold text-muted opacity-70"
-          >
-            Edit
-          </button>
-          <span className="rounded-sm border border-line px-1.5 py-px text-[11px] text-muted">Later</span>
-        </span>
+        <Link
+          to="/settings"
+          className={`inline-flex min-h-11 items-center rounded-lg border border-[#C9CEC8] px-3.5 text-sm font-semibold text-spruce no-underline hover:bg-paper ${focusRing}`}
+        >
+          Edit
+        </Link>
       }
     >
       {rules ? (
@@ -107,7 +105,7 @@ function RulesCard() {
 /** "9 sold comps in Northern Utah (8 are sample data)." */
 function compsLine(comps: readonly Comp[]): string {
   const sold = comps.filter((comp) => comp.status === "sold");
-  const sample = sold.filter((comp) => SAMPLE_COMP_IDS.has(comp.id)).length;
+  const sample = sold.filter(isSampleComp).length;
   const note = sample === 0 ? "" : ` (${sample} ${sample === 1 ? "is" : "are"} sample data)`;
   return `${sold.length} sold ${sold.length === 1 ? "comp" : "comps"} in Northern Utah${note}.`;
 }
@@ -135,6 +133,8 @@ export function DealsPage() {
   const [confirming, setConfirming] = useState<Confirming>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  /** What "Download a copy first" last did, shown in the dialog it was pressed in. */
+  const [copyNote, setCopyNote] = useState<string | null>(null);
   const pageRef = useRef<HTMLDivElement>(null);
   const newDealRef = useRef<HTMLButtonElement>(null);
   /** Where focus goes once a removed row is gone: the row known by `key`, or New deal when `key` is null. */
@@ -193,8 +193,8 @@ export function DealsPage() {
     perform("Couldn't load the sample deal", async () => {
       // The comps first, so the sample is priced the moment it opens. Only the ones that are missing: a sample comp the
       // owner has changed keeps the change.
-      const stored = new Set((await repository.listComps(REGION)).map((comp) => comp.id));
-      for (const comp of sampleComps()) if (!stored.has(comp.id)) await saveComp.mutateAsync(comp);
+      const stored = new Set((await repository.listComps(REGION)).filter(isSampleComp).map(compIdentity));
+      for (const comp of sampleComps()) if (!stored.has(compIdentity(comp))) await saveComp.mutateAsync(comp);
       const deal = await createDeal.mutateAsync({ name: SAMPLE_DEAL_NAME, inputs: sampleDealInputs() });
       void navigate(`/deals/${deal.id}/proforma`);
     });
@@ -208,9 +208,27 @@ export function DealsPage() {
     removeRow(problemKey(id), "Couldn't delete the deal", () => deleteDeal.mutateAsync(id));
   const removeEverything = () => perform("Couldn't remove the saved deals", () => resetDeals.mutateAsync());
 
+  // The button stays enabled while this runs (a disabled button would drop focus out of the dialog); a second click is ignored.
+  const copying = useRef(false);
+  const downloadCopy = async () => {
+    if (copying.current) return;
+    copying.current = true;
+    setCopyNote(null);
+    try {
+      const now = new Date().toISOString();
+      const { file, unreadable, notice } = await buildExport(repository, REGION, now);
+      setCopyNote(`Downloaded ${downloadExport(file, now)}.${unreadableNote(unreadable)}${deviceCopyNote(notice)}`);
+    } catch (error) {
+      setCopyNote(`Couldn't download a copy: ${errorMessage(error)}`);
+    } finally {
+      copying.current = false;
+    }
+  };
+
   const confirm = (): void => {
     const pending = confirming;
     setConfirming(null);
+    setCopyNote(null);
     if (pending?.kind === "delete") void removeDeal(pending.id, pending.sampleCompIds);
     else if (pending?.kind === "removeProblem") void removeProblem(pending.id);
     else if (pending?.kind === "reset") void removeEverything();
@@ -222,7 +240,7 @@ export function DealsPage() {
     // The last deal named as the sample takes the sample's comps with it.
     const lastSample =
       deal.name === SAMPLE_DEAL_NAME && (list?.deals.filter((other) => other.name === SAMPLE_DEAL_NAME).length ?? 0) <= 1;
-    const sampleCompIds = lastSample ? (library ?? []).filter((comp) => SAMPLE_COMP_IDS.has(comp.id)).map((comp) => comp.id) : [];
+    const sampleCompIds = lastSample ? (library ?? []).filter(isSampleComp).map((comp) => comp.id) : [];
     setConfirming({ kind: "delete", id: deal.id, name: deal.name, sampleCompIds });
   };
 
@@ -262,6 +280,12 @@ export function DealsPage() {
       {failure ? (
         <p role="alert" className="m-0 rounded-lg border border-[#F2C2BE] bg-no-go-bg px-4 py-3 text-sm font-medium text-no-go">
           {failure}
+        </p>
+      ) : null}
+
+      {list?.notice ? (
+        <p role="status" className="m-0 rounded-lg border border-line bg-surface px-4 py-3 text-sm text-muted">
+          {list.notice}
         </p>
       ) : null}
 
@@ -330,7 +354,22 @@ export function DealsPage() {
         </section>
       )}
 
-      {confirming ? <ConfirmDialog {...dialogFor(confirming)} onConfirm={confirm} onCancel={() => setConfirming(null)} /> : null}
+      {confirming ? (
+        <ConfirmDialog
+          {...dialogFor(confirming)}
+          onConfirm={confirm}
+          onCancel={() => {
+            setConfirming(null);
+            setCopyNote(null);
+          }}
+          {...(confirming.kind === "reset"
+            ? {
+                extraAction: { label: "Download a copy first", onClick: () => void downloadCopy() },
+                note: copyNote ?? undefined,
+              }
+            : {})}
+        />
+      ) : null}
     </div>
   );
 }

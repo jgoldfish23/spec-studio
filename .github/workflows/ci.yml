@@ -23,6 +23,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      # The demo build must hold no Supabase project, key or database URL.
+      - run: npm run check:bundle -- --demo
       # The demo is published as static files from any folder, so the page must load its assets by relative path.
       - name: Check the build uses relative asset paths
         run: grep -q '"./assets/' dist/index.html

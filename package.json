@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:hosted-test": "vite build --mode hosted-test --outDir dist-hosted",
     "preview": "vite preview",
     "test": "vitest run --project node --project dom",
     "test:watch": "vitest --project node --project dom",
@@ -15,6 +16,8 @@
     "e2e": "playwright test",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
+    "check:bundle": "node scripts/check-bundle.mjs",
+    "db:migrate": "node scripts/db/migrate.mjs",
     "golden": "python3 scripts/golden/build_golden.py"
   },
   "dependencies": {
@@ -47,6 +50,7 @@
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.72.1",
     "vite": "^8.3.5",
-    "vitest": "^5.0.5"
+    "vitest": "^5.0.5",
+    "yaml": "2.9.1"
   }
 }

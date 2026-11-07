@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { flushSync } from "react-dom";
@@ -16,6 +17,8 @@ import { useDealEditorContext } from "./DealEditorContext";
 import type { DealEditor, EvaluationError } from "./useDealEditor";
 import { STEPS } from "./steps";
 import { needText } from "./needText";
+import { needsChoice } from "./autosaver";
+import { SafeOnDeviceNote, SaveProblem } from "./SaveProblem";
 import { headsUp, stepForMissing, summarize, topNeeds } from "./summary";
 
 const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-spruce";
@@ -100,6 +103,51 @@ function DealUnreadable({ dealId, message }: { dealId: string; message: string }
   );
 }
 
+/**
+ * A deal that can't be opened right now: the server can't be reached, the session ended, or something the deal needs
+ * besides itself (its comps, cost book or settings) could not be read. Nothing is wrong with the deal, so nothing is
+ * offered that would change it: Try again reads what failed again.
+ */
+function DealUnavailable({ message, signedOut }: { message: string; signedOut: boolean }) {
+  const queryClient = useQueryClient();
+  const [retrying, setRetrying] = useState(false);
+
+  async function retry() {
+    setRetrying(true);
+    try {
+      await queryClient.refetchQueries({ type: "active", predicate: (query) => query.state.status === "error" });
+    } finally {
+      setRetrying(false);
+    }
+  }
+
+  return (
+    <section className="flex flex-col items-start gap-3">
+      <h1 className="text-xl font-bold tracking-[-0.01em]">Can't open this deal right now</h1>
+      <p className="m-0 text-[15px]">{message}</p>
+      <div className="flex flex-wrap gap-3">
+        <button
+          type="button"
+          onClick={() => void retry()}
+          disabled={retrying}
+          className={`inline-flex min-h-11 items-center rounded-lg bg-spruce px-4.5 font-semibold text-white hover:bg-spruce-dark disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`}
+        >
+          Try again
+        </button>
+        {/* A session the server ended is signed in again from there, as a signed-out save is. */}
+        {signedOut ? (
+          <Link to="/sign-in" className={`${SMALL_BUTTON} no-underline`}>
+            Sign in
+          </Link>
+        ) : null}
+        <Link to="/deals" className={`${SMALL_BUTTON} no-underline`}>
+          Back to Deals
+        </Link>
+      </div>
+    </section>
+  );
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // The header of a ready deal
 
@@ -168,6 +216,9 @@ function SaveStatusText({ status }: { status: SaveStatus }) {
       </p>
     );
   }
+  // The device holds these edits, so they are a note; a conflict or deletion is the panel's to say.
+  if (status.reason === "offline" || status.reason === "signedOut") return <SafeOnDeviceNote key="note" status={status} />;
+  if (needsChoice(status.reason)) return null;
   // The reason usually starts "Couldn't save — ", which the notice already says.
   const reason = withoutSavePrefix(status.message);
   return (
@@ -295,6 +346,15 @@ interface ReadyProps {
 
 function ReadyDeal({ dealId, editor, name, inputs, evaluation, today }: ReadyProps) {
   const { pathname } = useLocation();
+  const { busy } = editor;
+  // When a choice between versions ends (loaded or failed), every field is made to read its value from the deal again:
+  // text typed meanwhile was ignored by the editor and must not stay on screen.
+  const [wasBusy, setWasBusy] = useState(busy);
+  const [round, setRound] = useState(0);
+  if (wasBusy !== busy) {
+    setWasBusy(busy);
+    if (wasBusy) setRound(round + 1);
+  }
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-5 rounded-xl border border-line bg-surface px-5 pt-5 sm:px-[22px]">
@@ -303,7 +363,9 @@ function ReadyDeal({ dealId, editor, name, inputs, evaluation, today }: ReadyPro
             <Link to="/deals" className={`inline-flex min-h-11 items-center self-start text-sm no-underline ${LINK}`}>
               ← Deals
             </Link>
-            <DealNameField name={name} rename={editor.rename} saveNow={editor.saveNow} />
+            <div inert={busy} aria-busy={busy || undefined}>
+              <DealNameField name={name} rename={editor.rename} saveNow={editor.saveNow} />
+            </div>
           </div>
           <CalcErrorBoundary input={inputs} resetOn={evaluation}>
             <VerdictBlock dealId={dealId} evaluation={evaluation} />
@@ -311,14 +373,18 @@ function ReadyDeal({ dealId, editor, name, inputs, evaluation, today }: ReadyPro
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <button type="button" onClick={editor.undo} disabled={!editor.canUndo} className={SMALL_BUTTON}>
-            Undo
-          </button>
-          <button type="button" onClick={editor.redo} disabled={!editor.canRedo} className={SMALL_BUTTON}>
-            Redo
-          </button>
+          <div inert={busy} aria-busy={busy || undefined} className="flex flex-wrap items-center gap-3">
+            <button type="button" onClick={editor.undo} disabled={!editor.canUndo} className={SMALL_BUTTON}>
+              Undo
+            </button>
+            <button type="button" onClick={editor.redo} disabled={!editor.canRedo} className={SMALL_BUTTON}>
+              Redo
+            </button>
+          </div>
           <SaveStatusText status={editor.saveStatus} />
         </div>
+
+        <SaveProblem editor={editor} />
 
         <CalcErrorBoundary input={inputs} resetOn={evaluation}>
           <SummaryStrip evaluation={evaluation} />
@@ -331,9 +397,11 @@ function ReadyDeal({ dealId, editor, name, inputs, evaluation, today }: ReadyPro
       {editor.evaluationError ? <CalcFailure error={editor.evaluationError} /> : null}
 
       {/* A step that cannot draw is replaced by the message; the header and the tabs stay, so the owner can move on. */}
-      <CalcErrorBoundary key={pathname} input={inputs} resetOn={evaluation}>
-        <Outlet />
-      </CalcErrorBoundary>
+      <div key={round} inert={busy} aria-busy={busy || undefined}>
+        <CalcErrorBoundary key={pathname} input={inputs} resetOn={evaluation}>
+          <Outlet />
+        </CalcErrorBoundary>
+      </div>
     </div>
   );
 }
@@ -349,7 +417,14 @@ export function DealLayout({ dealId }: { dealId: string }) {
 
   if (status === "notFound") return <DealNotFound />;
   if (status === "error") {
-    return <DealUnreadable dealId={dealId} message={editor.error?.message ?? "Unknown error"} />;
+    const message = editor.error?.message ?? "Unknown error";
+    // Delete is for a record that will never read back, not for a failure that passes (offline, signed out, a
+    // dependent read).
+    return editor.recordUnreadable ? (
+      <DealUnreadable dealId={dealId} message={message} />
+    ) : (
+      <DealUnavailable message={message} signedOut={editor.error?.kind === "signedOut"} />
+    );
   }
   if (status !== "ready" || !deal || !inputs || !evaluation || !context) return <DealSkeleton />;
   return (

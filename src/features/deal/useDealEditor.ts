@@ -1,14 +1,15 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import { evaluateDeal, failedEvaluation } from "@engine";
 import type { DealEvaluation, DealInputs, EngineContext } from "@engine";
 import { queryKeys, useDeal, useEngineContext, useRepository } from "../../data/queries";
+import { isOfflineRepository } from "../../data/offline/offlineRepository";
 import { DataError } from "../../data/types";
 import type { StoredDeal } from "../../data/types";
 import { errorMessage } from "../../lib/errorMessage";
 import { inputHash } from "../../lib/inputHash";
-import { createAutosaver } from "./autosaver";
-import type { Autosaver, SaveStatus } from "./autosaver";
+import { createAutosaver, needsChoice } from "./autosaver";
+import type { Autosaver, SaveFailureReason, SaveStatus } from "./autosaver";
 import { dealEditorReducer, initialEditorState } from "./dealEditorReducer";
 import type { EditorAction, EditorState } from "./dealEditorReducer";
 import { reportLostSave } from "./lostSaves";
@@ -17,6 +18,12 @@ import { reportLostSave } from "./lostSaves";
 export const EVALUATE_DELAY_MS = 150;
 
 const SAVED: SaveStatus = { kind: "saved" };
+
+/** Failures whose edits are safe in the outbox on this device: closing the page loses nothing, so it need not ask. */
+const SAFE_ON_DEVICE: readonly SaveFailureReason[] = ["offline", "signedOut"];
+
+/** Failures that retrying cannot fix: they wait for the owner's choice (or the next edit). */
+const NEEDS_A_CHOICE = (error: unknown): boolean => error instanceof DataError && needsChoice(error.kind);
 
 /** What a failed evaluation's items say: the deal could not be worked out, which is not something the owner left out. */
 const FAILED_EVALUATION = "Couldn't calculate this deal";
@@ -38,6 +45,12 @@ export interface DealEditor {
   status: "loading" | "notFound" | "error" | "ready";
   /** Set when `status` is `"error"`. */
   error?: DataError;
+  /**
+   * True when the error is the deal's own record not reading back (or having no region): the one failure that deleting
+   * the deal can fix. A failure to reach the server, or to read what the deal needs besides itself (its comps, cost
+   * book, settings), is not.
+   */
+  recordUnreadable?: boolean;
   /** The deal as the owner sees it now: the latest name and inputs on top of what was last stored. Set when ready. */
   deal?: StoredDeal;
   /** The inputs being edited. Set when ready. */
@@ -64,8 +77,24 @@ export interface DealEditor {
    * finishes. Edits made after the call are saved as usual.
    */
   discardChanges(): void;
-  /** Starts saving what is waiting now, without waiting for the autosave's second: for a page that is closing. */
+  /**
+   * Starts saving what is waiting now, without waiting for the autosave's second: for a page that is closing. With an
+   * outbox, the newest edit is also written to it first, since a save already running would otherwise hold it back.
+   */
   saveNow(): void;
+  /** True while `loadTheirs` or `saveAsNewDeal` runs: edits, undo and redo do nothing until it is over. */
+  busy: boolean;
+  /**
+   * After a conflict: saves this device's version on top of the version the conflict found stored. It is still checked
+   * like any save, so a change made elsewhere after that version is a conflict again, never overwritten.
+   */
+  keepMine(): void;
+  /** After a conflict: drops this device's changes (and its outbox entry) and shows what is stored. */
+  loadTheirs(): Promise<void>;
+  /** After a deletion elsewhere: gives up what is waiting, here and in the outbox, for "Discard my changes". */
+  discardDeletedDeal(): void;
+  /** After a deletion elsewhere: stores the deal as it is now under a new id, and returns the id. */
+  saveAsNewDeal(): Promise<string>;
   canUndo: boolean;
   canRedo: boolean;
   saveStatus: SaveStatus;
@@ -96,23 +125,87 @@ export function useDealEditor(dealId: string): DealEditor {
   const settled = dealQuery.isSuccess && !dealQuery.isFetching;
 
   const [editor, dispatch] = useReducer(editorReducer, null);
-  /** The deal the editor was seeded from, and the name it carries (the name is not part of the undo history). */
-  const [seed, setSeed] = useState<{ dealId: string; name: string } | null>(null);
+  /** The deal the editor was seeded from and the name it carries (the name is not part of the undo history), with the `updatedAt` it was read at. */
+  const [seed, setSeed] = useState<{ dealId: string; name: string; updatedAt: string } | null>(null);
   /** The inputs the current evaluation is of. */
   const [evaluated, setEvaluated] = useState<DealInputs | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>(SAVED);
-  /** A save failed and none has worked since: edits made, saving or waiting in the meantime are still at risk. */
-  const [saveFailedSinceSaved, setSaveFailedSinceSaved] = useState(false);
+  /** `loadTheirs` or `saveAsNewDeal` is running: the editor ignores edits so none can slip in behind the choice. */
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const statusRef = useRef<SaveStatus>(SAVED);
+  useEffect(() => {
+    statusRef.current = saveStatus;
+  }, [saveStatus]);
+  /** Why the last save failed, until one works: edits made, saving or waiting in the meantime are still at risk. */
+  const [failedWith, setFailedWith] = useState<SaveFailureReason | null>(null);
+  /**
+   * The `updatedAt` the next save of each deal is made from (a late save of one deal must not touch another's): the one the editor was seeded with, then the one each save returned.
+   * A save is checked against the stored `updatedAt`, and the deal an edit was scheduled with may be older than the
+   * last save (it was built while that save ran), so every save is stamped from here, not from the deal's own copy.
+   */
+  const baseline = useRef(new Map<string, string>());
+  /** Per deal, the stored `updatedAt` the last conflict found: the version "Keep mine" saves on top of. */
+  const theirs = useRef(new Map<string, string>());
+  /**
+   * The `updatedAt` of the version the editor holds, for render (the baseline is a ref): the one it was seeded with,
+   * then each of its own saves'. A read of the deal at any other stamp is a version saved elsewhere.
+   */
+  const [known, setKnown] = useState<{ dealId: string; updatedAt: string } | null>(null);
+  /** An edit of this deal waits in the outbox (this tab's or another's): the owner's version, not to be replaced. */
+  const subscribeToOutbox = useCallback(
+    (listener: () => void) => (isOfflineRepository(repository) ? repository.subscribe(listener) : () => {}),
+    [repository],
+  );
+  const waitsInOutbox = useSyncExternalStore(
+    subscribeToOutbox,
+    () => isOfflineRepository(repository) && repository.pending().some((save) => save.dealId === dealId),
+  );
 
   // Seed once per deal id, from the first settled read. A later read of the same deal (a refetch, a cache update
   // after a save) must never replace what the owner has changed since.
   if (settled && stored !== undefined && seed?.dealId !== dealId) {
-    setSeed({ dealId, name: stored.name });
+    setSeed({ dealId, name: stored.name, updatedAt: stored.updatedAt });
+    setKnown({ dealId, updatedAt: stored.updatedAt });
     dispatch({ type: "reset", inputs: stored.inputs });
     setEvaluated(stored.inputs);
     setSaveStatus(SAVED);
-    setSaveFailedSinceSaved(false);
+    setFailedWith(null);
   }
+
+  // A newer version of the same deal, while the owner has changed nothing, is taken: the deal may have opened from
+  // the device's copy on a slow connection, and the server's answer came after. "Nothing" is no undo or redo history,
+  // no save waiting, running or failed, no choice being made, and no edit in the outbox; with any of those the owner's
+  // version stays, and the next save meets the conflict as before. The editor's own saves move `known` with them, so
+  // one landing is never newer.
+  const untouched =
+    editor !== null &&
+    editor.past.length === 0 &&
+    editor.future.length === 0 &&
+    saveStatus.kind === "saved" &&
+    !busy &&
+    !waitsInOutbox;
+  if (
+    settled &&
+    stored !== undefined &&
+    seed?.dealId === dealId &&
+    known?.dealId === dealId &&
+    stored.updatedAt !== known.updatedAt &&
+    untouched
+  ) {
+    setSeed({ dealId, name: stored.name, updatedAt: stored.updatedAt });
+    setKnown({ dealId, updatedAt: stored.updatedAt });
+    dispatch({ type: "reset", inputs: stored.inputs });
+    setEvaluated(stored.inputs);
+    setSaveStatus(SAVED);
+    setFailedWith(null);
+  }
+
+  const seedId = seed?.dealId;
+  const seedStamp = seed?.updatedAt;
+  useEffect(() => {
+    if (seedId !== undefined && seedStamp !== undefined) baseline.current.set(seedId, seedStamp);
+  }, [seedId, seedStamp]);
 
   const seeded = seed?.dealId === dealId && editor !== null;
   const present = seeded ? editor.present : undefined;
@@ -153,23 +246,61 @@ export function useDealEditor(dealId: string): DealEditor {
     console.error(`Couldn't calculate deal ${dealId} (input hash ${outcome.error.inputHash}):`, outcome.thrown);
   }, [outcome, dealId]);
 
+  /**
+   * Saves what is waiting now. A save already running keeps the autosaver from starting the newest value, and a closing
+   * page gets no later turn, so with an outbox the newest value is first written to it (synchronously, no network
+   * call), stamped with the editor's baseline for the deal, as a save would be.
+   */
+  const flushNow = useCallback(
+    (instance: Autosaver<StoredDeal>) => {
+      // While a version is being chosen, what is waiting is the old device's: it must not reach the outbox or the store.
+      if (busyRef.current) return;
+      const waiting = instance.pending();
+      if (waiting !== undefined && isOfflineRepository(repository)) {
+        repository.queue({ ...waiting, updatedAt: baseline.current.get(waiting.id) ?? waiting.updatedAt });
+      }
+      void instance.flush();
+    },
+    [repository],
+  );
+
   // One autosaver per deal. Leaving the deal (or the page) saves what is waiting, without waiting for the answer.
   const autosaver = useRef<Autosaver<StoredDeal> | null>(null);
   useEffect(() => {
     const instance = createAutosaver<StoredDeal>({
       save: async (deal) => {
-        const saved = await repository.saveDeal(deal);
+        const from = baseline.current.get(deal.id) ?? deal.updatedAt;
+        let saved: StoredDeal;
+        try {
+          saved = await repository.saveDeal({ ...deal, updatedAt: from });
+        } catch (error) {
+          if (error instanceof DataError && error.kind === "conflict" && error.storedUpdatedAt !== undefined) {
+            theirs.current.set(deal.id, error.storedUpdatedAt);
+          }
+          throw error;
+        }
+        theirs.current.delete(saved.id);
+        baseline.current.set(saved.id, saved.updatedAt);
+        setKnown((current) => (current?.dealId === saved.id ? { dealId: saved.id, updatedAt: saved.updatedAt } : current));
         queryClient.setQueryData(queryKeys.deal(saved.id), saved);
         void queryClient.invalidateQueries({ queryKey: queryKeys.deals });
         return saved;
       },
-      onStatus: (status) => {
+      shouldRetry: (error) => !NEEDS_A_CHOICE(error),
+      onStatus: (reported) => {
+        // Without an outbox, offline and signed-out edits are not safe on the device: they are failures like any other.
+        const status: SaveStatus =
+          reported.kind === "error" && SAFE_ON_DEVICE.includes(reported.reason) && !isOfflineRepository(repository)
+            ? { ...reported, reason: "failed" }
+            : reported;
         setSaveStatus(status);
-        if (status.kind === "error") setSaveFailedSinceSaved(true);
-        else if (status.kind === "saved") setSaveFailedSinceSaved(false);
+        if (status.kind === "error") setFailedWith(status.reason);
+        else if (status.kind === "saved") setFailedWith(null);
       },
       // The last save on the way out failed and nothing will retry it: the owner must be told, not left with "saved".
-      onAbandoned: (deal, message) => {
+      onAbandoned: (deal, message, reason) => {
+        // With an outbox, an offline or signed-out edit is on the device and will sync: nothing was lost.
+        if (SAFE_ON_DEVICE.includes(reason) && isOfflineRepository(repository)) return;
         console.error(`Couldn't save deal ${deal.id}:`, message);
         reportLostSave({ dealId: deal.id, dealName: deal.name, message });
       },
@@ -179,7 +310,7 @@ export function useDealEditor(dealId: string): DealEditor {
     // autosaver starts the save inside this call (the repository's `saveDeal` runs before `flush` returns), which is
     // all a closing page is given. If a save is already running, that one and then the newest value are what can be
     // done. (`beforeunload` is only for asking, below, while saves are failing.)
-    const saveNow = () => void instance.flush();
+    const saveNow = () => flushNow(instance);
     const saveWhenHidden = () => {
       if (document.visibilityState === "hidden") saveNow();
     };
@@ -189,15 +320,15 @@ export function useDealEditor(dealId: string): DealEditor {
       window.removeEventListener("pagehide", saveNow);
       document.removeEventListener("visibilitychange", saveWhenHidden);
       autosaver.current = null;
-      void instance.flush();
+      flushNow(instance);
       instance.dispose();
     };
-  }, [dealId, repository, queryClient]);
+  }, [dealId, repository, queryClient, flushNow]);
 
   // While saves keep failing, closing the page would lose what is not saved: the browser asks first. That holds through
   // the edits, waits and retries in between failures (the status is then pending or saving, not error), until a save
   // works.
-  const savesFailing = saveFailedSinceSaved;
+  const savesFailing = failedWith !== null && !SAFE_ON_DEVICE.includes(failedWith);
   useEffect(() => {
     if (!savesFailing) return;
     const askFirst = (event: BeforeUnloadEvent) => {
@@ -214,15 +345,33 @@ export function useDealEditor(dealId: string): DealEditor {
     [stored, present, name],
   );
 
-  // Every change to the inputs or the name after the first load is saved. The first run for a deal is its baseline.
-  const lastSeen = useRef<{ dealId: string; inputs: DealInputs; name: string } | null>(null);
+  // Every change to the inputs or the name after the first load is saved. The first run for a deal, and for each version
+  // it is seeded with (a newer one taken, theirs loaded), is its baseline.
+  const lastSeen = useRef<{ dealId: string; seededAt: string | undefined; inputs: DealInputs; name: string } | null>(null);
   useEffect(() => {
     if (deal === undefined) return;
     const last = lastSeen.current;
-    lastSeen.current = { dealId: deal.id, inputs: deal.inputs, name: deal.name };
-    const changed = last !== null && last.dealId === deal.id && (last.inputs !== deal.inputs || last.name !== deal.name);
+    lastSeen.current = { dealId: deal.id, seededAt: seedStamp, inputs: deal.inputs, name: deal.name };
+    const changed =
+      last !== null &&
+      last.dealId === deal.id &&
+      last.seededAt === seedStamp &&
+      (last.inputs !== deal.inputs || last.name !== deal.name);
     if (changed) autosaver.current?.schedule(deal);
-  }, [deal]);
+  }, [deal, seedStamp]);
+
+  // A deal opened from its outbox entry (after an offline reload, or one the server refused) holds an edit the server
+  // does not have. It is sent again through the normal path, once per autosaver, so the status says what really
+  // happens to it (the offline or signed-out note, the choice to make, or Saved once it lands) and Keep mine, Load
+  // their version and Save as a new deal have a value to act on.
+  const resent = useRef(new WeakSet<Autosaver<StoredDeal>>());
+  useEffect(() => {
+    const instance = autosaver.current;
+    if (!seeded || deal === undefined || instance === null || resent.current.has(instance)) return;
+    resent.current.add(instance);
+    if (!isOfflineRepository(repository) || instance.pending() !== undefined) return;
+    if (repository.pending().some((save) => save.dealId === deal.id)) instance.schedule(deal);
+  }, [seeded, deal, repository]);
 
   // A deal that was deleted elsewhere while it is open: the editor must not write it back, and is no longer ready.
   const missing = dealQuery.isSuccess && dealQuery.data === null;
@@ -233,15 +382,114 @@ export function useDealEditor(dealId: string): DealEditor {
     if (deletedElsewhere) autosaver.current?.discard();
   }, [deletedElsewhere]);
 
-  const edit = useCallback((recipe: (draft: DealInputs) => void) => dispatch({ type: "edit", recipe }), []);
-  const undo = useCallback(() => dispatch({ type: "undo" }), []);
-  const redo = useCallback(() => dispatch({ type: "redo" }), []);
+  const edit = useCallback((recipe: (draft: DealInputs) => void) => {
+    if (!busyRef.current) dispatch({ type: "edit", recipe });
+  }, []);
+  const undo = useCallback(() => {
+    if (!busyRef.current) dispatch({ type: "undo" });
+  }, []);
+  const redo = useCallback(() => {
+    if (!busyRef.current) dispatch({ type: "redo" });
+  }, []);
   const discardChanges = useCallback(() => autosaver.current?.discard(), []);
-  const saveNow = useCallback(() => void autosaver.current?.flush(), []);
+  const saveNow = useCallback(() => {
+    if (autosaver.current) flushNow(autosaver.current);
+  }, [flushNow]);
+  const keepMine = useCallback(() => {
+    const instance = autosaver.current;
+    if (instance === null) return;
+    const stamp = theirs.current.get(dealId);
+    if (stamp !== undefined) {
+      // Mine, on top of the version the owner was shown as theirs: the next save is made from it, and so is the
+      // outbox's entry, which would otherwise go on carrying the stamp from before the conflict.
+      baseline.current.set(dealId, stamp);
+      const waiting = instance.pending();
+      if (waiting !== undefined && isOfflineRepository(repository)) {
+        repository.queue({ ...waiting, updatedAt: stamp }, { rebase: true });
+      }
+    }
+    void instance.flush();
+  }, [repository, dealId]);
+
+  /** The deal as the owner sees it, for the actions that need its latest name and inputs. */
+  const latestDeal = useRef<StoredDeal | undefined>(undefined);
+  useEffect(() => {
+    latestDeal.current = deal;
+  }, [deal]);
+
+  /** Runs `action` with edits blocked, so nothing typed meanwhile can be saved over the version being chosen. */
+  const whileBusy = useCallback(async <R,>(action: () => Promise<R>): Promise<R> => {
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      return await action();
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }, []);
+
+  const loadTheirs = useCallback(
+    () =>
+      whileBusy(async () => {
+        const previous = statusRef.current;
+        const outbox = isOfflineRepository(repository) ? repository : null;
+        let fresh: StoredDeal | null;
+        try {
+          // From the server only: this device's outbox and copy of the deal are the owner's own version, not theirs.
+          fresh = outbox ? await outbox.getDeal(dealId, { fromServer: true }) : await repository.getDeal(dealId);
+        } catch (error) {
+          // Nothing was loaded, and nothing was dropped: the local edits and their outbox entry are still the owner's,
+          // and the choice is still theirs to make.
+          setSaveStatus(previous);
+          if (previous.kind === "error") setFailedWith(previous.reason);
+          throw error;
+        }
+        // Theirs is in: what waits here (and anything queued while the read was on its way) is the old copy.
+        autosaver.current?.discard();
+        outbox?.discardPending(dealId);
+        queryClient.setQueryData(queryKeys.deal(dealId), fresh);
+        void queryClient.invalidateQueries({ queryKey: queryKeys.deals });
+        if (fresh === null) return;
+        baseline.current.set(dealId, fresh.updatedAt);
+        // What was just loaded is not an edit: it must not be scheduled for saving.
+        lastSeen.current = { dealId, seededAt: fresh.updatedAt, inputs: fresh.inputs, name: fresh.name };
+        setSeed({ dealId, name: fresh.name, updatedAt: fresh.updatedAt });
+        setKnown({ dealId, updatedAt: fresh.updatedAt });
+        dispatch({ type: "reset", inputs: fresh.inputs });
+        setEvaluated(fresh.inputs);
+        setSaveStatus(SAVED);
+        setFailedWith(null);
+      }),
+    [repository, queryClient, dealId, whileBusy],
+  );
+
+  const saveAsNewDeal = useCallback(
+    () =>
+      whileBusy(async () => {
+        const current = latestDeal.current;
+        if (current === undefined) throw new DataError("The deal isn't loaded yet.", { kind: "failed", recordId: dealId });
+        const created = await repository.createDeal({ name: current.name, inputs: current.inputs });
+        // Nothing may be written to the deleted deal again.
+        autosaver.current?.discard();
+        if (isOfflineRepository(repository)) repository.discardPending(dealId);
+        queryClient.setQueryData(queryKeys.deal(created.id), created);
+        void queryClient.invalidateQueries({ queryKey: queryKeys.deals });
+        return created.id;
+      }),
+    [repository, queryClient, dealId, whileBusy],
+  );
+
+  const discardDeletedDeal = useCallback(() => {
+    autosaver.current?.discard();
+    // Nothing was deleted on this device, so its outbox entry would otherwise try again.
+    if (isOfflineRepository(repository)) repository.discardPending(dealId);
+  }, [repository, dealId]);
+
   const rename = useCallback(
     (newName: string): boolean => {
       const trimmed = newName.trim();
-      if (trimmed === "" || !live) return false;
+      if (trimmed === "" || !live || busyRef.current) return false;
       setSeed((current) => (current === null || current.name === trimmed ? current : { ...current, name: trimmed }));
       return true;
     },
@@ -250,7 +498,8 @@ export function useDealEditor(dealId: string): DealEditor {
 
   // Once seeded, the editor owns the deal: a later failed or empty read of it is not the editor's problem. The
   // context is different: if it fails, the evaluation can no longer be trusted.
-  const failure = (seeded ? null : dealQuery.error) ?? engine.error;
+  const dealFailure = seeded ? null : dealQuery.error;
+  const failure = dealFailure ?? engine.error;
   const noRegion = region === "";
   const error = useMemo(() => {
     if (failure) return toDataError(failure);
@@ -268,11 +517,16 @@ export function useDealEditor(dealId: string): DealEditor {
   else if (missing) status = "notFound";
   else if (seeded && context !== undefined && evaluation !== undefined) status = "ready";
   const isReady = status === "ready";
+  // Only the deal's own read can show the record is bad (the editor makes any other thrown value a DataError too).
+  const recordUnreadable =
+    status === "error" &&
+    ((dealFailure instanceof DataError && dealFailure.kind === "unreadable") || (!failure && noRegion));
 
   return useMemo<DealEditor>(
     () => ({
       status,
       error,
+      recordUnreadable,
       deal: isReady ? deal : undefined,
       inputs: isReady ? present : undefined,
       evaluation: isReady ? evaluation : undefined,
@@ -285,6 +539,11 @@ export function useDealEditor(dealId: string): DealEditor {
       redo,
       discardChanges,
       saveNow,
+      busy,
+      keepMine,
+      loadTheirs,
+      saveAsNewDeal,
+      discardDeletedDeal,
       canUndo: live && editor.past.length > 0,
       canRedo: live && editor.future.length > 0,
       saveStatus,
@@ -292,6 +551,7 @@ export function useDealEditor(dealId: string): DealEditor {
     [
       status,
       error,
+      recordUnreadable,
       isReady,
       deal,
       present,
@@ -305,6 +565,11 @@ export function useDealEditor(dealId: string): DealEditor {
       redo,
       discardChanges,
       saveNow,
+      busy,
+      keepMine,
+      loadTheirs,
+      saveAsNewDeal,
+      discardDeletedDeal,
       live,
       editor,
       saveStatus,

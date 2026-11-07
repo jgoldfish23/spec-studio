@@ -194,7 +194,16 @@ describe("updated_at", () => {
         where not t.tgisinternal and c.relnamespace = 'public'::regnamespace
         order by c.relname`,
     );
-    expect(withColumn.rows.map((r) => r.table_name)).toEqual(["companies", "comps", "deals"]);
+    expect(withColumn.rows.map((r) => r.table_name)).toEqual([
+      "companies",
+      "company_settings",
+      "comps",
+      "deals",
+      "default_prices",
+      "market_settings",
+      "memberships",
+      "price_book_entries",
+    ]);
     expect(withTrigger.rows).toEqual(withColumn.rows);
   });
 });
@@ -204,7 +213,7 @@ describe("default prices", () => {
     const rows = await asUser(
       db.client,
       UA,
-      async (c) => (await c.query("select company_id, unit_price_cents from default_prices order by unit_price_cents")).rows,
+      async (c) => (await c.query("select company_id, unit_price_cents from default_prices where variant = 'std' order by unit_price_cents")).rows,
     );
     expect(rows.map((r) => [r.company_id, Number(r.unit_price_cents)])).toEqual([
       [null, 450],

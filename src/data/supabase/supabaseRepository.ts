@@ -1,12 +1,17 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { DEFAULT_MARKET_SETTINGS, DEFAULT_RULES } from "@engine";
 import type { Comp, CostBookView, DealInputs, DefaultPrice, MarketSettings } from "@engine";
-import { assertCompReadsBack, assertDealReadsBack } from "../readBack";
+import { isUuid } from "../../lib/uuid";
+import { DEAL_CHANGED_ELSEWHERE, DEAL_DELETED_ELSEWHERE } from "../messages";
+import { assertCompanySettingsReadBack, assertCompReadsBack, assertDealReadsBack, assertMarketSettingsReadBack } from "../readBack";
 import { DataError } from "../types";
 import type { CompanySettings, DealListResult, Repository, StoredDeal } from "../types";
-import type { DefaultPriceRow } from "./mappers";
+import type { DealRow, DefaultPriceRow } from "./mappers";
+import { toDataError } from "./errors";
+import { fetchAllPages } from "./paging";
 import {
   companySettingsFromRow,
+  companySettingsToRow,
   compFromRow,
   compToRow,
   dealFromRow,
@@ -14,16 +19,34 @@ import {
   DEAL_SCHEMA_VERSION,
   defaultPriceFromRow,
   marketSettingsFromRow,
+  marketSettingsToRow,
   priceBookEntryFromRow,
 } from "./mappers";
 
 /** Stands in for the id and timestamps a new deal does not have yet, so the rest of it can be checked before sending. */
 const PENDING = { id: "pending", stamp: "1970-01-01T00:00:00.000Z" } as const;
 
-/** Anything Supabase reports (a rejected row, a policy, a lost connection) is a `DataError` carrying its message. */
-function failed(error: { message: string }, recordId?: string): DataError {
-  return new DataError(error.message || "The request to the database failed", { recordId, cause: error });
+/** A failed request: PostgREST's own error object, whole, and the HTTP status. */
+function failed(response: { error: PostgrestError; status: number }, action: string, recordId?: string) {
+  return toDataError(response.error, action, recordId, response.status);
 }
+
+/** Every column of a `deals` row, for a read that needs the whole deal but is not a `select("*")`. */
+const DEAL_COLUMNS = "id,company_id,name,status,schema_version,inputs,created_at,updated_at";
+
+/** Whether two parsed JSON values are the same, whatever order an object's keys come in (jsonb reorders them). */
+function sameJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  const keys = Object.keys(left);
+  return keys.length === Object.keys(right).length && keys.every((key) => Object.hasOwn(right, key) && sameJson(left[key], right[key]));
+}
+
+const CONFLICT = DEAL_CHANGED_ELSEWHERE;
+const DELETED = DEAL_DELETED_ELSEWHERE;
 
 /** A filter value for PostgREST's `or`, quoted so that a comma or parenthesis in it cannot change the filter. */
 const quoted = (value: string): string => `"${value.replace(/["\\]/g, "\\$&")}"`;
@@ -40,12 +63,17 @@ const defaultPriceKey = (price: DefaultPrice): string => JSON.stringify([price.c
 export function createSupabaseRepository(client: SupabaseClient, companyId: string): Repository {
   return {
     async listDeals(): Promise<DealListResult> {
-      const { data, error } = await client
-        .from("deals")
-        .select("*")
-        .eq("company_id", companyId)
-        .order("updated_at", { ascending: false });
-      if (error) throw failed(error);
+      // Newest edit first; the id breaks a tie so that pages never repeat or skip a row.
+      const { data, error, status } = await fetchAllPages((from, to) =>
+        client
+          .from("deals")
+          .select("*")
+          .eq("company_id", companyId)
+          .order("updated_at", { ascending: false })
+          .order("id", { ascending: true })
+          .range(from, to),
+      );
+      if (error) throw failed({ error, status }, "load your deals");
       const deals: StoredDeal[] = [];
       const problems: DealListResult["problems"] = [];
       for (const row of data ?? []) {
@@ -60,13 +88,15 @@ export function createSupabaseRepository(client: SupabaseClient, companyId: stri
     },
 
     async getDeal(id: string): Promise<StoredDeal | null> {
-      const { data, error } = await client
+      // A deal id is a UUID; anything else is not stored, and is never sent to the database.
+      if (!isUuid(id)) return null;
+      const { data, error, status } = await client
         .from("deals")
         .select("*")
         .eq("id", id)
         .eq("company_id", companyId)
         .maybeSingle();
-      if (error) throw failed(error, id);
+      if (error) throw failed({ error, status }, "load this deal", id);
       if (!data) return null;
       try {
         return dealFromRow(data);
@@ -89,7 +119,7 @@ export function createSupabaseRepository(client: SupabaseClient, companyId: stri
         null,
       );
       // The database assigns the id and both timestamps.
-      const { data, error } = await client
+      const { data, error, status } = await client
         .from("deals")
         .insert({
           company_id: companyId,
@@ -100,54 +130,71 @@ export function createSupabaseRepository(client: SupabaseClient, companyId: stri
         })
         .select()
         .single();
-      if (error) throw failed(error);
+      if (error) throw failed({ error, status }, "save");
       return dealFromRow(data);
     },
 
     async saveDeal(deal: StoredDeal): Promise<StoredDeal> {
       assertDealReadsBack(deal);
+      // Only a UUID can be stored, so any other id is a deal that is not there.
+      if (!isUuid(deal.id)) throw new DataError(DELETED, { kind: "deleted", recordId: deal.id });
       const row = dealToRow(deal, companyId);
-      // Only the columns the owner can change. The database stamps `updated_at` on every update, so what comes back
-      // has a fresh one, and `created_at` stays as it was.
-      const { data, error } = await client
+      // An update, never an upsert: it must not bring back a deal that was deleted. It matches the `updated_at` this
+      // save was made from, exactly as stored, so a save that lost to another device or tab matches no row. The
+      // database stamps `updated_at` on every update, and `created_at` stays as it was. Only the columns the owner can
+      // change are sent.
+      const { data, error, status } = await client
         .from("deals")
-        .upsert(
-          {
-            id: row.id,
-            company_id: row.company_id,
-            name: row.name,
-            status: row.status,
-            schema_version: row.schema_version,
-            inputs: row.inputs,
-          },
-          { onConflict: "id" },
-        )
-        .select()
-        .single();
-      if (error) throw failed(error, deal.id);
-      return dealFromRow(data);
+        .update({ name: row.name, status: row.status, schema_version: row.schema_version, inputs: row.inputs })
+        .eq("id", deal.id)
+        .eq("company_id", companyId)
+        .eq("updated_at", deal.updatedAt)
+        .select();
+      if (error) throw failed({ error, status }, "save", deal.id);
+      const saved = data[0];
+      if (saved !== undefined) return dealFromRow(saved);
+
+      // Nothing matched: the deal was changed (its `updated_at` moved on) or deleted. One more read tells which.
+      const check = await client
+        .from("deals")
+        .select(DEAL_COLUMNS)
+        .eq("id", deal.id)
+        .eq("company_id", companyId)
+        .maybeSingle();
+      if (check.error) throw failed({ error: check.error, status: check.status }, "save", deal.id);
+      if (check.data === null) throw new DataError(DELETED, { kind: "deleted", recordId: deal.id });
+      // A save can commit and lose its response (a dropped connection); the retry then finds its own write and must not
+      // call it a conflict. A stored deal that is exactly what this save sent is that save, already applied.
+      const stored = check.data as unknown as DealRow;
+      const sent = JSON.parse(JSON.stringify({ name: row.name, status: row.status, inputs: row.inputs })) as unknown;
+      if (sameJson(sent, { name: stored.name, status: stored.status, inputs: stored.inputs })) return dealFromRow(stored);
+      throw new DataError(CONFLICT, { kind: "conflict", recordId: deal.id, storedUpdatedAt: stored.updated_at });
     },
 
     async deleteDeal(id: string): Promise<void> {
-      const { error } = await client.from("deals").delete().eq("id", id).eq("company_id", companyId);
-      if (error) throw failed(error, id);
+      if (!isUuid(id)) return;
+      const { error, status } = await client.from("deals").delete().eq("id", id).eq("company_id", companyId);
+      if (error) throw failed({ error, status }, "delete this deal", id);
     },
 
     async resetDeals(): Promise<void> {
-      const { error } = await client.from("deals").delete().eq("company_id", companyId);
-      if (error) throw failed(error);
+      const { error, status } = await client.from("deals").delete().eq("company_id", companyId);
+      if (error) throw failed({ error, status }, "delete your deals");
     },
 
     async listComps(region: string): Promise<Comp[]> {
       // Oldest first, so saving a comp does not move it in the list.
-      const { data, error } = await client
-        .from("comps")
-        .select("*")
-        .eq("company_id", companyId)
-        .eq("region", region)
-        .order("created_at", { ascending: true })
-        .order("id", { ascending: true });
-      if (error) throw failed(error);
+      const { data, error, status } = await fetchAllPages((from, to) =>
+        client
+          .from("comps")
+          .select("*")
+          .eq("company_id", companyId)
+          .eq("region", region)
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to),
+      );
+      if (error) throw failed({ error, status }, "load your comps");
       const comps: Comp[] = [];
       for (const row of data ?? []) {
         // Like the demo store, a comp that cannot be read is left out rather than failing the whole list. Trade-off: a
@@ -164,45 +211,54 @@ export function createSupabaseRepository(client: SupabaseClient, companyId: stri
 
     async saveComp(comp: Comp): Promise<Comp> {
       assertCompReadsBack(comp);
-      const { data, error } = await client
+      if (!isUuid(comp.id)) throw new DataError("Couldn't save — id: must be a UUID", { kind: "failed", recordId: comp.id, path: "id" });
+      const { data, error, status } = await client
         .from("comps")
         .upsert(compToRow(comp, companyId), { onConflict: "id" })
         .select()
         .single();
-      if (error) throw failed(error, comp.id);
+      if (error) throw failed({ error, status }, "save", comp.id);
       return compFromRow(data);
     },
 
     async deleteComp(id: string): Promise<void> {
-      const { error } = await client.from("comps").delete().eq("id", id).eq("company_id", companyId);
-      if (error) throw failed(error, id);
+      if (!isUuid(id)) return;
+      const { error, status } = await client.from("comps").delete().eq("id", id).eq("company_id", companyId);
+      if (error) throw failed({ error, status }, "delete this comp", id);
     },
 
     async getCostBook(region: string): Promise<CostBookView> {
       const [defaults, priceBook] = await Promise.all([
         // Ordered by the whole key (the table's unique key, less the region), so the same data always comes back in
         // the same order.
-        client
-          .from("default_prices")
-          .select("*")
-          .eq("region", region)
-          .or(`company_id.is.null,company_id.eq.${quoted(companyId)}`)
-          .order("code")
-          .order("variant")
-          .order("tier")
-          .order("company_id"),
+        fetchAllPages<DefaultPriceRow>((from, to) =>
+          client
+            .from("default_prices")
+            .select("*")
+            .eq("region", region)
+            .or(`company_id.is.null,company_id.eq.${quoted(companyId)}`)
+            .order("code")
+            .order("variant")
+            .order("tier")
+            .order("company_id")
+            .order("id")
+            .range(from, to),
+        ),
         // A price book may repeat a key, so the id breaks the tie.
-        client
-          .from("price_book_entries")
-          .select("*")
-          .eq("company_id", companyId)
-          .order("code")
-          .order("variant")
-          .order("tier")
-          .order("id"),
+        fetchAllPages((from, to) =>
+          client
+            .from("price_book_entries")
+            .select("*")
+            .eq("company_id", companyId)
+            .order("code")
+            .order("variant")
+            .order("tier")
+            .order("id")
+            .range(from, to),
+        ),
       ]);
-      if (defaults.error) throw failed(defaults.error);
-      if (priceBook.error) throw failed(priceBook.error);
+      if (defaults.error) throw failed({ error: defaults.error, status: defaults.status }, "load the cost book");
+      if (priceBook.error) throw failed({ error: priceBook.error, status: priceBook.status }, "load the cost book");
 
       // A company's own price replaces the global one with the same code, variant and tier.
       const rows: DefaultPriceRow[] = defaults.data ?? [];
@@ -215,22 +271,48 @@ export function createSupabaseRepository(client: SupabaseClient, companyId: stri
     },
 
     async getMarketSettings(region: string): Promise<MarketSettings> {
-      const { data, error } = await client
+      const { data, error, status } = await client
         .from("market_settings")
         .select("*")
         .eq("company_id", companyId)
         .eq("region", region)
         .maybeSingle();
-      if (error) throw failed(error);
+      if (error) throw failed({ error, status }, "load the market settings");
       if (!data) return { ...structuredClone(DEFAULT_MARKET_SETTINGS), region };
       return marketSettingsFromRow(data);
     },
 
     async getCompanySettings(): Promise<CompanySettings> {
-      const { data, error } = await client.from("company_settings").select("*").eq("company_id", companyId).maybeSingle();
-      if (error) throw failed(error);
+      const { data, error, status } = await client
+        .from("company_settings")
+        .select("*")
+        .eq("company_id", companyId)
+        .maybeSingle();
+      if (error) throw failed({ error, status }, "load your settings");
       if (!data) return { rules: structuredClone(DEFAULT_RULES), contingencyPct: 0.05 };
       return companySettingsFromRow(data);
+    },
+
+    async saveCompanySettings(settings: CompanySettings): Promise<CompanySettings> {
+      assertCompanySettingsReadBack(settings);
+      const { data, error, status } = await client
+        .from("company_settings")
+        .upsert(companySettingsToRow(settings, companyId), { onConflict: "company_id" })
+        .select()
+        .single();
+      if (error) throw failed({ error, status }, "save");
+      return companySettingsFromRow(data);
+    },
+
+    async saveMarketSettings(settings: MarketSettings): Promise<MarketSettings> {
+      assertMarketSettingsReadBack(settings);
+      const { data, error, status } = await client
+        .from("market_settings")
+        .upsert(marketSettingsToRow(settings, companyId), { onConflict: "company_id,region" })
+        .select()
+        .single();
+      if (error) throw failed({ error, status }, "save", settings.region);
+      return marketSettingsFromRow(data);
     },
   };
 }

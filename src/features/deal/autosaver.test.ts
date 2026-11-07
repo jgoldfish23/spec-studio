@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DataError } from "../../data/types";
 import { createAutosaver } from "./autosaver";
 import type { SaveStatus } from "./autosaver";
 
@@ -160,7 +161,7 @@ describe("createAutosaver", () => {
     t.saver.schedule(7);
     await advance(1000);
     expect(t.calls).toEqual([7]);
-    expect(t.statuses.at(-1)).toEqual({ kind: "error", message: "Couldn't save — browser storage is full" });
+    expect(t.statuses.at(-1)).toEqual({ kind: "error", message: "Couldn't save — browser storage is full", reason: "unknown" });
     expect(t.stored()).toBeUndefined();
 
     await advance(4999);
@@ -178,10 +179,10 @@ describe("createAutosaver", () => {
 
     t.saver.schedule(1);
     await advance(1000);
-    expect(t.statuses.at(-1)).toEqual({ kind: "error", message: "down" });
+    expect(t.statuses.at(-1)).toEqual({ kind: "error", message: "down", reason: "unknown" });
     await advance(5000);
     expect(t.calls).toEqual([1, 1]);
-    expect(t.statuses.at(-1)).toEqual({ kind: "error", message: "still down" });
+    expect(t.statuses.at(-1)).toEqual({ kind: "error", message: "still down", reason: "unknown" });
     await advance(5000);
     expect(t.calls).toEqual([1, 1, 1]);
     expect(t.statuses.at(-1)).toEqual({ kind: "saved" });
@@ -192,7 +193,7 @@ describe("createAutosaver", () => {
     t.failWith.push("quota");
     t.saver.schedule(1);
     await advance(1000);
-    expect(t.statuses.at(-1)).toEqual({ kind: "error", message: "quota" });
+    expect(t.statuses.at(-1)).toEqual({ kind: "error", message: "quota", reason: "unknown" });
   });
 
   it("replaces a failed value with a newer edit, which waits the normal 1,000 ms, not the retry delay", async () => {
@@ -226,7 +227,7 @@ describe("createAutosaver", () => {
     t.saver.schedule(2);
     first.reject(new Error("down"));
     await advance(0);
-    expect(t.statuses.at(-1)).toEqual({ kind: "error", message: "down" });
+    expect(t.statuses.at(-1)).toEqual({ kind: "error", message: "down", reason: "unknown" });
 
     await advance(1000);
     expect(t.calls).toEqual([1, 2]);
@@ -315,7 +316,7 @@ describe("createAutosaver", () => {
     t.failWith.push(new Error("down"));
     t.saver.schedule(1);
     await expect(t.saver.flush()).resolves.toBeUndefined();
-    expect(t.statuses.at(-1)).toEqual({ kind: "error", message: "down" });
+    expect(t.statuses.at(-1)).toEqual({ kind: "error", message: "down", reason: "unknown" });
   });
 
   it("dispose cancels a pending save and goes quiet", async () => {
@@ -546,5 +547,80 @@ describe("createAutosaver", () => {
     expect(t.calls).toEqual([1]);
     await advance(1);
     expect(t.calls).toEqual([1, 1]);
+  });
+});
+
+describe("createAutosaver errors that should not be retried", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function make(shouldRetry?: (error: unknown) => boolean) {
+    const calls: { value: number }[] = [];
+    const statuses: SaveStatus[] = [];
+    const failures: unknown[] = [];
+    const saver = createAutosaver<number>({
+      save: async (value) => {
+        calls.push({ value });
+        if (failures.length > 0) throw failures.shift();
+      },
+      shouldRetry,
+      onStatus: (status) => statuses.push(status),
+    });
+    return { saver, calls, statuses, failures };
+  }
+
+  it("carries the DataError kind as the status reason, and unknown for anything else", async () => {
+    const t = make();
+    t.failures.push(new DataError("offline", { kind: "offline" }), new Error("odd"));
+    t.saver.schedule(1);
+    await advance(1000);
+    expect(t.statuses.at(-1)).toEqual({ kind: "error", message: "offline", reason: "offline" });
+    await advance(5000);
+    expect(t.statuses.at(-1)).toEqual({ kind: "error", message: "odd", reason: "unknown" });
+  });
+
+  it("does not retry when shouldRetry says no, and stays in error", async () => {
+    const t = make((error) => !(error instanceof DataError && error.kind === "conflict"));
+    t.failures.push(new DataError("changed", { kind: "conflict" }));
+    t.saver.schedule(1);
+    await advance(1000);
+    expect(t.statuses.at(-1)).toEqual({ kind: "error", message: "changed", reason: "conflict" });
+    await advance(60_000);
+    expect(t.calls).toHaveLength(1);
+    expect(t.statuses.at(-1)?.kind).toBe("error");
+  });
+
+  it("tries again after a later edit", async () => {
+    const t = make(() => false);
+    t.failures.push(new Error("no"));
+    t.saver.schedule(1);
+    await advance(1000);
+    t.saver.schedule(2);
+    await advance(1000);
+    expect(t.calls.map((c) => c.value)).toEqual([1, 2]);
+    expect(t.statuses.at(-1)).toEqual({ kind: "saved" });
+  });
+
+  it("flush saves the waiting failed value again at once, though it is not retried by itself", async () => {
+    const t = make(() => false);
+    t.failures.push(new Error("no"));
+    t.saver.schedule(1);
+    await advance(1000);
+    await t.saver.flush();
+    expect(t.calls).toEqual([{ value: 1 }, { value: 1 }]);
+    expect(t.statuses.at(-1)).toEqual({ kind: "saved" });
+  });
+
+  it("pending() is the waiting value, and nothing once it is saved", async () => {
+    const t = make();
+    expect(t.saver.pending()).toBeUndefined();
+    t.saver.schedule(4);
+    expect(t.saver.pending()).toBe(4);
+    await advance(1000);
+    expect(t.saver.pending()).toBeUndefined();
   });
 });

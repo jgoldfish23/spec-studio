@@ -1,15 +1,28 @@
-import { CompSchema, DEFAULT_MARKET_SETTINGS, DEFAULT_RULES } from "@engine";
+import { CompSchema, DEFAULT_MARKET_SETTINGS, DEFAULT_RULES, MarketSettingsSchema } from "@engine";
 import type { Comp, CostBookView, DealInputs, MarketSettings } from "@engine";
-import { assertCompReadsBack, assertDealReadsBack, CompanySettingsSchema, readDeal } from "../readBack";
+import {
+  assertCompanySettingsReadBack,
+  assertCompReadsBack,
+  assertDealReadsBack,
+  assertMarketSettingsReadBack,
+  CompanySettingsSchema,
+  firstProblem,
+  readDeal,
+} from "../readBack";
+import { DEAL_CHANGED_ELSEWHERE, DEAL_DELETED_ELSEWHERE } from "../messages";
+import { LEGACY_SAMPLE_COMP_IDS } from "../sample";
 import { STARTER_COST_BOOK } from "../starterCostBook";
 import { DataError } from "../types";
 import type { CompanySettings, DealListResult, Repository, StoredDeal } from "../types";
 
-/** Each key holds one JSON value: deals and comps are an object keyed by id, the settings are one object. */
+/** Each key holds one JSON value: deals and comps are an object keyed by id, the settings are one object each (the company's, and one per region). */
 export const DEALS_KEY = "spec-studio:v1:deals";
 export const COMPS_KEY = "spec-studio:v1:comps";
-export const SETTINGS_KEY = "spec-studio:v1:settings";
+export const COMPANY_SETTINGS_KEY = "spec-studio:company-settings";
+export const marketSettingsKey = (region: string): string => `spec-studio:market-settings:${region}`;
 
+const CONFLICT = DEAL_CHANGED_ELSEWHERE;
+const DELETED = DEAL_DELETED_ELSEWHERE;
 const SAVE_FAILED = "Couldn't save — browser storage is full or unavailable";
 
 const defaultCompanySettings = (): CompanySettings => ({
@@ -54,6 +67,73 @@ function without(records: Record<string, unknown>, id: string): Record<string, u
   return Object.fromEntries(Object.entries(records).filter(([key]) => key !== id));
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * Plan 2 stored the sample's comps as `comp-1`…`comp-8`. Comp ids are now UUIDs, and the sample is marked by
+ * `source: "sample"`: those eight ids, and only those, get a new UUID and the mark, in the comps and in every deal's
+ * `compSelections`, once. A store that cannot be read, a record of another shape, a write that fails: all are left as
+ * they are (the read paths already report them). The deals are written first, so if the second write fails the comps
+ * are still plain `comp-N` and the next open tries again.
+ */
+function upgradeLegacySampleIds(storage: Storage, newId: () => string): void {
+  const legacy = new Set(LEGACY_SAMPLE_COMP_IDS);
+  const isLegacy = (id: string): boolean => legacy.has(id);
+  const renamed = new Map<string, string>();
+  const rename = (id: string): string => {
+    let target = renamed.get(id);
+    if (target === undefined) {
+      target = newId();
+      renamed.set(id, target);
+    }
+    return target;
+  };
+
+  const comps = readStore(storage, COMPS_KEY);
+  const deals = readStore(storage, DEALS_KEY);
+
+  let nextDeals: Record<string, unknown> | null = null;
+  if (deals.ok) {
+    const next: Record<string, unknown> = {};
+    let changed = false;
+    for (const [id, record] of Object.entries(deals.records)) {
+      const inputs = isRecord(record) ? record.inputs : undefined;
+      const selections = isRecord(inputs) ? inputs.compSelections : undefined;
+      if (!isRecord(record) || !isRecord(inputs) || !isRecord(selections) || !Object.keys(selections).some(isLegacy)) {
+        next[id] = record;
+        continue;
+      }
+      changed = true;
+      const swapped: Record<string, unknown> = {};
+      for (const [compId, chosen] of Object.entries(selections))
+        swapped[isLegacy(compId) ? rename(compId) : compId] = chosen;
+      next[id] = { ...record, inputs: { ...inputs, compSelections: swapped } };
+    }
+    if (changed) nextDeals = next;
+  }
+
+  let nextComps: Record<string, unknown> | null = null;
+  if (comps.ok && Object.keys(comps.records).some(isLegacy)) {
+    nextComps = {};
+    for (const [id, record] of Object.entries(comps.records)) {
+      if (!isLegacy(id)) nextComps[id] = record;
+      else {
+        const target = rename(id);
+        nextComps[target] = isRecord(record) ? { ...record, id: target, source: "sample" } : record;
+      }
+    }
+  }
+
+  // Renaming ids for the deals happened before the comps' own, so both use one mapping; write in the safe order.
+  try {
+    if (nextDeals !== null) storage.setItem(DEALS_KEY, JSON.stringify(nextDeals));
+    if (nextComps !== null) storage.setItem(COMPS_KEY, JSON.stringify(nextComps));
+  } catch {
+    // Left as it was; the next open tries again.
+  }
+}
+
 /**
  * The demo build's repository: deals, comps and settings in `storage` (the browser's `localStorage`), the cost book
  * and market settings from the engine's defaults. Every read checks what it finds, so a record that was edited by
@@ -67,6 +147,7 @@ export function createLocalRepository(
 ): Repository {
   const now = opts.now ?? (() => new Date().toISOString());
   const newId = opts.newId ?? (() => crypto.randomUUID());
+  upgradeLegacySampleIds(storage, newId);
 
   /** Any failure to write (the quota, a blocked store) is the same story to the owner. */
   function write(key: string, records: Record<string, unknown>): void {
@@ -74,7 +155,7 @@ export function createLocalRepository(
     try {
       storage.setItem(key, text);
     } catch (cause) {
-      throw new DataError(SAVE_FAILED, { cause });
+      throw new DataError(SAVE_FAILED, { kind: "failed", cause });
     }
   }
 
@@ -88,6 +169,30 @@ export function createLocalRepository(
   function putDeal(deal: StoredDeal): void {
     assertDealReadsBack(deal);
     write(DEALS_KEY, { ...dealRecords(), [deal.id]: deal });
+  }
+
+  /** Keys already reported as unreadable, so a bad value is logged once per repository and not on every read. */
+  const reported = new Set<string>();
+  function report(key: string, reason: string): void {
+    if (reported.has(key)) return;
+    reported.add(key);
+    console.error(`Spec Studio: the saved settings under ${key} ${reason}; using the defaults instead.`);
+  }
+
+  /** The value stored under `key` if it reads back; undefined when nothing is stored or it cannot be read (reported once). */
+  function readSetting<T>(key: string, parse: (value: unknown) => { ok: true; value: T } | { ok: false; reason: string }): T | undefined {
+    const json = readJson(storage, key);
+    if (!json.ok) {
+      report(key, json.reason);
+      return undefined;
+    }
+    if (json.value === undefined) return undefined;
+    const parsed = parse(json.value);
+    if (!parsed.ok) {
+      report(key, `do not read back (${parsed.reason})`);
+      return undefined;
+    }
+    return parsed.value;
   }
 
   return {
@@ -131,6 +236,18 @@ export function createLocalRepository(
     },
 
     async saveDeal(deal: StoredDeal): Promise<StoredDeal> {
+      assertDealReadsBack(deal);
+      const records = dealRecords();
+      if (!Object.hasOwn(records, deal.id)) throw new DataError(DELETED, { kind: "deleted", recordId: deal.id });
+      const stored = records[deal.id];
+      const storedStamp = isRecord(stored) ? stored.updatedAt : undefined;
+      if (storedStamp !== deal.updatedAt) {
+        throw new DataError(CONFLICT, {
+          kind: "conflict",
+          recordId: deal.id,
+          storedUpdatedAt: typeof storedStamp === "string" ? storedStamp : undefined,
+        });
+      }
       const saved: StoredDeal = { ...structuredClone(deal), updatedAt: now() };
       putDeal(saved);
       return saved;
@@ -178,14 +295,34 @@ export function createLocalRepository(
     },
 
     async getMarketSettings(region: string): Promise<MarketSettings> {
-      return { ...structuredClone(DEFAULT_MARKET_SETTINGS), region };
+      const stored = readSetting(marketSettingsKey(region), (value) => {
+        // The key decides the region, whatever the stored value says.
+        const parsed = MarketSettingsSchema.safeParse(isRecord(value) ? { ...value, region } : value);
+        return parsed.success ? { ok: true, value: parsed.data } : { ok: false, reason: firstProblem(parsed.error).message };
+      });
+      return stored ?? { ...structuredClone(DEFAULT_MARKET_SETTINGS), region };
     },
 
     async getCompanySettings(): Promise<CompanySettings> {
-      const json = readJson(storage, SETTINGS_KEY);
-      if (!json.ok) return defaultCompanySettings();
-      const parsed = CompanySettingsSchema.safeParse(json.value);
-      return parsed.success ? parsed.data : defaultCompanySettings();
+      const stored = readSetting(COMPANY_SETTINGS_KEY, (value) => {
+        const parsed = CompanySettingsSchema.safeParse(value);
+        return parsed.success ? { ok: true, value: parsed.data } : { ok: false, reason: firstProblem(parsed.error).message };
+      });
+      return stored ?? defaultCompanySettings();
+    },
+
+    async saveCompanySettings(settings: CompanySettings): Promise<CompanySettings> {
+      const saved = structuredClone(settings);
+      assertCompanySettingsReadBack(saved);
+      write(COMPANY_SETTINGS_KEY, saved as unknown as Record<string, unknown>);
+      return structuredClone(saved);
+    },
+
+    async saveMarketSettings(settings: MarketSettings): Promise<MarketSettings> {
+      const saved = structuredClone(settings);
+      assertMarketSettingsReadBack(saved);
+      write(marketSettingsKey(saved.region), saved as unknown as Record<string, unknown>);
+      return structuredClone(saved);
     },
   };
 }
