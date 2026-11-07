@@ -1,7 +1,7 @@
 import { Suspense, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { createHashRouter, Navigate, useNavigate, type RouteObject } from "react-router";
 import { RouterProvider } from "react-router/dom";
-import { AppShell, DEALS_SECTION } from "./features/app/AppShell";
+import { AppShell, DEALS_SECTION, SETTINGS_SECTION } from "./features/app/AppShell";
 import { HostedShellContext } from "./features/app/hostedShell";
 import type { HostedShell } from "./features/app/hostedShell";
 import { NotFound } from "./features/app/NotFound";
@@ -13,6 +13,7 @@ import { StepPlaceholder } from "./features/deal/StepPlaceholder";
 import { StepSkeleton } from "./features/deal/StepSkeleton";
 import { STEPS, type StepId } from "./features/deal/steps";
 import { DealsPage } from "./features/deals/DealsPage";
+import { SettingsPage } from "./features/settings/SettingsPage";
 
 // Each step's screen is its own chunk, fetched when the step is first opened, so the first load is the frame, the
 // Deals page and the engine, not all five screens.
@@ -92,6 +93,7 @@ const routes: RouteObject[] = [
           },
         ],
       },
+      { path: "settings", element: <SettingsPage />, handle: SETTINGS_SECTION },
       { path: "*", element: <NotFound /> },
     ],
   },

@@ -15,8 +15,11 @@ const LATER_SECTIONS = ["Cost book", "Comps", "Plans", "Builds"] as const;
  */
 export const DEALS_SECTION = { section: "deals" } as const;
 
-const isDealsSection = (handle: unknown): boolean =>
-  typeof handle === "object" && handle !== null && "section" in handle && handle.section === DEALS_SECTION.section;
+/** Marks the Settings route, read the same way. */
+export const SETTINGS_SECTION = { section: "settings" } as const;
+
+const isSection = (handle: unknown, section: string): boolean =>
+  typeof handle === "object" && handle !== null && "section" in handle && handle.section === section;
 
 /** The banner's sentence. The reason often starts "Couldn't save — " already, which the sentence says. */
 function lostSaveText({ dealName, message }: LostSave): string {
@@ -80,7 +83,9 @@ export interface AppShellProps {
 }
 
 export function AppShell({ account, syncNote }: AppShellProps) {
-  const dealsActive = useMatches().some((match) => isDealsSection(match.handle));
+  const matches = useMatches();
+  const dealsActive = matches.some((match) => isSection(match.handle, DEALS_SECTION.section));
+  const settingsActive = matches.some((match) => isSection(match.handle, SETTINGS_SECTION.section));
   const lostSaves = useLostSaves();
   const persistent = useContext(PersistentStorageContext);
 
@@ -123,6 +128,17 @@ export function AppShell({ account, syncNote }: AppShellProps) {
                   </span>
                 </li>
               ))}
+              <li>
+                <Link
+                  to="/settings"
+                  aria-current={settingsActive ? "page" : undefined}
+                  className={`flex min-h-11 items-center rounded-md px-3 no-underline ${focusRing} ${
+                    settingsActive ? "bg-nav-active font-semibold text-white" : "text-nav-text"
+                  }`}
+                >
+                  Settings
+                </Link>
+              </li>
             </ul>
           </nav>
 

@@ -59,8 +59,8 @@ describe("Deals page", () => {
     expect(within(rules).getByText("≥ 25%")).toBeVisible();
     expect(within(rules).getByText("Downside case profit")).toBeVisible();
     expect(within(rules).getByText("≥ $0")).toBeVisible();
-    expect(within(rules).getByRole("button", { name: "Edit" })).toBeDisabled();
-    expect(within(rules).getByText("Later")).toBeVisible();
+    expect(within(rules).getByRole("link", { name: "Edit" })).toHaveAttribute("href", "#/settings");
+    expect(within(rules).queryByText("Later")).not.toBeInTheDocument();
 
     const costBook = screen.getByRole("region", { name: "Cost book" });
     expect(

@@ -51,6 +51,18 @@ describe("app shell", () => {
     },
   );
 
+  it("has an enabled Settings link, current at #/settings and not at #/deals", async () => {
+    renderAt("#/deals");
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    const link = within(nav).getByRole("link", { name: "Settings" });
+    expect(link).toHaveAttribute("href", "#/settings");
+    expect(link).not.toHaveAttribute("aria-current");
+    await userEvent.setup().click(link);
+    expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeVisible();
+    expect(within(nav).getByRole("link", { name: "Settings" })).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getByRole("link", { name: "Deals" })).not.toHaveAttribute("aria-current");
+  });
+
   it("renders the Deals page at #/deals", () => {
     renderAt("#/deals");
     expect(within(screen.getByRole("main")).getByRole("heading", { level: 1, name: "Deals" })).toBeVisible();

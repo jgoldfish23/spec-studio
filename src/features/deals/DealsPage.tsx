@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { DEFAULT_MARKET_SETTINGS } from "@engine";
 import type { Comp } from "@engine";
 import { newDealInputs } from "../../data/newDeal";
@@ -70,16 +70,12 @@ function RulesCard() {
     <Card
       title="Go/no-go rules"
       actions={
-        <span className="flex items-center gap-2">
-          <button
-            type="button"
-            disabled
-            className="inline-flex min-h-11 items-center rounded-lg border border-[#C9CEC8] px-3.5 text-sm font-semibold text-muted opacity-70"
-          >
-            Edit
-          </button>
-          <span className="rounded-sm border border-line px-1.5 py-px text-[11px] text-muted">Later</span>
-        </span>
+        <Link
+          to="/settings"
+          className={`inline-flex min-h-11 items-center rounded-lg border border-[#C9CEC8] px-3.5 text-sm font-semibold text-spruce no-underline hover:bg-paper ${focusRing}`}
+        >
+          Edit
+        </Link>
       }
     >
       {rules ? (

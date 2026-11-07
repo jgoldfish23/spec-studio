@@ -84,7 +84,7 @@ function ProFormaScreen({ dealId, inputs, evaluatedInputs, evaluation, edit }: P
           <SellingCard inputs={inputs} evaluation={evaluation} edit={edit} />
           <CarryingCard inputs={inputs} evaluation={evaluation} edit={edit} />
           <div className="lg:col-span-2">
-            <RulesCard rules={inputs.rules} />
+            <RulesCard inputs={inputs} evaluation={evaluation} edit={edit} />
           </div>
         </div>
       </div>

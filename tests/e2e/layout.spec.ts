@@ -35,5 +35,11 @@ test("the deals list and every step fit a 390 px screen, with no errors in the c
   await expect(page.getByRole("table", { name: "Deals" }).getByRole("link", { name: /Sample/ })).toBeVisible();
   expect(await fitsWidth(page), "Deals scrolls sideways at 390 px").toBe(true);
 
+  // Settings, with its forms, the twelve seasonal boxes and the quantity rules table.
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Quantity rules" })).toBeVisible();
+  expect(await fitsWidth(page), "Settings scrolls sideways at 390 px").toBe(true);
+
   expect(problems).toEqual([]);
 });

@@ -113,6 +113,16 @@ export function useSaveCompanySettings() {
   });
 }
 
+/** One region's market settings, under the key `useEngineContext` reads them with, so a save refreshes open deals. */
+export function useMarketSettings(region: string) {
+  const repository = useRepository();
+  return useQuery({
+    queryKey: queryKeys.marketSettings(region),
+    queryFn: () => repository.getMarketSettings(region),
+    enabled: region !== "",
+  });
+}
+
 /** Saves one region's market settings. The cost book does not depend on them, so it is left alone. */
 export function useSaveMarketSettings() {
   const repository = useRepository();
