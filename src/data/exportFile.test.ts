@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_MARKET_SETTINGS, type Comp } from "@engine";
 import { testSampleComps } from "../testing/sampleIds";
 import { isUuid } from "../lib/uuid";
-import { createLocalRepository } from "./local/localRepository";
+import { createLocalRepository, DEALS_KEY } from "./local/localRepository";
 import { MemoryStorage } from "./local/memoryStorage";
 import {
   buildExport,
@@ -12,9 +12,10 @@ import {
   planImport,
   runImport,
   type ExportFile,
+  unreadableNote,
 } from "./exportFile";
 import { SAMPLE_DEAL_NAME, sampleDealInputs } from "./sample";
-import type { Repository } from "./types";
+import type { Repository, StoredDeal } from "./types";
 
 const REGION = DEFAULT_MARKET_SETTINGS.region;
 const NOW = "2026-11-02T15:30:00.000Z";
@@ -29,7 +30,8 @@ async function seeded(): Promise<Repository> {
   return repo;
 }
 
-const exported = async (repo: Repository): Promise<ExportFile> => buildExport(repo, REGION, NOW);
+const exported = async (repo: Repository): Promise<ExportFile> =>
+  buildExport(repo, REGION, NOW).then((built) => built.file);
 const parsed = (file: ExportFile): ExportFile => {
   const result = parseExport(JSON.stringify(file));
   if (!result.ok) throw new Error(result.message);
@@ -286,5 +288,78 @@ describe("runImport", () => {
       "Imported 0 deals and 3 comps, then it stopped: You're offline. Importing again skips what's already in.",
     );
     expect(await target.listComps(REGION)).toHaveLength(3);
+  });
+});
+
+describe("deals match by name and content", () => {
+  const untitled = async (rent: number) => {
+    const inputs = sampleDealInputs();
+    inputs.compSelections = {};
+    inputs.lot = { ...inputs.lot, priceCents: inputs.lot.priceCents + rent };
+    return { name: "Untitled deal", inputs };
+  };
+
+  it("imports two different deals that share a name, even beside an account deal of that name", async () => {
+    const file = parsed(await exported(newRepo()));
+    const stored = (d: { name: string; inputs: StoredDeal["inputs"] }, id: string): StoredDeal => ({
+      ...d,
+      id,
+      status: "analyzing",
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+    file.deals = [stored(await untitled(1), "a"), stored(await untitled(2), "b")];
+    const account = [stored(await untitled(3), "c")];
+    const plan = planImport(file, { deals: account, comps: [] });
+    expect(plan.deals).toHaveLength(2);
+    expect(plan.skippedDeals).toEqual([]);
+  });
+
+  it("matches an account deal whose inputs came back with their keys in another order", async () => {
+    const file = parsed(await exported(await seeded()));
+    const deal = file.deals[0]!;
+    const reordered = JSON.parse(
+      JSON.stringify(deal.inputs, (_k, v) =>
+        v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).reverse()) : v,
+      ),
+    );
+    const plan = planImport({ ...file, comps: [] }, { deals: [{ ...deal, inputs: reordered }], comps: [] });
+    expect(plan.deals).toEqual([]);
+    expect(plan.skippedDeals[0]?.reason).toBe("already in your account");
+  });
+
+  it("imports an in-file duplicate once and says why the second was skipped", async () => {
+    const file = parsed(await exported(await seeded()));
+    file.deals = [file.deals[0]!, { ...file.deals[0]!, id: "again" }];
+    const plan = planImport(file, none);
+    expect(plan.deals).toHaveLength(1);
+    expect(plan.skippedDeals).toEqual([{ name: SAMPLE_DEAL_NAME, reason: "appears twice in this file" }]);
+  });
+
+  it("round-trips a sold deal as sold, and a failed status save goes through the partial-failure report", async () => {
+    const source = await seeded();
+    const [deal] = (await source.listDeals()).deals;
+    await source.saveDeal({ ...deal!, status: "sold" });
+    const file = parsed(await exported(source));
+    const target = newRepo();
+    await runImport(target, planImport(file, none));
+    expect((await target.listDeals()).deals[0]?.status).toBe("sold");
+
+    const other = newRepo();
+    vi.spyOn(other, "saveDeal").mockRejectedValue(new Error("You're offline."));
+    const report = await runImport(other, planImport(file, none));
+    expect(report.failed).toBe(true);
+    expect(report.message).toContain("then it stopped: You're offline.");
+  });
+
+  it("notes unreadable deals", async () => {
+    const storage = new MemoryStorage();
+    const repo = createLocalRepository(storage);
+    storage.setItem(DEALS_KEY, "{ not json");
+    const built = await buildExport(repo, REGION, NOW);
+    expect(built.unreadable).toBe(1);
+    expect(unreadableNote(1)).toBe(" 1 deal couldn't be read and isn't in the file.");
+    expect(unreadableNote(3)).toBe(" 3 deals couldn't be read and aren't in the file.");
+    expect(unreadableNote(0)).toBe("");
   });
 });

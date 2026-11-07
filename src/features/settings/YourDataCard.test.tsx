@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_MARKET_SETTINGS } from "@engine";
 import { buildExport, exportFileName } from "../../data/exportFile";
 import { SAMPLE_DEAL_NAME } from "../../data/sample";
+import { DEALS_KEY } from "../../data/local/localRepository";
 import { createHarness, renderApp, seedSampleDeal } from "../../testing/renderApp";
 import type { Harness } from "../../testing/renderApp";
 
@@ -51,7 +52,7 @@ async function openCard(harness: Harness = createHarness()) {
 async function sampleExportText(): Promise<string> {
   const source = createHarness();
   await seedSampleDeal(source.repository);
-  return JSON.stringify(await buildExport(source.repository, REGION, NOW.toISOString()));
+  return JSON.stringify((await buildExport(source.repository, REGION, NOW.toISOString())).file);
 }
 
 describe("Your data card: export", () => {
@@ -68,6 +69,16 @@ describe("Your data card: export", () => {
     expect(revoked).toEqual(["blob:test-url"]);
     expect(await within(card()).findByRole("status")).toHaveTextContent(
       "Downloaded spec-studio-export-2026-11-02.json.",
+    );
+  });
+
+  it("says how many deals couldn't be read when it exports", async () => {
+    const harness = createHarness();
+    harness.storage.setItem(DEALS_KEY, "{ not json");
+    await openCard(harness);
+    await user().click(within(card()).getByRole("button", { name: "Export all data" }));
+    expect(await within(card()).findByRole("alert")).toHaveTextContent(
+      "Downloaded spec-studio-export-2026-11-02.json. 1 deal couldn't be read and isn't in the file.",
     );
   });
 
@@ -92,6 +103,18 @@ describe("Your data card: export", () => {
     expect(box).toHaveAttribute("readonly");
     expect(JSON.parse(box.value).format).toBe("spec-studio-export/v1");
     expect(box.selectionEnd - box.selectionStart).toBe(box.value.length);
+  });
+
+  it("says how many deals couldn't be read when it copies", async () => {
+    const harness = createHarness();
+    harness.storage.setItem(DEALS_KEY, "{ not json");
+    const u = user();
+    setClipboard({ writeText: vi.fn().mockResolvedValue(undefined) });
+    await openCard(harness);
+    await u.click(within(card()).getByRole("button", { name: "Copy to clipboard" }));
+    expect(await within(card()).findByRole("alert")).toHaveTextContent(
+      "Copied your data to the clipboard. 1 deal couldn't be read and isn't in the file.",
+    );
   });
 
   it("falls back too when there is no clipboard at all", async () => {
@@ -136,6 +159,20 @@ describe("Your data card: import", () => {
     expect((await harness.repository.listDeals()).deals).toHaveLength(1);
   });
 
+  it("still reports the import when refreshing the screens fails", async () => {
+    const text = await sampleExportText();
+    const harness = await openCard();
+    vi.spyOn(harness.client, "invalidateQueries").mockRejectedValue(new Error("boom"));
+    const u = user();
+    await u.click(within(card()).getByLabelText("Or paste an export"));
+    await u.paste(text);
+    await u.click(within(card()).getByRole("button", { name: "Preview import" }));
+    await u.click(await within(card()).findByRole("button", { name: "Import" }));
+    expect(await within(card()).findByRole("alert")).toHaveTextContent(
+      "Imported 1 deal and 8 comps. The screens couldn't refresh (boom). Reload the page to see what was imported.",
+    );
+  });
+
   it("previews pasted text", async () => {
     const text = await sampleExportText();
     await openCard();
@@ -148,7 +185,7 @@ describe("Your data card: import", () => {
 
   it("replaces settings only when the box is ticked", async () => {
     const source = createHarness();
-    const file = await buildExport(source.repository, REGION, NOW.toISOString());
+    const { file } = await buildExport(source.repository, REGION, NOW.toISOString());
     file.companySettings = { ...file.companySettings, contingencyPct: 0.09 };
     const harness = await openCard();
     const u = user();

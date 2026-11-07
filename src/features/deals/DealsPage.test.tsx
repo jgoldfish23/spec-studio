@@ -433,7 +433,12 @@ describe("Deals page", () => {
     await user.click(within(dialog).getByRole("button", { name: "Download a copy first" }));
     await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
     expect(createObjectURL).toHaveBeenCalledTimes(1);
-    expect(await within(dialog).findByText("Downloaded spec-studio-export-2026-10-31.json.")).toBeVisible();
+    expect(
+      await within(dialog).findByText(
+        "Downloaded spec-studio-export-2026-10-31.json. 1 deal couldn't be read and isn't in the file.",
+      ),
+    ).toBeVisible();
+    expect(within(dialog).getByRole("button", { name: "Download a copy first" })).toBeEnabled();
     expect(screen.getByRole("alertdialog")).toBeVisible();
     expect(harness.storage.getItem(DEALS_KEY)).toBe("{ not json");
     click.mockRestore();

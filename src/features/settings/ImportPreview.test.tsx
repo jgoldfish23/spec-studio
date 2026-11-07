@@ -32,7 +32,7 @@ describe("ImportPreview", () => {
   it("shows counts, every skip with its reason, and the price-book note", () => {
     show(
       plan({
-        deals: [{ name: "A", inputs: {} as never }],
+        deals: [{ name: "A", status: "analyzing" as const, inputs: {} as never }],
         skippedDeals: [{ name: "Old", reason: "already in your account" }],
         skippedComps: [{ address: "1 Main St", reason: "already in your account" }],
         skippedPriceBook: 2,
@@ -47,7 +47,7 @@ describe("ImportPreview", () => {
   });
 
   it("runs Import, disables it while running, and offers Cancel", async () => {
-    const props = show(plan({ deals: [{ name: "A", inputs: {} as never }] }));
+    const props = show(plan({ deals: [{ name: "A", status: "analyzing" as const, inputs: {} as never }] }));
     await userEvent.click(screen.getByRole("button", { name: "Import" }));
     expect(props.onImport).toHaveBeenCalledTimes(1);
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -55,7 +55,7 @@ describe("ImportPreview", () => {
   });
 
   it("disables Import while running and when there is nothing to do", () => {
-    show(plan({ deals: [{ name: "A", inputs: {} as never }] }), {
+    show(plan({ deals: [{ name: "A", status: "analyzing" as const, inputs: {} as never }] }), {
       running: true,
     });
     expect(screen.getByRole("button", { name: "Importing…" })).toBeDisabled();

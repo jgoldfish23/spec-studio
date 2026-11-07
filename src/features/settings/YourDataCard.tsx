@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { DEFAULT_MARKET_SETTINGS } from "@engine";
 import {
   buildExport,
+  unreadableNote,
   downloadExport,
   MAX_EXPORT_CHARS,
   parseExport,
@@ -71,8 +72,9 @@ export function YourDataCard() {
     setMessage(null);
     try {
       const now = new Date().toISOString();
-      const name = downloadExport(await buildExport(repository, REGION, now), now);
-      setMessage({ text: `Downloaded ${name}.`, problem: false });
+      const { file, unreadable } = await buildExport(repository, REGION, now);
+      const name = downloadExport(file, now);
+      setMessage({ text: `Downloaded ${name}.${unreadableNote(unreadable)}`, problem: unreadable > 0 });
     } catch (error) {
       setMessage({
         text: `Couldn't export your data: ${errorMessage(error)}`,
@@ -88,17 +90,19 @@ export function YourDataCard() {
     setMessage(null);
     setFallbackText(null);
     try {
-      const text = JSON.stringify(await buildExport(repository, REGION, new Date().toISOString()), null, 2);
+      const { file, unreadable } = await buildExport(repository, REGION, new Date().toISOString());
+      const text = JSON.stringify(file, null, 2);
+      const lost = unreadableNote(unreadable);
       try {
         await navigator.clipboard.writeText(text);
         setMessage({
-          text: "Copied your data to the clipboard.",
-          problem: false,
+          text: `Copied your data to the clipboard.${lost}`,
+          problem: unreadable > 0,
         });
       } catch {
         setMessage({
-          text: "Couldn't copy automatically. Select the text below and copy it.",
-          problem: false,
+          text: `Couldn't copy automatically. Select the text below and copy it.${lost}`,
+          problem: unreadable > 0,
         });
         setFallbackText(text);
       }
@@ -168,14 +172,20 @@ export function YourDataCard() {
       const result = await runImport(repository, plan);
       setReport(result);
       // Whatever got in is shown, even when the import stopped part-way.
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.deals }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.allComps }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.companySettings }),
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.marketSettings(REGION),
-        }),
-      ]);
+      try {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: queryKeys.deals }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.allComps }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.companySettings }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.marketSettings(REGION) }),
+        ]);
+      } catch (error) {
+        setReport({
+          ...result,
+          failed: true,
+          message: `${result.message} The screens couldn't refresh (${errorMessage(error)}). Reload the page to see what was imported.`,
+        });
+      }
       setLoaded(null);
       setPasted("");
       setReplaceSettings(false);

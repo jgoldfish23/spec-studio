@@ -4,7 +4,7 @@ import type { Comp, DealInputs, MarketSettings, PriceBookEntry } from "@engine";
 import { errorMessage } from "../lib/errorMessage";
 import { CompanySettingsSchema, firstProblem } from "./readBack";
 import { StoredDealSchema } from "./types";
-import type { CompanySettings, Repository, StoredDeal } from "./types";
+import type { CompanySettings, DealStatus, Repository, StoredDeal } from "./types";
 
 /** What the first line of every export file says, so a file from another version of the app is recognised. */
 export const EXPORT_FORMAT = "spec-studio-export/v1";
@@ -34,7 +34,11 @@ export interface ExportFile {
 }
 
 /** Reads everything for `region` into an export. The shared starter prices are not the owner's data and are left out. */
-export async function buildExport(repo: Repository, region: string, now: string): Promise<ExportFile> {
+export async function buildExport(
+  repo: Repository,
+  region: string,
+  now: string,
+): Promise<{ file: ExportFile; unreadable: number }> {
   const [list, comps, companySettings, marketSettings, costBook] = await Promise.all([
     repo.listDeals(),
     repo.listComps(region),
@@ -43,14 +47,25 @@ export async function buildExport(repo: Repository, region: string, now: string)
     repo.getCostBook(region),
   ]);
   return {
-    format: EXPORT_FORMAT,
-    exportedAt: now,
-    deals: list.deals,
-    comps,
-    companySettings,
-    marketSettings: [marketSettings],
-    priceBook: costBook.priceBook,
+    file: {
+      format: EXPORT_FORMAT,
+      exportedAt: now,
+      deals: list.deals,
+      comps,
+      companySettings,
+      marketSettings: [marketSettings],
+      priceBook: costBook.priceBook,
+    },
+    unreadable: list.problems.length,
   };
+}
+
+/** " 2 deals couldn't be read and aren't in the file." — or nothing when every deal was read. */
+export function unreadableNote(unreadable: number): string {
+  if (unreadable <= 0) return "";
+  return unreadable === 1
+    ? " 1 deal couldn't be read and isn't in the file."
+    : ` ${unreadable} deals couldn't be read and aren't in the file.`;
 }
 
 export type ParseResult = { ok: true; file: ExportFile } | { ok: false; message: string };
@@ -118,6 +133,7 @@ export const PRICE_BOOK_SKIP = "price overrides come in with the cost book scree
 
 export interface PlannedDeal {
   name: string;
+  status: DealStatus;
   inputs: DealInputs;
 }
 
@@ -145,8 +161,24 @@ const squash = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
 /** How two comps are told to be the same: address (ignoring case and spacing) and sold date. */
 const compKey = (comp: Comp) => `${squash(comp.address)}|${comp.soldDate ?? ""}`;
 
+/** JSON with object keys sorted, so two equal values read the same however a store (Postgres jsonb) ordered the keys. */
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (typeof value === "object" && value !== null) {
+    const entries = Object.entries(value)
+      .filter(([, v]) => v !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`);
+    return `{${entries.join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+/** How two deals are told to be the same: the same name (ignoring case and spacing) and the same inputs. */
+const dealKey = (name: string, inputs: DealInputs) => `${squash(name)}\u0000${stableStringify(inputs)}`;
+
 /**
- * What an import would do, without doing it. A deal with the name of one already there is skipped, and so is a comp
+ * What an import would do, without doing it. A deal with the name and inputs of one already there is skipped, and so is a comp
  * with the address and sold date of one already there (or earlier in the file), so importing the same file twice adds
  * nothing. Every comp that comes in gets a new id, since comp ids are unique across all accounts; deal comp choices
  * are re-pointed at the new ids (or at the matching comp's id), and a choice for a comp nobody has is dropped.
@@ -176,22 +208,32 @@ export function planImport(
     comps.push({ ...comp, id });
   }
 
-  const names = new Set(existing.deals.map((deal) => squash(deal.name)));
+  const inAccount = new Set(existing.deals.map((deal) => dealKey(deal.name, deal.inputs)));
+  const inFile = new Set<string>();
   const deals: PlannedDeal[] = [];
   const skippedDeals: ImportPlan["skippedDeals"] = [];
   let droppedSelections = 0;
   for (const deal of file.deals) {
-    if (names.has(squash(deal.name))) {
-      skippedDeals.push({ name: deal.name, reason: ALREADY_IN });
-      continue;
-    }
+    let dropped = 0;
     const compSelections: Record<string, boolean> = {};
     for (const [id, chosen] of Object.entries(deal.inputs.compSelections)) {
       const target = idMap.get(id) ?? (existingIds.has(id) ? id : undefined);
-      if (target === undefined) droppedSelections += 1;
+      if (target === undefined) dropped += 1;
       else compSelections[target] = chosen;
     }
-    deals.push({ name: deal.name, inputs: { ...deal.inputs, compSelections } });
+    const inputs = { ...deal.inputs, compSelections };
+    const key = dealKey(deal.name, inputs);
+    if (inAccount.has(key)) {
+      skippedDeals.push({ name: deal.name, reason: ALREADY_IN });
+      continue;
+    }
+    if (inFile.has(key)) {
+      skippedDeals.push({ name: deal.name, reason: "appears twice in this file" });
+      continue;
+    }
+    inFile.add(key);
+    droppedSelections += dropped;
+    deals.push({ name: deal.name, status: deal.status, inputs });
   }
 
   return {
@@ -227,7 +269,8 @@ export async function runImport(repo: Repository, plan: ImportPlan): Promise<Imp
       importedComps += 1;
     }
     for (const deal of plan.deals) {
-      await repo.createDeal(deal);
+      const created = await repo.createDeal({ name: deal.name, inputs: deal.inputs });
+      if (deal.status !== created.status) await repo.saveDeal({ ...created, status: deal.status });
       importedDeals += 1;
     }
     if (plan.settings) {

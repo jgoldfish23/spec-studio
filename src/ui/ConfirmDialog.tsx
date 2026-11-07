@@ -9,7 +9,7 @@ export interface ConfirmDialogProps {
   onConfirm: () => void;
   onCancel: () => void;
   /** An optional third answer that leaves the dialog open, e.g. "Download a copy first". It sits between Cancel and the confirming button. */
-  extraAction?: { label: string; onClick: () => void; disabled?: boolean };
+  extraAction?: { label: string; onClick: () => void };
   /** A line under the question, e.g. what the extra action just did or why it failed. */
   note?: string;
 }
@@ -76,11 +76,10 @@ export function ConfirmDialog({ message, confirmLabel, onConfirm, onCancel, extr
         <p id={messageId} className="m-0 text-[17px] font-semibold leading-snug text-ink">
           {message}
         </p>
-        {note ? (
-          <p role="status" className="m-0 text-sm text-muted">
-            {note}
-          </p>
-        ) : null}
+        {/* Always in the page, so a screen reader announces the text when it arrives. */}
+        <p role="status" className={note ? "m-0 text-sm text-muted" : "sr-only"}>
+          {note}
+        </p>
         <div className="flex flex-wrap justify-end gap-3">
           <button
             ref={cancelButton}
@@ -94,8 +93,7 @@ export function ConfirmDialog({ message, confirmLabel, onConfirm, onCancel, extr
             <button
               type="button"
               onClick={extraAction.onClick}
-              disabled={extraAction.disabled}
-              className={`${BUTTON} border border-[#C9CEC8] bg-surface text-ink hover:bg-paper disabled:opacity-60`}
+              className={`${BUTTON} border border-[#C9CEC8] bg-surface text-ink hover:bg-paper`}
             >
               {extraAction.label}
             </button>

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { DEFAULT_MARKET_SETTINGS } from "@engine";
 import type { Comp } from "@engine";
-import { buildExport, downloadExport } from "../../data/exportFile";
+import { buildExport, downloadExport, unreadableNote } from "../../data/exportFile";
 import { newDealInputs } from "../../data/newDeal";
 import {
   useCompanySettings,
@@ -208,16 +208,20 @@ export function DealsPage() {
     removeRow(problemKey(id), "Couldn't delete the deal", () => deleteDeal.mutateAsync(id));
   const removeEverything = () => perform("Couldn't remove the saved deals", () => resetDeals.mutateAsync());
 
+  // The button stays enabled while this runs (a disabled button would drop focus out of the dialog); a second click is ignored.
+  const copying = useRef(false);
   const downloadCopy = async () => {
-    setBusy(true);
+    if (copying.current) return;
+    copying.current = true;
     setCopyNote(null);
     try {
       const now = new Date().toISOString();
-      setCopyNote(`Downloaded ${downloadExport(await buildExport(repository, REGION, now), now)}.`);
+      const { file, unreadable } = await buildExport(repository, REGION, now);
+      setCopyNote(`Downloaded ${downloadExport(file, now)}.${unreadableNote(unreadable)}`);
     } catch (error) {
       setCopyNote(`Couldn't download a copy: ${errorMessage(error)}`);
     } finally {
-      setBusy(false);
+      copying.current = false;
     }
   };
 
@@ -360,7 +364,7 @@ export function DealsPage() {
           }}
           {...(confirming.kind === "reset"
             ? {
-                extraAction: { label: "Download a copy first", onClick: () => void downloadCopy(), disabled: busy },
+                extraAction: { label: "Download a copy first", onClick: () => void downloadCopy() },
                 note: copyNote ?? undefined,
               }
             : {})}
