@@ -2,7 +2,7 @@ import type { Estimate, PriceEstimate, Result, ScenarioResult, ScoredComp, YearM
 import { formatMoney, formatPercentCompact } from "../../lib/format";
 import { DIVISION_NAMES, groupByDivision } from "../estimate/lineFormat";
 import { monthYear } from "../market/marketFormat";
-import { carryOf, CASH_FLOW_COLUMNS } from "../proforma/CashFlowCard";
+import { carryOf, CASH_FLOW_COLUMNS } from "../proforma/cashFlowColumns";
 import { monthLabel } from "../proforma/timeline";
 import { CELL, Fact, Facts, HEAD_CELL, PRINT_ROW, PRINT_TABLE, PrintSection, ROW_HEAD, TableBox } from "./PrintSection";
 import { sourceCents, sourceMixText } from "./sourceMix";
@@ -22,7 +22,7 @@ export function DivisionsSection({ estimate }: { estimate: Estimate }) {
                 Division
               </th>
               <th scope="col" className={`${HEAD_CELL} text-left`}>
-                Source mix
+                Source mix (share of cost)
               </th>
               <th scope="col" className={`${HEAD_CELL} text-right`}>
                 Subtotal
@@ -63,6 +63,7 @@ export function DivisionsSection({ estimate }: { estimate: Estimate }) {
           </tbody>
         </table>
       </TableBox>
+      <p className="m-0 text-xs text-muted">Shares are rounded and may not add to exactly 100%.</p>
     </PrintSection>
   );
 }

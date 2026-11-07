@@ -1,7 +1,12 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { DealInputs } from "@engine";
+import { QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { MemoryStorage } from "../../data/local/memoryStorage";
+import { createOfflineRepository } from "../../data/offline/offlineRepository";
+import { RepositoryProvider } from "../../data/RepositoryProvider";
 import { sampleDealInputs, SAMPLE_DEAL_NAME } from "../../data/sample";
 import { DataError } from "../../data/types";
 import { formatDays, formatMoney, formatPercent } from "../../lib/format";
@@ -227,6 +232,59 @@ describe("the lender package", () => {
 
     for (const name of HEADINGS) expect(section(name)).toHaveClass("print-block");
     for (const row of screen.getAllByRole("row")) expect(row).toHaveClass("print-row");
+  });
+
+  it("says when no comps are included, for a deal priced by the owner's own numbers", async () => {
+    const { harness, deal } = await setupWith((inputs) => {
+      for (const id of TEST_SAMPLE_IDS) inputs.compSelections[id] = false;
+      inputs.overrides = { basePriceCents: 90_000_000, baseDomDays: 60 };
+    });
+    await openPrint(harness, deal);
+
+    const market = section("Market estimate and comps used");
+    expect(market).toHaveTextContent("No comps are included in the estimate.");
+    expect(within(market).queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("states no loan terms for a build with no construction loan", async () => {
+    const { harness, deal } = await setupWith((inputs) => {
+      inputs.loan.ltc = 0;
+    });
+    await openPrint(harness, deal);
+
+    const financing = section("Assumptions");
+    expect(financing).toHaveTextContent("ConstructionPaid in cash");
+    expect(financing).not.toHaveTextContent("Loan-to-cost");
+    expect(financing).not.toHaveTextContent("Extension fee");
+    expect(section("Assumptions")).toHaveTextContent("Listing agent");
+  });
+
+  it("says the source mix is a rounded share of cost", async () => {
+    const { harness, deal } = await sampleSetup();
+    await openPrint(harness, deal);
+
+    const divisions = section("Estimate by division");
+    expect(within(divisions).getByRole("columnheader", { name: "Source mix (share of cost)" })).toBeVisible();
+    expect(divisions).toHaveTextContent("Shares are rounded and may not add to exactly 100%.");
+  });
+
+  it("never saves the deal, or queues it in the outbox, behind an offline repository", async () => {
+    const { harness: plain, deal } = await sampleSetup();
+    const storage = new MemoryStorage();
+    const offline = createOfflineRepository(plain.repository, storage, "u");
+    const queue = vi.spyOn(offline, "queue");
+    const save = vi.spyOn(offline, "saveDeal");
+    const Providers = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={plain.client}>
+        <RepositoryProvider repository={offline}>{children}</RepositoryProvider>
+      </QueryClientProvider>
+    );
+    await openPrint({ ...plain, repository: offline, Providers } as Harness, deal);
+    await advance(6000);
+
+    expect(queue).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+    expect(storage.getItem("spec-studio:outbox:u")).toBeNull();
   });
 
   it("never saves the deal", async () => {

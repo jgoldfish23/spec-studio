@@ -176,7 +176,8 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
 
 const rate = (decimal: number): string => formatPercent(decimal, 2);
 
-export function AssumptionsSection({ inputs }: { inputs: DealInputs }) {
+/** `hasLoan` is false for a build with no construction loan, which has no loan terms to state. */
+export function AssumptionsSection({ inputs, hasLoan }: { inputs: DealInputs; hasLoan: boolean }) {
   const { loan, selling, carry, lot } = inputs;
   const landFinancing =
     lot.financing.kind === "cash"
@@ -187,14 +188,20 @@ export function AssumptionsSection({ inputs }: { inputs: DealInputs }) {
       <div className="flex flex-col gap-4">
         <Group title="Financing">
           <Fact label="Land">{landFinancing}</Fact>
-          <Fact label="Loan-to-cost">{formatPercent(loan.ltc)}</Fact>
-          <Fact label="Rate">{rate(loan.rate)}</Fact>
-          <Fact label="Points">{rate(loan.points)}</Fact>
-          <Fact label="Draw fee">{formatMoney(loan.drawFeeCents)}</Fact>
-          <Fact label="Term">{`${loan.termMonths} months`}</Fact>
-          <Fact label="Extension fee">{rate(loan.extensionPct)}</Fact>
-          <Fact label="Extension length">{`${loan.extensionMonths} months`}</Fact>
-          <Fact label="Interest">{loan.interestMode === "paid" ? "Paid monthly" : "Rolled into the loan"}</Fact>
+          {hasLoan ? (
+            <>
+              <Fact label="Loan-to-cost">{formatPercent(loan.ltc)}</Fact>
+              <Fact label="Rate">{rate(loan.rate)}</Fact>
+              <Fact label="Points">{rate(loan.points)}</Fact>
+              <Fact label="Draw fee">{formatMoney(loan.drawFeeCents)}</Fact>
+              <Fact label="Term">{`${loan.termMonths} months`}</Fact>
+              <Fact label="Extension fee">{rate(loan.extensionPct)}</Fact>
+              <Fact label="Extension length">{`${loan.extensionMonths} months`}</Fact>
+              <Fact label="Interest">{loan.interestMode === "paid" ? "Paid monthly" : "Rolled into the loan"}</Fact>
+            </>
+          ) : (
+            <Fact label="Construction">Paid in cash</Fact>
+          )}
         </Group>
         <Group title="Selling">
           <Fact label="Listing agent">{rate(selling.listingPct)}</Fact>

@@ -1,15 +1,9 @@
-import type { Period, ScenarioResult, YearMonth } from "@engine";
+import type { ScenarioResult, YearMonth } from "@engine";
 import { formatMoney } from "../../lib/format";
 import { Card } from "../../ui/Card";
 import { FOCUS_RING, MUTED_NOTE } from "../deal/stepShared";
+import { CASH_FLOW_COLUMNS, carryOf } from "./cashFlowColumns";
 import { monthLabel } from "./timeline";
-
-/** The month by month table's columns after the month. */
-export const CASH_FLOW_COLUMNS = ["Spend", "Loan draw", "Interest", "Carry", "Equity out", "Cumulative equity", "Loan balance"] as const;
-
-/** Property tax, insurance, utilities, staging, upkeep and HOA for the month. */
-export const carryOf = (p: Period): number =>
-  p.taxCents + p.insuranceCents + p.utilitiesCents + p.stagingCents + p.upkeepCents + p.hoaCents;
 
 interface CashFlowCardProps {
   /** A scenario that ran, so its months can be named. */

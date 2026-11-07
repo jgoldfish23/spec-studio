@@ -136,6 +136,32 @@ function Package({ dealId }: { dealId: string }) {
     );
   }
 
+  if (editor.evaluationError) {
+    return (
+      <Page>
+        <BackLink dealId={dealId} />
+        <h1 className="m-0 text-[30px] font-bold tracking-[-0.02em]">{deal.name}</h1>
+        <div
+          role="alert"
+          className="flex flex-col gap-1 rounded-xl border border-[#F2C2BE] bg-no-go-bg px-4 py-2 text-no-go"
+        >
+          <p className="m-0 text-[17px] font-bold">Couldn't calculate this deal</p>
+          <p className="m-0 text-sm">
+            It can't be printed until it can be calculated. Go back and undo your last change, or change an input to try
+            again.
+          </p>
+          <details>
+            <summary className={`cursor-pointer rounded-md py-2.5 text-sm font-semibold ${FOCUS_RING}`}>
+              Couldn't calculate — details
+            </summary>
+            <p className="m-0 break-words text-sm">{editor.evaluationError.message}</p>
+            <p className="m-0 mt-1 mb-2 text-sm">{`Input hash ${editor.evaluationError.inputHash}`}</p>
+          </details>
+        </div>
+      </Page>
+    );
+  }
+
   const { scenarios, estimate, verdict } = evaluation;
   // The same test as the deal header's "Needs info": the verdict cannot be given. Without scenarios or an estimate there is
   // nothing to print either, whatever the verdict says.
@@ -172,7 +198,7 @@ function Package({ dealId }: { dealId: string }) {
         <MarketSection price={evaluation.price} scoredComps={evaluation.scoredComps} />
         <TimelineSection base={base} landClose={evaluatedInputs.timeline.landClose} />
         <CashFlowSection base={base} landClose={evaluatedInputs.timeline.landClose} />
-        <AssumptionsSection inputs={evaluatedInputs} />
+        <AssumptionsSection inputs={evaluatedInputs} hasLoan={base.cashFlow.commitmentCents > 0} />
       </Page>
       <footer className="mx-auto max-w-4xl px-4 pb-8 text-xs text-muted sm:px-8 print:max-w-none print:p-0 print:pt-4">
         <p className="m-0">Decision support only — not an appraisal, legal advice, or a lending decision.</p>
