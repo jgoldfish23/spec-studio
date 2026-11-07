@@ -133,7 +133,7 @@ export function createSupabaseRepository(client: SupabaseClient, companyId: stri
       return dealFromRow(data);
     },
 
-    async saveDeal(deal: StoredDeal, options: { overwrite?: boolean } = {}): Promise<StoredDeal> {
+    async saveDeal(deal: StoredDeal): Promise<StoredDeal> {
       assertDealReadsBack(deal);
       // Only a UUID can be stored, so any other id is a deal that is not there.
       if (!isUuid(deal.id)) throw new DataError(DELETED, { kind: "deleted", recordId: deal.id });
@@ -142,19 +142,18 @@ export function createSupabaseRepository(client: SupabaseClient, companyId: stri
       // save was made from, exactly as stored, so a save that lost to another device or tab matches no row. The
       // database stamps `updated_at` on every update, and `created_at` stays as it was. Only the columns the owner can
       // change are sent.
-      let update = client
+      const { data, error, status } = await client
         .from("deals")
         .update({ name: row.name, status: row.status, schema_version: row.schema_version, inputs: row.inputs })
         .eq("id", deal.id)
-        .eq("company_id", companyId);
-      if (options.overwrite !== true) update = update.eq("updated_at", deal.updatedAt);
-      const { data, error, status } = await update.select();
+        .eq("company_id", companyId)
+        .eq("updated_at", deal.updatedAt)
+        .select();
       if (error) throw failed({ error, status }, "save", deal.id);
       const saved = data[0];
       if (saved !== undefined) return dealFromRow(saved);
 
       // Nothing matched: the deal was changed (its `updated_at` moved on) or deleted. One more read tells which.
-      if (options.overwrite === true) throw new DataError(DELETED, { kind: "deleted", recordId: deal.id });
       const check = await client
         .from("deals")
         .select(DEAL_COLUMNS)
@@ -168,7 +167,7 @@ export function createSupabaseRepository(client: SupabaseClient, companyId: stri
       const stored = check.data as unknown as DealRow;
       const sent = JSON.parse(JSON.stringify({ name: row.name, status: row.status, inputs: row.inputs })) as unknown;
       if (sameJson(sent, { name: stored.name, status: stored.status, inputs: stored.inputs })) return dealFromRow(stored);
-      throw new DataError(CONFLICT, { kind: "conflict", recordId: deal.id });
+      throw new DataError(CONFLICT, { kind: "conflict", recordId: deal.id, storedUpdatedAt: stored.updated_at });
     },
 
     async deleteDeal(id: string): Promise<void> {

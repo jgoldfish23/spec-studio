@@ -204,6 +204,38 @@ test("a deal changed on another device: Keep mine puts the owner's version on th
   expect(problems).toEqual([]);
 });
 
+test("Keep mine tapped offline does not overwrite a change made on another device meanwhile", async ({ page, fake }) => {
+  const problems = collectProblems(page);
+  await signUp(page);
+  await startSampleDeal(page);
+  const id = openDealId(page);
+  await openStep(page, "Lot");
+  await expect(page.getByRole("heading", { level: 1, name: "Lot" })).toBeAttached();
+
+  fake.editDealElsewhere(id, { name: "Kaysville lot — office copy" });
+  await setLotPrice(page, "405000");
+  const panel = page.getByRole("alert").filter({ hasText: CONFLICT });
+  await expect(panel).toBeVisible();
+
+  // The connection drops as Keep mine is tapped: the owner's version waits on the device.
+  fake.setOffline(true);
+  await panel.getByRole("button", { name: "Keep mine" }).click();
+  await expect(page.getByText(OFFLINE_NOTE)).toBeVisible();
+
+  // Meanwhile the office laptop saves the deal again.
+  const later = fake.editDealElsewhere(id, { name: "Kaysville lot — office copy, later" });
+
+  // Back online. Keep mine was about the office copy the owner saw, not this later one: the choice comes back, first in
+  // the header (the sync meets the conflict), then on the deal (its own retry, within 5 s, meets it too).
+  fake.setOffline(false);
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect(page.getByRole("banner").getByText("1 deal needs your choice:")).toBeVisible();
+  await expect(panel).toBeVisible({ timeout: 10_000 });
+  expect(fake.deal(id)).toMatchObject({ name: "Kaysville lot — office copy, later", updated_at: later.updated_at });
+  expect(lotPriceOf(fake.deal(id))).toBe(lotPriceOf(later));
+  expect(problems.filter((problem) => !problem.endsWith("net::ERR_INTERNET_DISCONNECTED"))).toEqual([]);
+});
+
 test("a sign-in link opened in a different browser says so and offers the code instead", async ({ page, fake }) => {
   const problems = collectProblems(page);
   // The email was asked for on another device, so this browser holds no code verifier for the link's code.

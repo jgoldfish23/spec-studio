@@ -48,9 +48,11 @@ export interface OfflineRepository extends Repository {
   discardPending(dealId: string): void;
   /**
    * Writes (or replaces) the deal's outbox entry now and makes no network call; `syncNow` sends it later. For a page that
-   * is closing while a save is still running.
+   * is closing while a save is still running. Saves are checked against the `updatedAt` the server had when the first
+   * waiting edit began; with `rebase`, the deal's own `updatedAt` is that stamp from now on ("Keep mine": the owner's
+   * version, on top of the server's version they were shown).
    */
-  queue(deal: StoredDeal, options?: { overwrite?: boolean }): void;
+  queue(deal: StoredDeal, options?: { rebase?: boolean }): void;
   /** Removes this owner's copy of reads from the device (on an explicit sign-out). The outbox stays: it holds work. */
   forgetDeviceCopy(): void;
   /** The owner's session ended: the copy stays as it is, and a read still on its way adds nothing to it. */
@@ -81,10 +83,9 @@ interface Entry {
   /** Monotonic: tells one queued save from the next, and orders the replay. */
   seq: number;
   queuedAt: string;
-  /** The `updatedAt` the server had when the first unsynced edit began. */
+  /** The `updatedAt` the server had when the first unsynced edit began (or the one "Keep mine" was made on). */
   base: string;
   deal: StoredDeal;
-  overwrite?: boolean;
   /** The repository instance (tab) that wrote the entry: seq numbers repeat between instances. */
   writer?: string;
   problem?: "conflict" | "deleted";
@@ -243,12 +244,9 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
       entries.flatMap((e) => {
         if (e.deal.id !== entry.deal.id) return [e];
         if (isSame(e, entry)) return [];
-        // A newer save of ours is waiting: the server now holds `saved`, so that is what it is based on. The owner's
-        // "keep mine" applied to the version that just landed, not to later ones.
+        // A newer save of ours is waiting: the server now holds `saved`, so that is what it is based on.
         if (e.writer !== writer) return [e];
-        const rebased: Entry = { ...e, base: saved.updatedAt };
-        delete rebased.overwrite;
-        return [rebased];
+        return [{ ...e, base: saved.updatedAt }];
       }),
     );
   }
@@ -354,30 +352,32 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
     );
   }
 
-  /** Writes the deal's entry, replacing any older one. Synchronous, so a closing page keeps the edit. */
-  function enqueue(deal: StoredDeal, options?: { overwrite?: boolean }): Entry {
+  /**
+   * Writes the deal's entry, replacing any older one, on the older one's base (the edits are one change to the server's
+   * version), or with `rebase` on the deal's own `updatedAt`. Synchronous, so a closing page keeps the edit.
+   */
+  function enqueue(deal: StoredDeal, options?: { rebase?: boolean }): Entry {
     const entries = read();
     const previous = entries.find((e) => e.deal.id === deal.id);
     const stamp = advanced.get(deal.id);
     lastSeq = Math.max(lastSeq, ...entries.map((e) => e.seq)) + 1;
     lastQueuedMs = Math.max(Date.now(), lastQueuedMs + 1);
-    // "Keep mine" that has not been sent yet stays in force through later typing.
-    const overwrite = options?.overwrite || (previous?.overwrite && !previous.problem) || false;
     const entry: Entry = {
       seq: lastSeq,
       queuedAt: new Date(lastQueuedMs).toISOString(),
-      base: previous?.base ?? (stamp && deal.updatedAt === stamp.from ? stamp.to : deal.updatedAt),
+      base: options?.rebase
+        ? deal.updatedAt
+        : (previous?.base ?? (stamp && deal.updatedAt === stamp.from ? stamp.to : deal.updatedAt)),
       deal,
       writer,
-      ...(overwrite ? { overwrite: true } : {}),
     };
     write([...entries.filter((e) => e.deal.id !== deal.id), entry]);
     notify();
     return entry;
   }
 
-  async function saveDeal(deal: StoredDeal, options?: { overwrite?: boolean }): Promise<StoredDeal> {
-    const queued = enqueue(deal, options);
+  async function saveDeal(deal: StoredDeal): Promise<StoredDeal> {
+    const queued = enqueue(deal);
     let entry = queued;
     inFlight.set(deal.id, queued.seq);
     try {
@@ -390,8 +390,7 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
         if (!isSame(current, queued)) return { ...deal, updatedAt: current.base };
         entry = current;
       }
-      const sendOptions = entry.overwrite ? { overwrite: true } : options;
-      const saved = await remote.saveDeal({ ...deal, updatedAt: entry.base }, sendOptions);
+      const saved = await remote.saveDeal({ ...deal, updatedAt: entry.base });
       succeeded(entry, saved);
       return saved;
     } catch (error) {
@@ -419,10 +418,7 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
       let landed: string | null = null;
       replaying.set(entry.deal.id, new Promise<string | null>((resolve) => (open = resolve)));
       try {
-        const saved = await remote.saveDeal(
-          { ...entry.deal, updatedAt: entry.base },
-          entry.overwrite ? { overwrite: true } : undefined,
-        );
+        const saved = await remote.saveDeal({ ...entry.deal, updatedAt: entry.base });
         succeeded(entry, saved);
         landed = saved.updatedAt;
         synced += 1;

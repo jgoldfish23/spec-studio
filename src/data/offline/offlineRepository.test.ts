@@ -31,7 +31,7 @@ const deal = (over: Partial<StoredDeal> = {}): StoredDeal => ({
 const offlineError = () => new DataError("offline", { kind: "offline" });
 const signedOutError = () => new DataError("out", { kind: "signedOut" });
 
-type SaveFn = (deal: StoredDeal, options?: { overwrite?: boolean }) => Promise<StoredDeal>;
+type SaveFn = (deal: StoredDeal) => Promise<StoredDeal>;
 
 /** A remote whose saveDeal / getDeal / listDeals are scripted; everything else is a spy. */
 function fakeRemote() {
@@ -55,7 +55,7 @@ function fakeRemote() {
 }
 
 const entries = (storage: Storage, key = KEY) =>
-  (JSON.parse(storage.getItem(key) ?? '{"entries":[]}') as { entries: { problem?: string; overwrite?: boolean; base: string; seq: number; deal: StoredDeal }[] }).entries;
+  (JSON.parse(storage.getItem(key) ?? '{"entries":[]}') as { entries: { problem?: string; base: string; seq: number; deal: StoredDeal }[] }).entries;
 
 let storage: MemoryStorage;
 let remote: ReturnType<typeof fakeRemote>;
@@ -154,11 +154,6 @@ describe("saveDeal", () => {
     expect(said).toHaveLength(2);
     expect(said.filter((m) => m.startsWith("The offline outbox could not be written"))).toHaveLength(1);
     expect(said.filter((m) => m.startsWith("The copy of your data on this device could not be saved"))).toHaveLength(1);
-  });
-
-  it("passes the overwrite option through", async () => {
-    await repo.saveDeal(deal(), { overwrite: true });
-    expect(remote.saveDeal.mock.calls[0]?.[1]).toEqual({ overwrite: true });
   });
 
   it("notifies subscribers", async () => {
@@ -282,25 +277,28 @@ describe("syncNow", () => {
 });
 
 describe("more sync behaviour", () => {
-  it("replays a stored overwrite", async () => {
+  it("queue with rebase puts the entry on the deal's own updatedAt (Keep mine), and later saves keep it", async () => {
+    remote.saveDeal.mockRejectedValue(new DataError("c", { kind: "conflict", storedUpdatedAt: U2 }));
+    await repo.saveDeal(deal({ name: "Mine" })).catch(() => {});
+    expect(entries(storage)[0]).toMatchObject({ base: U0, problem: "conflict" });
+    repo.queue(deal({ name: "Mine", updatedAt: U2 }), { rebase: true });
+    expect(entries(storage)[0]?.base).toBe(U2);
+    expect(entries(storage)[0]?.problem).toBeUndefined();
     remote.saveDeal.mockRejectedValue(offlineError());
-    await repo.saveDeal(deal(), { overwrite: true }).catch(() => {});
-    remote.saveDeal.mockClear();
-    remote.saveDeal.mockImplementation(async (d) => ({ ...d, updatedAt: U1 }));
-    await repo.syncNow();
-    expect(remote.saveDeal.mock.calls[0]?.[1]).toEqual({ overwrite: true });
+    await repo.saveDeal(deal({ name: "Mine, and more", updatedAt: U2 })).catch(() => {});
+    expect(entries(storage)[0]?.base).toBe(U2);
+    expect(remote.saveDeal.mock.calls.at(-1)?.[0].updatedAt).toBe(U2);
   });
 
-  it("carries overwrite forward to a newer save, until a problem clears it", async () => {
+  it("never sends a save that skips the conflict check: a change elsewhere after Keep mine is a conflict again", async () => {
     remote.saveDeal.mockRejectedValue(offlineError());
-    await repo.saveDeal(deal({ name: "One" }), { overwrite: true }).catch(() => {});
-    await repo.saveDeal(deal({ name: "Two" })).catch(() => {});
-    expect(entries(storage)[0]).toMatchObject({ overwrite: true });
-    expect(remote.saveDeal.mock.calls[1]?.[1]).toEqual({ overwrite: true });
-    remote.saveDeal.mockRejectedValue(new DataError("c", { kind: "conflict" }));
-    await repo.saveDeal(deal({ name: "Three" })).catch(() => {});
-    await repo.saveDeal(deal({ name: "Four" })).catch(() => {});
-    expect(entries(storage)[0]?.overwrite).toBeUndefined();
+    repo.queue(deal({ name: "Mine", updatedAt: U1 }), { rebase: true });
+    remote.saveDeal.mockClear();
+    remote.saveDeal.mockRejectedValue(new DataError("c", { kind: "conflict", storedUpdatedAt: U2 }));
+    await repo.syncNow();
+    expect(remote.saveDeal).toHaveBeenCalledTimes(1);
+    expect(remote.saveDeal.mock.calls[0]).toEqual([expect.objectContaining({ name: "Mine", updatedAt: U1 })]);
+    expect(repo.pending()).toEqual([expect.objectContaining({ dealId: ID, problem: "conflict" })]);
   });
 
   it("skips a deal that saveDeal has in flight", async () => {
@@ -517,19 +515,6 @@ describe("round 2", () => {
     remote.saveDeal.mockImplementation(async (d) => ({ ...d, updatedAt: U2 }));
     await repo.saveDeal(deal({ name: "C4", updatedAt: returned.updatedAt }));
     expect(remote.saveDeal.mock.calls[0]?.[0].updatedAt).toBe(U5);
-  });
-
-  it("drops a rebased entry's overwrite once the overwrite has landed", async () => {
-    let release!: (d: StoredDeal) => void;
-    remote.saveDeal.mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
-    const first = repo.saveDeal(deal({ name: "Mine" }), { overwrite: true });
-    repo.queue(deal({ name: "Later" }));
-    expect(entries(storage)[0]).toMatchObject({ overwrite: true });
-    release(deal({ updatedAt: U1 }));
-    await first;
-    const left = entries(storage)[0];
-    expect(left).toMatchObject({ base: U1 });
-    expect(left?.overwrite).toBeUndefined();
   });
 
   it("does not rebase another tab's entry even when seq numbers collide", async () => {

@@ -742,25 +742,26 @@ describe("saveDeal conflict and deletion checks", () => {
     expect((await repo.getDeal(created.id))?.name).toBe("Other tab");
   });
 
-  it("saves a stale deal anyway with overwrite", async () => {
+  it("says which updatedAt the stored deal has on a conflict, and a save made from it goes through", async () => {
     const { repo, clock } = setup();
     const created = await repo.createDeal({ name: "A", inputs: sampleDealInputs() });
     clock.now = T1;
     await repo.saveDeal({ ...created, name: "Other tab" });
-    const saved = await repo.saveDeal({ ...created, name: "This tab" }, { overwrite: true });
+    const caught = await failure(repo.saveDeal({ ...created, name: "This tab" }));
+    expect(caught.storedUpdatedAt).toBe(T1);
+    // "Keep mine": this tab's version, on top of the one it was shown.
+    const saved = await repo.saveDeal({ ...created, name: "This tab", updatedAt: T1 });
     expect(saved.name).toBe("This tab");
     expect((await repo.getDeal(created.id))?.name).toBe("This tab");
   });
 
-  it("throws deleted when the deal is gone, with or without overwrite", async () => {
+  it("throws deleted when the deal is gone", async () => {
     const { repo } = setup();
     const created = await repo.createDeal({ name: "A", inputs: sampleDealInputs() });
     await repo.deleteDeal(created.id);
-    for (const options of [undefined, { overwrite: true }]) {
-      const caught = await failure(repo.saveDeal(created, options));
-      expect(caught.kind).toBe("deleted");
-      expect(caught.message).toBe(DELETED);
-    }
+    const caught = await failure(repo.saveDeal(created));
+    expect(caught.kind).toBe("deleted");
+    expect(caught.message).toBe(DELETED);
     expect((await repo.listDeals()).deals).toEqual([]);
   });
 

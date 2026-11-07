@@ -578,12 +578,14 @@ describe("DealLayout save problems", () => {
   });
 
 
-  it("offers Load their version and Keep mine on a conflict, and Keep mine saves with overwrite", async () => {
+  it("offers Load their version and Keep mine on a conflict, and Keep mine saves mine on top of theirs", async () => {
     const user = userEvent.setup();
     const { harness, deal } = await sampleSetup();
     const real = harness.repository.saveDeal.bind(harness.repository);
     const save = vi.spyOn(harness.repository, "saveDeal");
-    save.mockRejectedValueOnce(new DataError("This deal was changed on another device or tab.", { kind: "conflict" }));
+    save.mockRejectedValueOnce(
+      new DataError("This deal was changed on another device or tab.", { kind: "conflict", storedUpdatedAt: deal.updatedAt }),
+    );
     save.mockImplementation(real);
     renderDeal(harness, deal.id);
     await screen.findByLabelText("Deal name");
@@ -594,7 +596,7 @@ describe("DealLayout save problems", () => {
     expect(within(alert).getByRole("button", { name: "Load their version" })).toBeVisible();
     await user.click(within(alert).getByRole("button", { name: "Keep mine" }));
     await screen.findByText("Saved", undefined, { timeout: 3000 });
-    expect(save).toHaveBeenLastCalledWith(expect.anything(), { overwrite: true });
+    expect(save.mock.calls.at(-1)).toEqual([expect.objectContaining({ updatedAt: deal.updatedAt })]);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect((await harness.repository.getDeal(deal.id))?.inputs.contingencyPct).toBe(0.02);
   });

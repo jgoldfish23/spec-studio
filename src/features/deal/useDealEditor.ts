@@ -84,7 +84,10 @@ export interface DealEditor {
   saveNow(): void;
   /** True while `loadTheirs` or `saveAsNewDeal` runs: edits, undo and redo do nothing until it is over. */
   busy: boolean;
-  /** After a conflict: saves this device's version over the other one. */
+  /**
+   * After a conflict: saves this device's version on top of the version the conflict found stored. It is still checked
+   * like any save, so a change made elsewhere after that version is a conflict again, never overwritten.
+   */
   keepMine(): void;
   /** After a conflict: drops this device's changes (and its outbox entry) and shows what is stored. */
   loadTheirs(): Promise<void>;
@@ -142,6 +145,8 @@ export function useDealEditor(dealId: string): DealEditor {
    * last save (it was built while that save ran), so every save is stamped from here, not from the deal's own copy.
    */
   const baseline = useRef(new Map<string, string>());
+  /** Per deal, the stored `updatedAt` the last conflict found: the version "Keep mine" saves on top of. */
+  const theirs = useRef(new Map<string, string>());
 
   // Seed once per deal id, from the first settled read. A later read of the same deal (a refetch, a cache update
   // after a save) must never replace what the owner has changed since.
@@ -220,9 +225,17 @@ export function useDealEditor(dealId: string): DealEditor {
   const autosaver = useRef<Autosaver<StoredDeal> | null>(null);
   useEffect(() => {
     const instance = createAutosaver<StoredDeal>({
-      save: async (deal, options) => {
+      save: async (deal) => {
         const from = baseline.current.get(deal.id) ?? deal.updatedAt;
-        const saved = await repository.saveDeal({ ...deal, updatedAt: from }, options);
+        let saved: StoredDeal;
+        try {
+          saved = await repository.saveDeal({ ...deal, updatedAt: from });
+        } catch (error) {
+          if (error instanceof DataError && error.kind === "conflict" && error.storedUpdatedAt !== undefined) {
+            theirs.current.set(deal.id, error.storedUpdatedAt);
+          }
+          throw error;
+        }
         baseline.current.set(saved.id, saved.updatedAt);
         queryClient.setQueryData(queryKeys.deal(saved.id), saved);
         void queryClient.invalidateQueries({ queryKey: queryKeys.deals });
@@ -332,7 +345,21 @@ export function useDealEditor(dealId: string): DealEditor {
   const saveNow = useCallback(() => {
     if (autosaver.current) flushNow(autosaver.current);
   }, [flushNow]);
-  const keepMine = useCallback(() => void autosaver.current?.flush({ overwrite: true }), []);
+  const keepMine = useCallback(() => {
+    const instance = autosaver.current;
+    if (instance === null) return;
+    const stamp = theirs.current.get(dealId);
+    if (stamp !== undefined) {
+      // Mine, on top of the version the owner was shown as theirs: the next save is made from it, and so is the
+      // outbox's entry, which would otherwise go on carrying the stamp from before the conflict.
+      baseline.current.set(dealId, stamp);
+      const waiting = instance.pending();
+      if (waiting !== undefined && isOfflineRepository(repository)) {
+        repository.queue({ ...waiting, updatedAt: stamp }, { rebase: true });
+      }
+    }
+    void instance.flush();
+  }, [repository, dealId]);
 
   /** The deal as the owner sees it, for the actions that need its latest name and inputs. */
   const latestDeal = useRef<StoredDeal | undefined>(undefined);

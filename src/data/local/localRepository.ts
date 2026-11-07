@@ -234,14 +234,18 @@ export function createLocalRepository(
       return deal;
     },
 
-    async saveDeal(deal: StoredDeal, options: { overwrite?: boolean } = {}): Promise<StoredDeal> {
+    async saveDeal(deal: StoredDeal): Promise<StoredDeal> {
       assertDealReadsBack(deal);
       const records = dealRecords();
       if (!Object.hasOwn(records, deal.id)) throw new DataError(DELETED, { kind: "deleted", recordId: deal.id });
       const stored = records[deal.id];
       const storedStamp = isRecord(stored) ? stored.updatedAt : undefined;
-      if (options.overwrite !== true && storedStamp !== deal.updatedAt) {
-        throw new DataError(CONFLICT, { kind: "conflict", recordId: deal.id });
+      if (storedStamp !== deal.updatedAt) {
+        throw new DataError(CONFLICT, {
+          kind: "conflict",
+          recordId: deal.id,
+          storedUpdatedAt: typeof storedStamp === "string" ? storedStamp : undefined,
+        });
       }
       const saved: StoredDeal = { ...structuredClone(deal), updatedAt: now() };
       putDeal(saved);

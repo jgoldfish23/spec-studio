@@ -92,16 +92,22 @@ export class DataError extends Error {
   kind: DataErrorKind;
   recordId?: string;
   path?: string;
+  /**
+   * On a `conflict`: the `updatedAt` the stored deal has now, exactly as stored. "Keep mine" saves on top of that
+   * version, so a change made after it is a conflict again rather than lost.
+   */
+  storedUpdatedAt?: string;
 
   constructor(
     message: string,
-    options: { kind?: DataErrorKind; recordId?: string; path?: string; cause?: unknown } = {},
+    options: { kind?: DataErrorKind; recordId?: string; path?: string; storedUpdatedAt?: string; cause?: unknown } = {},
   ) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause });
     this.name = "DataError";
     this.kind = options.kind ?? "unreadable";
     this.recordId = options.recordId;
     this.path = options.path;
+    this.storedUpdatedAt = options.storedUpdatedAt;
   }
 }
 
@@ -113,10 +119,11 @@ export interface Repository {
   createDeal(input: { name: string; inputs: DealInputs }): Promise<StoredDeal>;
   /**
    * Returns the deal with a fresh `updatedAt`. The save is checked against the stored `updatedAt`: if it is not the
-   * one on `deal`, another device or tab saved in between and this throws a `DataError` of kind `conflict`
-   * (`overwrite` skips that check). A deal that is no longer stored throws kind `deleted`, with or without `overwrite`.
+   * one on `deal`, another device or tab saved in between and this throws a `DataError` of kind `conflict`, whose
+   * `storedUpdatedAt` is the stored one (a save made from it goes through, unless the deal changes again). A deal that
+   * is no longer stored throws kind `deleted`.
    */
-  saveDeal(deal: StoredDeal, options?: { overwrite?: boolean }): Promise<StoredDeal>;
+  saveDeal(deal: StoredDeal): Promise<StoredDeal>;
   deleteDeal(id: string): Promise<void>;
   /** Removes every deal: the way out of a store that cannot be read. */
   resetDeals(): Promise<void>;

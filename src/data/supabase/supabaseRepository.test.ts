@@ -313,15 +313,6 @@ describe("saveDeal", () => {
     expect(saved).toEqual(storedDeal({ name: "Renamed by the server", updatedAt: LATER }));
   });
 
-  it("with overwrite, drops the updated_at filter", async () => {
-    const { repo, requests } = setup(() => json([dealRow({ updated_at: LATER })]));
-    await repo.saveDeal(storedDeal(), { overwrite: true });
-    expect(requests).toHaveLength(1);
-    const query = params(requests[0] as Recorded);
-    expect(query).toMatchObject({ id: `eq.${DEAL_ID}` });
-    expect(query).not.toHaveProperty("updated_at");
-  });
-
   it("asks once whether the deal still exists when nothing matched, and reports a conflict if it does", async () => {
     const { repo, requests } = setup((request) =>
       request.method === "PATCH" ? json([]) : json([{ id: DEAL_ID, updated_at: LATER }]),
@@ -330,6 +321,8 @@ describe("saveDeal", () => {
     expect(caught.kind).toBe("conflict");
     expect(caught.message).toBe(CONFLICT);
     expect(caught.recordId).toBe(DEAL_ID);
+    // The stamp the stored deal has now, verbatim: "Keep mine" saves on top of exactly that version.
+    expect(caught.storedUpdatedAt).toBe(LATER);
     expect(requests.map((r) => r.method)).toEqual(["PATCH", "GET"]);
     const check = requests[1] as Recorded;
     expect(check.url.pathname).toBe("/rest/v1/deals");
@@ -379,14 +372,6 @@ describe("saveDeal", () => {
     expect(caught.kind).toBe("deleted");
     expect(caught.message).toBe(DELETED);
     expect(requests.map((r) => r.method)).toEqual(["PATCH", "GET"]);
-  });
-
-  it("reports a deleted deal with overwrite too, without a second request", async () => {
-    const { repo, requests } = setup(() => json([]));
-    const caught = await error(repo.saveDeal(storedDeal(), { overwrite: true }));
-    expect(caught.kind).toBe("deleted");
-    expect(caught.message).toBe(DELETED);
-    expect(requests).toHaveLength(1);
   });
 
   it("treats an id that is not a UUID as a deal that is not there, without a request", async () => {

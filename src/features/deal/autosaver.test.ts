@@ -559,12 +559,12 @@ describe("createAutosaver errors that should not be retried", () => {
   });
 
   function make(shouldRetry?: (error: unknown) => boolean) {
-    const calls: { value: number; options?: { overwrite?: boolean } }[] = [];
+    const calls: { value: number }[] = [];
     const statuses: SaveStatus[] = [];
     const failures: unknown[] = [];
     const saver = createAutosaver<number>({
-      save: async (value, options) => {
-        calls.push({ value, options });
+      save: async (value) => {
+        calls.push({ value });
         if (failures.length > 0) throw failures.shift();
       },
       shouldRetry,
@@ -605,13 +605,13 @@ describe("createAutosaver errors that should not be retried", () => {
     expect(t.statuses.at(-1)).toEqual({ kind: "saved" });
   });
 
-  it("flush with overwrite saves the waiting failed value with that option", async () => {
+  it("flush saves the waiting failed value again at once, though it is not retried by itself", async () => {
     const t = make(() => false);
     t.failures.push(new Error("no"));
     t.saver.schedule(1);
     await advance(1000);
-    await t.saver.flush({ overwrite: true });
-    expect(t.calls).toEqual([{ value: 1, options: undefined }, { value: 1, options: { overwrite: true } }]);
+    await t.saver.flush();
+    expect(t.calls).toEqual([{ value: 1 }, { value: 1 }]);
     expect(t.statuses.at(-1)).toEqual({ kind: "saved" });
   });
 

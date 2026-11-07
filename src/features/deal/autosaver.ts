@@ -10,13 +10,8 @@ export type SaveStatus =
   | { kind: "saving" }
   | { kind: "error"; message: string; reason: SaveFailureReason };
 
-export interface SaveOptions {
-  /** Skip the conflict check: the owner chose to keep this version. */
-  overwrite?: boolean;
-}
-
 export interface AutosaverOptions<T> {
-  save: (value: T, options?: SaveOptions) => Promise<unknown>;
+  save: (value: T) => Promise<unknown>;
   /** Whether a failed save is tried again on its own after `retryMs`. Default: always. A later edit tries again either way. */
   shouldRetry?: (error: unknown) => boolean;
   /** Quiet time after the last `schedule` before the value is saved. */
@@ -34,8 +29,11 @@ export interface AutosaverOptions<T> {
 export interface Autosaver<T> {
   /** Replaces whatever is waiting with `value` and saves it once `delayMs` pass without another call. */
   schedule(value: T): void;
-  /** Saves the waiting value now. Resolves when no save is running or waiting; never rejects (a failure is a status). */
-  flush(options?: SaveOptions): Promise<void>;
+  /**
+   * Saves the waiting value now, a failed one included (one that is not retried by itself, too). Resolves when no save
+   * is running or waiting; never rejects (a failure is a status).
+   */
+  flush(): Promise<void>;
   /** The value that is waiting to be saved (or that failed and is still unsaved), if any. */
   pending(): T | undefined;
   /** Cancels what is waiting and silences the status. A save already started, or already asked for by `flush`, finishes. */
@@ -79,8 +77,6 @@ export function createAutosaver<T>({
   let disposed = false;
   /** Counts `discard` calls, so a save that was running during one knows its value was given up. */
   let discards = 0;
-  /** The next save skips the conflict check (set by `flush({ overwrite })`). */
-  let overwriteNext = false;
   let status: SaveStatus = { kind: "saved" };
 
   function setStatus(next: SaveStatus): void {
@@ -115,13 +111,11 @@ export function createAutosaver<T>({
         due = false;
         setStatus({ kind: "saving" });
         const discardsBefore = discards;
-        const options = overwriteNext ? { overwrite: true } : undefined;
-        overwriteNext = false;
         let failure: string | undefined;
         let reason: SaveFailureReason = "unknown";
         let retry = true;
         try {
-          await save(value, options);
+          await save(value);
         } catch (error) {
           failure = messageOf(error);
           reason = reasonOf(error);
@@ -168,12 +162,9 @@ export function createAutosaver<T>({
     pending() {
       return dirty ? latest : undefined;
     },
-    flush(options) {
+    flush() {
       clearTimer();
-      if (dirty) {
-        due = true;
-        if (options?.overwrite) overwriteNext = true;
-      }
+      if (dirty) due = true;
       return kick();
     },
     dispose() {
@@ -184,7 +175,6 @@ export function createAutosaver<T>({
       discards++;
       dirty = false;
       due = false;
-      overwriteNext = false;
       clearTimer();
       // With a save running, its end reports the status; otherwise nothing is left waiting or failing.
       if (!running) setStatus({ kind: "saved" });

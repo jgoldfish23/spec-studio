@@ -48,7 +48,7 @@ async function setup(overrides: Partial<Repository> = {}, wrap: (repository: Rep
   const base = createLocalRepository(storage, { newId: () => `deal-${++n}` });
   for (const comp of testSampleComps()) await base.saveComp(comp);
   const first = await base.createDeal({ name: SAMPLE_DEAL_NAME, inputs: sampleDealInputs() });
-  const saveDeal = vi.fn<Repository["saveDeal"]>((deal, options) => base.saveDeal(deal, options));
+  const saveDeal = vi.fn<Repository["saveDeal"]>((deal) => base.saveDeal(deal));
   const repository: Repository = wrap({ ...base, saveDeal, ...overrides });
   const client = createQueryClient();
   const wrapperFor = (strict: boolean) =>
@@ -1012,9 +1012,9 @@ describe("useDealEditor saves and the conflict check", () => {
     let release: () => void = () => {};
     const gate = new Promise<void>((resolve) => (release = resolve));
     const returned: StoredDeal[] = [];
-    s.saveDeal.mockImplementationOnce(async (deal, options) => {
+    s.saveDeal.mockImplementationOnce(async (deal) => {
       await gate;
-      const saved = await real.saveDeal(deal, options);
+      const saved = await real.saveDeal(deal);
       returned.push(saved);
       return saved;
     });
@@ -1220,13 +1220,14 @@ describe("useDealEditor save problems", () => {
     expect(s.saveDeal).toHaveBeenCalledTimes(2);
   });
 
-  it("keepMine saves the local version over the other device's", async () => {
+  it("keepMine saves the local version on top of the other device's: from its updatedAt, never past the check", async () => {
     const s = await setup();
     const view = await ready(s);
     await conflicted(s, view);
+    const theirs = await s.storedDeal(s.first.id);
     act(() => view.result.current.keepMine());
     await advance(50);
-    expect(s.saveDeal.mock.calls.at(-1)?.[1]).toEqual({ overwrite: true });
+    expect(s.saveDeal.mock.calls.at(-1)).toEqual([expect.objectContaining({ updatedAt: theirs?.updatedAt })]);
     expect(view.result.current.saveStatus).toEqual({ kind: "saved" });
     expect((await s.storedDeal(s.first.id))?.inputs.lot.priceCents).toBe(NEW_PRICE);
     expect(asks()).toBe(false);
@@ -1454,9 +1455,9 @@ describe("useDealEditor closing the page with an outbox", () => {
     let release: () => void = () => {};
     const gate = new Promise<void>((resolve) => (release = resolve));
     // The first save waits; later ones run.
-    s.saveDeal.mockImplementationOnce(async (deal, options) => {
+    s.saveDeal.mockImplementationOnce(async (deal) => {
       await gate;
-      return real(deal, options);
+      return real(deal);
     });
     return { s, outbox, offline, release: () => release() };
   }
@@ -1547,9 +1548,9 @@ describe("useDealEditor on a deal opened with an edit waiting in the outbox (an 
     const s = await setup({}, (remote) => {
       const reached: Repository = {
         ...remote,
-        saveDeal: async (deal, options) => {
+        saveDeal: async (deal) => {
           if (network.down) throw offlineError();
-          return remote.saveDeal(deal, options);
+          return remote.saveDeal(deal);
         },
       };
       return (outbox = createOfflineRepository(reached, new MemoryStorage(), "u"));
@@ -1622,6 +1623,38 @@ describe("useDealEditor on a deal opened with an edit waiting in the outbox (an 
     expect(outbox.pending()).toEqual([]);
     await advance(30_000);
     expect((await s.storedDeal(s.first.id))?.name).toBe("Theirs");
+  });
+
+  it("Keep mine made offline does not overwrite a change made elsewhere since: the choice comes back, and theirs stays", async () => {
+    const { s, outbox, network } = await reloaded();
+    const view = await ready(s);
+    await advance(5);
+    await createLocalRepository(s.storage).saveDeal({ ...s.first, name: "Office copy" });
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    await advance(1000);
+    expect(view.result.current.saveStatus).toMatchObject({ kind: "error", reason: "conflict" });
+
+    // The connection drops as Keep mine is tapped: it waits in the outbox.
+    network.down = true;
+    act(() => view.result.current.keepMine());
+    await advance(50);
+    expect(view.result.current.saveStatus).toMatchObject({ kind: "error", reason: "offline" });
+
+    // Meanwhile the office laptop saves the deal again.
+    await advance(5);
+    const office = (await s.storedDeal(s.first.id)) as StoredDeal;
+    await createLocalRepository(s.storage).saveDeal({ ...office, name: "Office copy, later" });
+
+    network.down = false;
+    await act(async () => {
+      await outbox.syncNow();
+    });
+    await advance(5000);
+    expect(view.result.current.saveStatus).toMatchObject({ kind: "error", reason: "conflict" });
+    const stored = await s.storedDeal(s.first.id);
+    expect(stored?.name).toBe("Office copy, later");
+    expect(stored?.inputs.lot.priceCents).toBe(ORIGINAL_PRICE);
+    expect(outbox.pending()).toEqual([expect.objectContaining({ dealId: s.first.id, problem: "conflict" })]);
   });
 
   it("offers Save as a new deal for an edit refused because the deal was deleted", async () => {

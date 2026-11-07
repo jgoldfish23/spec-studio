@@ -627,9 +627,9 @@ describe("HostedGate", () => {
     const save = anaServer.saveDeal.bind(anaServer);
     const saves = vi
       .spyOn(anaServer, "saveDeal")
-      .mockImplementationOnce(async (deal, options) => {
+      .mockImplementationOnce(async (deal) => {
         await landed;
-        return save(deal, options);
+        return save(deal);
       });
     world.mount();
     await waitFor(() => expect(saves).toHaveBeenCalledTimes(1));
