@@ -15,6 +15,12 @@ and a different browser or a cleared profile starts empty. On the Deals page, **
 The starter prices are unverified estimates. Replace them with your own bids on the Estimate step before relying on a
 verdict.
 
+## Going live
+
+To save deals online and sign in by email, follow [docs/deploy.md](docs/deploy.md). It is a step-by-step guide for the
+owner: Supabase for the data, Cloudflare Pages for the site, and a GitHub Actions workflow (`deploy.yml`) that migrates the
+database and publishes on every push to `main`. `npm run check:bundle` fails the build if a secret ends up in `dist/`.
+
 ## Commands
 
 You need Node 22 or newer. Run `npm ci` once first.
