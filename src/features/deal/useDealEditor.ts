@@ -236,6 +236,7 @@ export function useDealEditor(dealId: string): DealEditor {
           }
           throw error;
         }
+        theirs.current.delete(saved.id);
         baseline.current.set(saved.id, saved.updatedAt);
         queryClient.setQueryData(queryKeys.deal(saved.id), saved);
         void queryClient.invalidateQueries({ queryKey: queryKeys.deals });

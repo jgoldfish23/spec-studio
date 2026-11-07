@@ -1277,6 +1277,24 @@ describe("useDealEditor save problems", () => {
     expect(asks()).toBe(false);
   });
 
+  it("keepMine never reuses the stamp of an earlier conflict once a save has landed since", async () => {
+    const s = await setup();
+    const view = await ready(s);
+    await conflicted(s, view);
+    act(() => view.result.current.keepMine());
+    await advance(50);
+    expect(view.result.current.saveStatus).toEqual({ kind: "saved" });
+    const landed = (await s.storedDeal(s.first.id))?.updatedAt;
+    // A later conflict that does not say which version is stored: Keep mine then saves from the last good stamp.
+    s.saveDeal.mockRejectedValueOnce(new DataError("This deal was changed on another device or tab.", { kind: "conflict" }));
+    act(() => view.result.current.edit(setPrice(NEW_PRICE + 100)));
+    await advance(1000);
+    expect(view.result.current.saveStatus).toMatchObject({ kind: "error", reason: "conflict" });
+    act(() => view.result.current.keepMine());
+    await advance(50);
+    expect(s.saveDeal.mock.calls.at(-1)?.[0].updatedAt).toBe(landed);
+  });
+
   it("loadTheirs replaces the inputs with the stored ones, clears undo, and does not save them back", async () => {
     const s = await setup();
     const view = await ready(s);
