@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
@@ -123,7 +123,7 @@ describe("public/_headers", () => {
       "X-Frame-Options: DENY",
       "Referrer-Policy: strict-origin-when-cross-origin",
       "X-Content-Type-Options: nosniff",
-      "Content-Security-Policy: default-src 'self'; connect-src 'self' https://*.supabase.co wss://*.supabase.co; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'",
+      "Content-Security-Policy: default-src 'self'; connect-src 'self' https://*.supabase.co wss://*.supabase.co; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'",
     ]) {
       expect(lines).toContain(l);
     }
@@ -132,5 +132,31 @@ describe("public/_headers", () => {
   it("caches hashed assets for a year", () => {
     expect(lines).toContain("/assets/*");
     expect(lines).toContain("Cache-Control: public, max-age=31536000, immutable");
+  });
+});
+
+describe("the hosted-test build", () => {
+  const pkg = JSON.parse(read("package.json"));
+
+  it("runs on Windows too: no VAR=value in front of the command, a mode file instead", () => {
+    const script: string = pkg.scripts["build:hosted-test"];
+    expect(script).not.toMatch(/^\s*\w+=/);
+    expect(script).not.toMatch(/\bVITE_\w+=/);
+    expect(script).toContain("--mode hosted-test");
+    expect(script).toContain("--outDir dist-hosted");
+  });
+
+  it("reads the fake Supabase's address and key from .env.hosted-test, the values tests/e2e/fakeSupabase answers to", () => {
+    const lines = read(".env.hosted-test")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line !== "" && !line.startsWith("#"));
+    expect(lines.sort()).toEqual(["VITE_SUPABASE_ANON_KEY=test-anon-key", "VITE_SUPABASE_URL=http://fake-supabase.test"]);
+  });
+
+  it("leaves the demo build alone: no .env file a production build would read", () => {
+    for (const name of [".env", ".env.local", ".env.production", ".env.production.local"]) {
+      expect(existsSync(new URL(`../${name}`, import.meta.url)), name).toBe(false);
+    }
   });
 });

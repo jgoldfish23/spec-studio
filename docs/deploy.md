@@ -18,6 +18,8 @@ You will use three websites: Supabase (the database and sign-in), Cloudflare (ho
 
 3. **Add a sign-in code to the email.** In Supabase open Authentication, then Emails, then Templates. Do this in **both** the **Magic Link** template and the **Confirm signup** template (a first-time sign-in with a new email address uses Confirm signup). In each, keep the existing `{{ .ConfirmationURL }}` link and add this line exactly under it: `Or type this code: {{ .Token }}`. Save each one.
 
+   Then check the code's length: in Authentication, open the **Email** provider (under Sign In / Providers) and make sure **Email OTP Length** is **6**, which is the default. The app's code box takes exactly 6 digits, so a longer code could never be typed in.
+
 4. **Give GitHub the public project settings.** In Supabase open Project Settings, then Data API (for the Project URL) and API Keys (for the keys). In GitHub open your repository, then Settings, then Secrets and variables, then Actions, then the **Variables** tab. Add two variables:
    - **`SUPABASE_URL`**: the Project URL.
    - **`SUPABASE_ANON_KEY`**: the **anon** key. Newer projects also show a "publishable" key that starts with `sb_publishable_`; that works too. These two values are public by design.
@@ -35,12 +37,20 @@ You will use three websites: Supabase (the database and sign-in), Cloudflare (ho
 
 8. **Close sign-ups.** Open the site and sign in with your email (use the link, or type the code). Then in Supabase open Authentication, then Providers, then Email, and turn off **Allow new users to sign up**. Only you can get in from now on.
 
-9. **Move your demo deals.** Open the old demo site, go to Settings, and choose **Export all data** (Copy). On the live site go to Settings, choose **Import an export**, and paste.
+9. **Move your demo deals.** The demo you have been using is older than the Settings screen, so it can't export yet.
+   - First have this version of the demo published at the **same address** as the old one. Your deals are saved in your browser under that address, so the same address still has them; a new address would start empty. (The demo was published as a private Claude artifact: ask for it to be updated at the same link, not published as a new one.)
+   - Open the demo in the same browser you used before. Go to Settings and choose **Copy to clipboard** (or **Export all data**, which saves a file).
+   - On the live site go to Settings, then **Import an export**, and paste (or choose the file). Importing the same export twice adds nothing twice.
 
-10. **Check it works.** Go through the go-live checklist with whoever is helping you.
+10. **Put Spec Studio on the iPad's Home Screen.** On the iPad, open the live site in Safari, tap Share, then **Add to Home Screen**, and from now on open Spec Studio from that icon. Safari can clear a website's saved data after 7 days without a visit, and that includes edits that haven't synced yet; an app on the Home Screen is kept.
+
+11. **Protect `main`.** Every push to `main` deploys, so only code that passed the checks should get there. In GitHub open your repository's Settings, then Branches (or Rules, then Rulesets), and add a rule for `main`: require a pull request, and require these status checks to pass before merging: **check**, **db** and **e2e** (the jobs of the CI workflow).
+
+12. **Check it works.** Go through the go-live checklist with whoever is helping you.
 
 ## Good to know
 
 - **Email limits.** Supabase's built-in email sender allows only a few emails per hour. That is fine for one owner. If sign-in emails stop arriving, wait an hour or add your own email service under Authentication, then Emails (custom SMTP).
 - **Later deploys are automatic.** Every change merged to `main` deploys by itself.
 - **No demo by accident.** If the two variables from step 4 are empty, the deploy refuses to run rather than publish the demo.
+- **A custom address for Supabase.** The site is only allowed to talk to Supabase's own addresses (`*.supabase.co`). If you ever give your Supabase project a custom domain, add that domain to the `connect-src` part of the `Content-Security-Policy` line in `public/_headers`, both as `https://` and as `wss://`, or the app won't be able to reach it.

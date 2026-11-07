@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "build:hosted-test": "VITE_SUPABASE_URL=http://fake-supabase.test VITE_SUPABASE_ANON_KEY=test-anon-key vite build --outDir dist-hosted",
+    "build:hosted-test": "vite build --mode hosted-test --outDir dist-hosted",
     "preview": "vite preview",
     "test": "vitest run --project node --project dom",
     "test:watch": "vitest --project node --project dom",

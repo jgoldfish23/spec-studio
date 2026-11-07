@@ -6,11 +6,19 @@ check the market, and get a go / marginal / no-go verdict with the pro forma beh
 The app is React, TypeScript and Vite. The numbers come from a pure calculation engine in `src/engine`, which works in
 integer cents and has no clock, randomness or network access of its own.
 
-## Demo mode
+## Demo mode and hosted mode
 
-This is the only mode so far. Everything you enter is saved in this browser's `localStorage`: nothing is sent anywhere,
-and a different browser or a cleared profile starts empty. On the Deals page, **Load sample deal** adds a worked example
-(a Kaysville lot) so you can look around.
+Spec Studio is built in one of two modes, chosen by two build settings, `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`:
+
+- **Demo mode** (neither is set): everything you enter is saved in this browser's `localStorage`. Nothing is sent
+  anywhere, and a different browser or a cleared profile starts empty. On the Deals page, **Load sample deal** adds a
+  worked example (a Kaysville lot) so you can look around.
+- **Hosted mode** (both are set): you sign in with an emailed link or 6-digit code, and your deals, comps and settings are
+  kept in your company's Supabase database. A device remembers what it last read, so the app opens on a job site with
+  no connection; edits made offline wait on the device and sync when the connection is back, and a deal changed on
+  another device asks which version to keep. Setting it up is described under **Going live**.
+
+Setting only one of the two is a configuration error, which the app shows on screen.
 
 The starter prices are unverified estimates. Replace them with your own bids on the Estimate step before relying on a
 verdict.
@@ -52,7 +60,8 @@ Each test file works in a database of its own and drops it when done.
 `npm run e2e` builds the app twice, serves both builds and drives them in Chromium, as two Playwright projects:
 
 - `demo`: the demo build (`npm run build`) on port 4173, for every spec but `hosted.spec.ts`.
-- `hosted`: a hosted build made against a fake Supabase (`npm run build:hosted-test`, into `dist-hosted/`) on port 4174,
+- `hosted`: a hosted build made against a fake Supabase (`npm run build:hosted-test`, into `dist-hosted/`; it is
+  `vite build --mode hosted-test`, which reads the fake's address and key from `.env.hosted-test`) on port 4174,
   for `hosted.spec.ts`. `tests/e2e/fakeSupabase/` answers the app's Supabase requests in the browser, through
   Playwright's request interception, from in-memory tables seeded with the starter cost book.
 
@@ -65,9 +74,10 @@ Each test file works in a database of its own and drops it when done.
 - `layout.spec.ts`: the Deals list and every step fit a 390 px screen without scrolling sideways, with no console errors.
 - `chunk-failure.spec.ts`: a step whose code cannot be fetched says so, keeps the deal's tabs, and recovers on Reload.
 - `hosted.spec.ts`: signing in with the emailed code and setting up the company; an edit saved to the server; an edit
-  made offline that survives a reload and syncs when the connection is back; a deal changed on another device, kept
-  with Keep mine; a sign-in link opened in another browser; a Settings change that new deals start from; and demo deals
-  moved into the account by copy and paste, with a second import skipping them.
+  made offline that survives a reload (with the deal saying it waits on the device) and syncs when the connection is
+  back; a deal changed on another device, kept with Keep mine; a Keep mine tapped offline that does not overwrite a
+  later change made on another device; a sign-in link opened in another browser; a Settings change that new deals
+  start from; and demo deals moved into the account by copy and paste, with a second import skipping them.
 
 Notes:
 
