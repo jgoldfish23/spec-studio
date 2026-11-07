@@ -58,13 +58,38 @@ function PillDot() {
   return <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-clay" />;
 }
 
+/** A deal whose waiting edit the server refused, as the header names it. */
+export interface RefusedDeal {
+  dealId: string;
+  dealName: string;
+}
+
 /**
- * Hosted mode: how many edits on this device have not reached the server. The region is always there and polite, so a
- * screen reader hears the count when it changes; it is empty while nothing waits.
+ * Hosted mode: how many edits on this device have not reached the server, and each deal whose edit the server refused
+ * (it changed or was deleted elsewhere), linked to the deal, where the owner chooses. A refused edit is never sent
+ * again by itself, so it is not counted as waiting. The region is always there and polite, so a screen reader hears
+ * a change; it is empty while nothing waits.
  */
-export function SyncNote({ count }: { count: number }) {
+export function SyncNote({ count, refused = [] }: { count: number; refused?: readonly RefusedDeal[] }) {
   return (
-    <div role="status">
+    <div role="status" className="flex min-w-0 flex-wrap items-center gap-x-2">
+      {refused.length > 0 ? (
+        <p className="m-0 flex min-w-0 flex-wrap items-center gap-x-1 text-xs text-nav-text">
+          <PillDot />
+          {refused.length === 1 ? "1 deal needs your choice: " : `${refused.length} deals need your choice: `}
+          {refused.map((deal, index) => (
+            <span key={deal.dealId} className="inline-flex min-w-0 items-center">
+              <Link
+                to={`/deals/${deal.dealId}/lot`}
+                className={`inline-flex min-h-11 max-w-48 items-center rounded-md px-1 font-semibold text-paper underline underline-offset-2 hover:bg-white/10 ${focusRing}`}
+              >
+                <span className="truncate">{deal.dealName}</span>
+              </Link>
+              {index < refused.length - 1 ? ", " : null}
+            </span>
+          ))}
+        </p>
+      ) : null}
       {count > 0 ? (
         <p className={PILL}>
           <PillDot />

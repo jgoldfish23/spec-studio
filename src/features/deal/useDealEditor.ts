@@ -297,6 +297,19 @@ export function useDealEditor(dealId: string): DealEditor {
     if (changed) autosaver.current?.schedule(deal);
   }, [deal]);
 
+  // A deal opened from its outbox entry (after an offline reload, or one the server refused) holds an edit the server
+  // does not have. It is sent again through the normal path, once per autosaver, so the status says what really
+  // happens to it (the offline or signed-out note, the choice to make, or Saved once it lands) and Keep mine, Load
+  // their version and Save as a new deal have a value to act on.
+  const resent = useRef(new WeakSet<Autosaver<StoredDeal>>());
+  useEffect(() => {
+    const instance = autosaver.current;
+    if (!seeded || deal === undefined || instance === null || resent.current.has(instance)) return;
+    resent.current.add(instance);
+    if (!isOfflineRepository(repository) || instance.pending() !== undefined) return;
+    if (repository.pending().some((save) => save.dealId === deal.id)) instance.schedule(deal);
+  }, [seeded, deal, repository]);
+
   // A deal that was deleted elsewhere while it is open: the editor must not write it back, and is no longer ready.
   const missing = dealQuery.isSuccess && dealQuery.data === null;
   const deletedElsewhere = seeded && missing;

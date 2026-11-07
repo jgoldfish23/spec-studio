@@ -430,6 +430,56 @@ describe("HostedGate", () => {
     ).toHaveValue("Renamed on site");
   });
 
+  it("names a deal whose waiting edit the server refused, and opening it from the header offers the choice", async () => {
+    const user = userEvent.setup();
+    const world = createWorld({ user: ANA, companies: [[ANA, ANA_CO]] });
+    const server = world.server(ANA_CO.id);
+    const maple = await server.createDeal({
+      name: "Maple Street",
+      inputs: sampleDealInputs(),
+    });
+    // An edit made on this device that has not synced, and a save made on the office laptop after it.
+    createOfflineRepository(server, world.device, ANA.id).queue({
+      ...maple,
+      name: "Maple Street, mine",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await server.saveDeal({ ...maple, name: "Maple Street, theirs" });
+    world.mount();
+    await dealsPage();
+
+    // The sync on opening meets the conflict: the header names the deal, and nothing is said to be waiting to sync.
+    const header = screen.getByRole("banner");
+    const link = await within(header).findByRole(
+      "link",
+      { name: "Maple Street, mine" },
+      { timeout: 3000 },
+    );
+    expect(within(header).getByRole("status")).toHaveTextContent(
+      "1 deal needs your choice: Maple Street, mine",
+    );
+    expect(screen.queryByText(/waiting to sync/)).not.toBeInTheDocument();
+
+    await user.click(link);
+    expect(
+      await screen.findByText(
+        "This deal was changed on another device or tab.",
+        undefined,
+        { timeout: 3000 },
+      ),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Keep mine" }));
+    await waitFor(async () =>
+      expect(await world.stored(ANA_CO.id, maple.id)).toBe(
+        "Maple Street, mine",
+      ),
+    );
+    await waitFor(() =>
+      expect(screen.queryByText(/needs your choice/)).not.toBeInTheDocument(),
+    );
+    expect(world.outbox(ANA)).toEqual([]);
+  });
+
   it("the Sign in link of a signed-out save ends the stale session; signing in lands on #/deals and stays signed in", async () => {
     const user = userEvent.setup();
     const world = createWorld({ user: ANA, companies: [[ANA, ANA_CO]] });

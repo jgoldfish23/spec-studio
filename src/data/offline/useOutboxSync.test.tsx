@@ -221,6 +221,32 @@ describe("useOutboxSync", () => {
     expect(view.result.current.pendingCount).toBe(3);
   });
 
+  it("leaves out edits the server refused: not counted, not polled, but named for the owner's choice", async () => {
+    const { repo, saveDeal, syncNow } = setup({ queued: 2 });
+    saveDeal.mockRejectedValueOnce(new DataError("changed", { kind: "conflict" }));
+    const view = renderHook(() => useOutboxSync(repo));
+    await advance(0);
+    expect(repo.pending()).toHaveLength(1);
+    expect(view.result.current.pendingCount).toBe(0);
+    expect(view.result.current.refused).toEqual([
+      { dealId: deal(0).id, dealName: "Deal 0", problem: "conflict" },
+    ]);
+    // Nothing a sync can send is waiting, so nothing polls.
+    expect(vi.getTimerCount()).toBe(0);
+    await advance(120_000);
+    expect(syncNow).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the same refused list between renders while it does not change", async () => {
+    const { repo, saveDeal } = setup({ queued: 1 });
+    saveDeal.mockRejectedValueOnce(new DataError("gone", { kind: "deleted" }));
+    const view = renderHook(() => useOutboxSync(repo));
+    await advance(0);
+    const first = view.result.current.refused;
+    view.rerender();
+    expect(view.result.current.refused).toBe(first);
+  });
+
   it("reports a sync that throws, against its contract, once", async () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     const { repo, syncNow } = setup({ queued: 1 });

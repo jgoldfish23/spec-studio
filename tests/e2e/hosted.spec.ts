@@ -165,6 +165,9 @@ test("an edit made offline waits on the device, survives a reload, and syncs whe
   await page.reload();
   await expect(page.getByLabel("Lot price")).toHaveValue("398,000");
   await expect(page.getByText(SYNC_NOTE)).toBeVisible();
+  // The deal's header says the same as the pill: the edit waits on this device, it is not "Saved".
+  await expect(page.getByText(OFFLINE_NOTE)).toBeVisible();
+  await expect(page.getByText("Saved", { exact: true })).toHaveCount(0);
   expect(lotPriceOf(fake.deal(id))).toBe(before);
 
   // The connection is back and the browser says so: the outbox syncs, and the note goes.

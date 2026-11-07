@@ -5,12 +5,13 @@ import { AccountMenu } from "./AccountMenu";
 
 const USER = { id: "u-1", email: "pat@example.com" };
 
-function setup(pendingCount = 0) {
+function setup(pendingCount = 0, refused: string[] = []) {
   const onSignOut = vi.fn();
   render(
     <AccountMenu
       user={USER}
       pendingCount={pendingCount}
+      refused={refused}
       onSignOut={onSignOut}
     />,
   );
@@ -80,6 +81,25 @@ describe("AccountMenu", () => {
     await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
     expect(screen.getByRole("alertdialog")).toHaveAccessibleName(
       /^1 change hasn't synced yet\./,
+    );
+  });
+
+  it("says a deal that needs a choice will not sync by itself, and asks first", async () => {
+    const { onSignOut } = setup(0, ["Maple Street"]);
+    await open();
+    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    expect(screen.getByRole("alertdialog")).toHaveAccessibleName(
+      "“Maple Street” needs your choice before it can sync. Sign out anyway? Your changes stay on this device; sign in here again and open the deal to choose.",
+    );
+    expect(onSignOut).not.toHaveBeenCalled();
+  });
+
+  it("says both when some changes wait and some deals need a choice", async () => {
+    setup(1, ["Maple Street", "Oak Hollow"]);
+    await open();
+    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    expect(screen.getByRole("alertdialog")).toHaveAccessibleName(
+      "1 change hasn't synced yet, and “Maple Street” and “Oak Hollow” need your choice before they can sync. Sign out anyway? Your changes stay on this device: the waiting ones sync the next time you sign in here, and the others wait for your choice.",
     );
   });
 });

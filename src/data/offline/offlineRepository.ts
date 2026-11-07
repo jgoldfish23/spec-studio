@@ -256,6 +256,8 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
   function failed(entry: Entry, error: unknown): void {
     if (error instanceof DataError && (error.kind === "conflict" || error.kind === "deleted")) {
       const problem = error.kind;
+      // The server no longer has a deleted deal: neither does the copy of reads, so it does not list it offline.
+      if (problem === "deleted") copy.removeDeal(entry.deal.id);
       update((entries) => entries.map((e) => (isSame(e, entry) ? { ...e, problem } : e)));
     }
   }
@@ -268,8 +270,13 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
   });
   const localCopy = (e: Entry): StoredDeal => ({ ...e.deal, updatedAt: e.base });
 
-  /** `deals` with each outbox copy in place of its row, and the outbox's other deals after them. */
-  function withOutbox(deals: StoredDeal[], entries: Entry[]): StoredDeal[] {
+  /**
+   * `deals` with each outbox copy in place of its row. A list from the server is the whole truth about which deals
+   * exist, so an outbox entry for a deal it does not have is left out: that deal was deleted, and the entry waits for
+   * the owner's choice (the header names it, and the deal opens from the outbox). The device's copy may be missing a
+   * deal, so the outbox's other deals follow its list, except one the server already refused as deleted.
+   */
+  function withOutbox(deals: StoredDeal[], entries: Entry[], from: "server" | "device"): StoredDeal[] {
     if (entries.length === 0) return deals;
     const byId = new Map(entries.map((e) => [e.deal.id, e]));
     const seen = new Set<string>();
@@ -278,7 +285,9 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
       if (e) seen.add(d.id);
       return e ? localCopy(e) : d;
     });
-    for (const e of entries) if (!seen.has(e.deal.id)) merged.push(localCopy(e));
+    if (from === "device") {
+      for (const e of entries) if (!seen.has(e.deal.id) && e.problem !== "deleted") merged.push(localCopy(e));
+    }
     return merged;
   }
 
@@ -491,13 +500,13 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
         if (fresh) copy.putDealList(list.deals);
         // Read the outbox after the list: a save may have been queued while the list was on its way.
         const current = read();
-        return current.length === 0 ? list : { ...list, deals: withOutbox(list.deals, current) };
+        return current.length === 0 ? list : { ...list, deals: withOutbox(list.deals, current, "server") };
       });
       const fromDevice = (): DealListResult | undefined => {
         const entries = read();
         const copied = copy.deals();
         if (copied === null && entries.length === 0) return undefined;
-        return { deals: withOutbox(copied ?? [], entries), problems: [], notice: LIST_NOTICE };
+        return { deals: withOutbox(copied ?? [], entries, "device"), problems: [], notice: LIST_NOTICE };
       };
       return raced(server, fromDevice, (value) => {
         if (fresh) refreshed({ read: "deals", value });

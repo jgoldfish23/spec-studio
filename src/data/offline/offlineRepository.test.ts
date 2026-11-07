@@ -411,11 +411,27 @@ describe("deleting and resetting", () => {
 });
 
 describe("robustness", () => {
-  it("lists an outbox entry the remote does not have", async () => {
+  it("does not list an outbox entry the server's list does not have: the server says that deal is gone", async () => {
     remote.saveDeal.mockRejectedValue(offlineError());
     await repo.saveDeal(deal({ id: ID2, name: "Only here" })).catch(() => {});
     const list = await repo.listDeals();
-    expect(list.deals.map((d) => d.name)).toEqual(["Lot", "Only here"]);
+    expect(list.deals.map((d) => d.name)).toEqual(["Lot"]);
+    // The edit itself is kept, for the owner's choice once a sync hears the deal was deleted.
+    expect(repo.pending().map((p) => p.dealName)).toEqual(["Only here"]);
+  });
+
+  it("does not list a deal whose edit the server refused because it was deleted, even from the device's copy", async () => {
+    remote.listDeals.mockResolvedValue({ deals: [deal(), deal({ id: ID2, name: "Other" })], problems: [] });
+    await repo.listDeals();
+    remote.saveDeal.mockRejectedValue(offlineError());
+    await repo.saveDeal(deal({ id: ID2, name: "Other, edited" })).catch(() => {});
+    remote.saveDeal.mockRejectedValue(new DataError("gone", { kind: "deleted" }));
+    await repo.syncNow();
+    expect(repo.pending()).toEqual([expect.objectContaining({ dealId: ID2, problem: "deleted" })]);
+    remote.listDeals.mockRejectedValue(offlineError());
+    const list = await repo.listDeals();
+    expect(list.deals.map((d) => d.name)).toEqual(["Lot"]);
+    expect(list.notice).toBe(NOTICE);
   });
 
   it("reports a throwing getItem once", () => {

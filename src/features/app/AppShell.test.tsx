@@ -288,6 +288,21 @@ describe("app shell in hosted mode", () => {
     expect(screen.queryByText(/waiting to sync/)).not.toBeInTheDocument();
   });
 
+  it("names each deal whose edit the server refused, linked to it, in the same status region as the waiting count", () => {
+    const view = renderHosted("#/deals", hosted(0));
+    const status = within(screen.getByRole("banner")).getByRole("status");
+    const maple = { dealId: "22222222-2222-4222-8222-222222222222", dealName: "Maple Street", problem: "conflict" as const };
+    const oak = { dealId: "33333333-3333-4333-8333-333333333333", dealName: "Oak Hollow", problem: "deleted" as const };
+    view.rerender(<App hosted={{ ...hosted(1), syncNote: <SyncNote count={1} refused={[maple]} /> }} />);
+    expect(status).toHaveTextContent("1 deal needs your choice: Maple Street");
+    expect(status).toHaveTextContent("1 change waiting to sync");
+    expect(within(status).getByRole("link", { name: "Maple Street" })).toHaveAttribute("href", `#/deals/${maple.dealId}/lot`);
+
+    view.rerender(<App hosted={{ ...hosted(0), syncNote: <SyncNote count={0} refused={[maple, oak]} /> }} />);
+    expect(status).toHaveTextContent(/^2 deals need your choice: Maple Street, Oak Hollow$/);
+    expect(within(status).getByRole("link", { name: "Oak Hollow" })).toHaveAttribute("href", `#/deals/${oak.dealId}/lot`);
+  });
+
   it("passes the waiting count to the account menu, which asks before signing out", async () => {
     const user = userEvent.setup();
     const signOut = vi.fn(async () => true);

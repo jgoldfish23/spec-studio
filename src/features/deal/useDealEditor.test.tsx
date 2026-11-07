@@ -1536,3 +1536,108 @@ describe("useDealEditor closing the page with an outbox", () => {
     expect(queue).not.toHaveBeenCalled();
   });
 });
+
+describe("useDealEditor on a deal opened with an edit waiting in the outbox (an offline reload)", () => {
+  const offlineError = () => new DataError("Can't reach the server — check your connection.", { kind: "offline" });
+
+  /** The hosted app after a reload: an outbox in front of a server whose saves fail while `network.down`. */
+  async function reloaded() {
+    const network = { down: false };
+    let outbox!: OfflineRepository;
+    const s = await setup({}, (remote) => {
+      const reached: Repository = {
+        ...remote,
+        saveDeal: async (deal, options) => {
+          if (network.down) throw offlineError();
+          return remote.saveDeal(deal, options);
+        },
+      };
+      return (outbox = createOfflineRepository(reached, new MemoryStorage(), "u"));
+    });
+    return { s, outbox, network };
+  }
+
+  /** An edit of the deal that the server refused when the outbox sent it: the deal changed, or went, elsewhere. */
+  async function refused(problem: "conflict" | "deleted") {
+    const world = await reloaded();
+    const { s, outbox } = world;
+    outbox.queue({ ...s.first, name: "Mine", inputs: { ...s.first.inputs, contingencyPct: 0.03 } });
+    await advance(5);
+    const elsewhere = createLocalRepository(s.storage);
+    if (problem === "conflict") await elsewhere.saveDeal({ ...s.first, name: "Theirs" });
+    else await elsewhere.deleteDeal(s.first.id);
+    await act(async () => {
+      await outbox.syncNow();
+    });
+    expect(outbox.pending()).toEqual([expect.objectContaining({ dealId: s.first.id, problem })]);
+    return world;
+  }
+
+  it("says the edit waits on the device while offline, and Saved once it has synced", async () => {
+    const { s, outbox, network } = await reloaded();
+    network.down = true;
+    outbox.queue({ ...s.first, name: "Renamed on site" });
+    const view = await ready(s);
+    expect(view.result.current.deal?.name).toBe("Renamed on site");
+    await advance(1000);
+    expect(view.result.current.saveStatus).toMatchObject({ kind: "error", reason: "offline" });
+
+    network.down = false;
+    await act(async () => {
+      await outbox.syncNow();
+    });
+    await advance(5000);
+    expect(view.result.current.saveStatus).toEqual({ kind: "saved" });
+    expect((await s.storedDeal(s.first.id))?.name).toBe("Renamed on site");
+    expect(outbox.pending()).toEqual([]);
+  });
+
+  it("offers the choice for an edit refused as a conflict, and Keep mine lands", async () => {
+    const { s, outbox } = await refused("conflict");
+    const view = await ready(s);
+    expect(view.result.current.deal?.name).toBe("Mine");
+    await advance(1000);
+    expect(view.result.current.saveStatus).toMatchObject({ kind: "error", reason: "conflict" });
+
+    act(() => view.result.current.keepMine());
+    await advance(50);
+    expect(view.result.current.saveStatus).toEqual({ kind: "saved" });
+    const stored = await s.storedDeal(s.first.id);
+    expect(stored?.name).toBe("Mine");
+    expect(stored?.inputs.contingencyPct).toBe(0.03);
+    expect(outbox.pending()).toEqual([]);
+  });
+
+  it("offers the choice for an edit refused as a conflict, and Load their version loads theirs", async () => {
+    const { s, outbox } = await refused("conflict");
+    const view = await ready(s);
+    await advance(1000);
+    expect(view.result.current.saveStatus).toMatchObject({ kind: "error", reason: "conflict" });
+
+    await act(async () => {
+      await view.result.current.loadTheirs();
+    });
+    expect(view.result.current.deal?.name).toBe("Theirs");
+    expect(view.result.current.saveStatus).toEqual({ kind: "saved" });
+    expect(outbox.pending()).toEqual([]);
+    await advance(30_000);
+    expect((await s.storedDeal(s.first.id))?.name).toBe("Theirs");
+  });
+
+  it("offers Save as a new deal for an edit refused because the deal was deleted", async () => {
+    const { s, outbox } = await refused("deleted");
+    const view = await ready(s);
+    expect(view.result.current.status).toBe("ready");
+    await advance(1000);
+    expect(view.result.current.saveStatus).toMatchObject({ kind: "error", reason: "deleted" });
+
+    let newId = "";
+    await act(async () => {
+      newId = await view.result.current.saveAsNewDeal();
+    });
+    const created = await s.storedDeal(newId);
+    expect(created?.name).toBe("Mine");
+    expect(created?.inputs.contingencyPct).toBe(0.03);
+    expect(outbox.pending()).toEqual([]);
+  });
+});

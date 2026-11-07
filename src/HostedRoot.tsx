@@ -447,7 +447,7 @@ function SignedInApp({
       ),
     [repository, queryClient],
   );
-  const { pendingCount } = useOutboxSync(repository);
+  const { pendingCount, refused } = useOutboxSync(repository);
   const [signOutFailed, setSignOutFailed] = useState(false);
   const signOut = useCallback(async () => {
     setSignOutFailed(false);
@@ -468,13 +468,14 @@ function SignedInApp({
         <AccountMenu
           user={user}
           pendingCount={pendingCount}
+          refused={refused.map((save) => save.dealName)}
           onSignOut={() => void leave()}
         />
       ),
-      syncNote: <SyncNote count={pendingCount} />,
+      syncNote: <SyncNote count={pendingCount} refused={refused} />,
       signOut,
     }),
-    [user, pendingCount, signOut, leave],
+    [user, pendingCount, refused, signOut, leave],
   );
   return (
     <RepositoryProvider repository={repository}>

@@ -1,21 +1,36 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
 } from "react";
-import type { OfflineRepository } from "./offlineRepository";
+import type { OfflineRepository, PendingSave } from "./offlineRepository";
 
 /** How often edits waiting on this device are tried again while any wait. */
 export const SYNC_INTERVAL_MS = 30_000;
 
+/** A deal whose waiting edit the server refused: it changed or went elsewhere, and the owner must choose. */
+export type RefusedSave = Required<Pick<PendingSave, "dealId" | "dealName" | "problem">>;
+
 export interface OutboxSync {
-  /** Edits saved on this device that have not reached the server. */
+  /** Edits saved on this device that a sync can still send: not the ones the server refused. */
   pendingCount: number;
+  /** The deals whose edit the server refused, oldest first. A sync never sends them again by itself. */
+  refused: RefusedSave[];
   /** True while a sync run is sending them. */
   syncing: boolean;
 }
+
+/** The refused edits as one string, so the store's snapshot is the same value until they change. */
+const refusedOf = (repo: OfflineRepository): string =>
+  JSON.stringify(
+    repo
+      .pending()
+      .filter((save) => save.problem !== undefined)
+      .map(({ dealId, dealName, problem }) => ({ dealId, dealName, problem })),
+  );
 
 /** The sync runs one hook has started and not yet seen finish, as a store `useSyncExternalStore` can follow. */
 function createRunCount() {
@@ -40,13 +55,21 @@ function createRunCount() {
 
 /**
  * Sends the edits waiting in `repo`'s outbox: once on mount, again whenever the browser says it is back online, and
- * every 30 s while any are waiting (one interval, cleared when none wait and on unmount). The outbox has no timers of
- * its own; this is where they live.
+ * every 30 s while any a sync can send are waiting (one interval, cleared when none wait and on unmount). An edit the
+ * server refused is not polled for: it waits for the owner's choice, and is listed in `refused`. The outbox has no
+ * timers of its own; this is where they live.
  */
 export function useOutboxSync(repo: OfflineRepository): OutboxSync {
   const pendingCount = useSyncExternalStore(
     repo.subscribe,
-    () => repo.pending().length,
+    () => repo.pending().filter((save) => save.problem === undefined).length,
+  );
+  const refusedText = useSyncExternalStore(repo.subscribe, () =>
+    refusedOf(repo),
+  );
+  const refused = useMemo(
+    () => JSON.parse(refusedText) as RefusedSave[],
+    [refusedText],
   );
   const [runs] = useState(createRunCount);
   const syncing = useSyncExternalStore(runs.subscribe, runs.get) > 0;
@@ -75,5 +98,5 @@ export function useOutboxSync(repo: OfflineRepository): OutboxSync {
     return () => clearInterval(timer);
   }, [waiting, sync]);
 
-  return { pendingCount, syncing };
+  return { pendingCount, refused, syncing };
 }
