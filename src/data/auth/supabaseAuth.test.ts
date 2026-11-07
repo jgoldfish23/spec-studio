@@ -211,6 +211,8 @@ describe("startup with a stored session the server can't refresh", () => {
 
   it("is offline for currentUser, and listeners hear nothing, so the app does not show a false sign-out", async () => {
     vi.useFakeTimers();
+    // auth-js warns about each failed background refresh itself; that is its output, not ours.
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
     const storage = new MemoryStorage();
     const expired = {
       ...sessionBody,
@@ -230,6 +232,11 @@ describe("startup with a stored session the server can't refresh", () => {
     expect(seen).toEqual([]);
     // The session stays stored, for when the network is back.
     expect(storage.getItem("sb-test-auth-token")).not.toBeNull();
+    // Whatever auth-js warned about was the failed refresh, nothing else.
+    for (const [warning] of warned.mock.calls) {
+      expect(warning).toMatchObject({ name: "AuthRetryableFetchError" });
+    }
+    warned.mockRestore();
   });
 });
 
