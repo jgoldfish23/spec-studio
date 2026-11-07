@@ -899,8 +899,38 @@ describe("HostedGate starting on one bar", () => {
     memory.rememberOwner(ANA);
     memory.rememberCompany(ANA.id, ANA_CO);
     createDeviceCopy(world.device, ANA.id).putDealList([maple]);
+    return maple;
   }
   const never = () => new Promise<never>(() => {});
+
+  it("shows the device's list at once when the browser says it is offline, then the server's when it answers", async () => {
+    const world = createWorld({ user: ANA, companies: [[ANA, ANA_CO]] });
+    const maple = await remembered(world);
+    const server = world.server(ANA_CO.id);
+    await server.saveDeal({ ...maple, name: "Maple Street, renamed elsewhere" });
+    // The server answers only when the test says so: one bar, or none.
+    let answer!: () => void;
+    const answered = new Promise<void>((resolve) => (answer = resolve));
+    const list = server.listDeals.bind(server);
+    vi.spyOn(server, "listDeals").mockImplementation(async () => {
+      await answered;
+      return list();
+    });
+    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    world.mount();
+    expect(
+      await screen.findByText("Maple Street", undefined, { timeout: 3000 }),
+    ).toBeVisible();
+    const notice =
+      "Showing what's saved on this device — can't reach the server.";
+    expect(screen.getByText(notice)).toBeVisible();
+
+    await act(async () => answer());
+    expect(
+      await screen.findByText("Maple Street, renamed elsewhere"),
+    ).toBeVisible();
+    expect(screen.queryByText(notice)).not.toBeInTheDocument();
+  });
 
   it("opens a remembered owner from the device after 5 s, and never shows the 15 s can't-reach screen", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });

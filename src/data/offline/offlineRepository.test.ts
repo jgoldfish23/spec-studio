@@ -6,7 +6,7 @@ import { createLocalRepository } from "../local/localRepository";
 import { MemoryStorage } from "../local/memoryStorage";
 import { DataError } from "../types";
 import type { DataErrorKind, DealListResult, Repository, StoredDeal } from "../types";
-import { createOfflineRepository, isOfflineRepository } from "./offlineRepository";
+import { createOfflineRepository, isOfflineRepository, READ_GRACE_MS } from "./offlineRepository";
 
 const SCOPE = "user-a";
 const KEY = `spec-studio:outbox:${SCOPE}`;
@@ -897,5 +897,168 @@ describe("the device copy of reads", () => {
       "user-b",
     );
     await expect(other.listDeals()).rejects.toMatchObject({ kind: "offline" });
+  });
+});
+
+describe("reads while the server is slow or the browser is offline", () => {
+  const REGION = "utah-north";
+
+  /** A server whose reads wait until the test answers them, over a device that already holds a copy of them. */
+  async function slowServer() {
+    const server = createLocalRepository(new MemoryStorage());
+    for (const comp of testSampleComps()) await server.saveComp(comp);
+    const maple = await server.createDeal({ name: "Maple Street", inputs: sampleDealInputs() });
+    const device = new MemoryStorage();
+    const outbox = createOfflineRepository(server, device, SCOPE);
+    // Read once online, so the device holds a copy of each.
+    await outbox.listDeals();
+    await outbox.getDeal(maple.id);
+    await outbox.listComps(REGION);
+    const gates: (() => void)[] = [];
+    const hold = <K extends keyof Repository>(method: K) => {
+      const real = (server[method] as (...args: unknown[]) => Promise<unknown>).bind(server);
+      vi.spyOn(server, method).mockImplementation((async (...args: unknown[]) => {
+        await new Promise<void>((resolve) => gates.push(resolve));
+        return real(...args);
+      }) as never);
+    };
+    const answer = async () => {
+      for (const open of gates.splice(0)) open();
+      for (let turn = 0; turn < 5; turn += 1) await vi.advanceTimersByTimeAsync(0);
+    };
+    return { server, device, outbox, maple, hold, answer };
+  }
+
+  /** The browser reports no network (`navigator.onLine` is false). These tests run in Node, which has no such flag. */
+  const browserSaysOffline = () => vi.stubGlobal("navigator", { onLine: false });
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("answers from the copy once the grace is up, then keeps the server's late answer and tells its listeners", async () => {
+    const { server, outbox, maple, hold, answer } = await slowServer();
+    await server.saveDeal({ ...maple, name: "Maple Street, renamed elsewhere" });
+    hold("listDeals");
+    const heard = vi.fn();
+    outbox.onRefreshed(heard);
+    let list: DealListResult | undefined;
+    void outbox.listDeals().then((answered) => (list = answered));
+
+    await vi.advanceTimersByTimeAsync(READ_GRACE_MS - 1);
+    expect(list).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(list?.deals.map((d) => d.name)).toEqual(["Maple Street"]);
+    expect(list?.notice).toBe(NOTICE);
+    expect(heard).not.toHaveBeenCalled();
+
+    await answer();
+    expect(heard).toHaveBeenCalledTimes(1);
+    const refreshed = heard.mock.calls[0]?.[0] as { read: string; value: DealListResult };
+    expect(refreshed.read).toBe("deals");
+    expect(refreshed.value.deals.map((d) => d.name)).toEqual(["Maple Street, renamed elsewhere"]);
+    expect(refreshed.value.notice).toBeUndefined();
+    // The copy now holds the server's answer.
+    vi.mocked(server.listDeals).mockRejectedValue(offlineError());
+    expect((await outbox.listDeals()).deals.map((d) => d.name)).toEqual(["Maple Street, renamed elsewhere"]);
+  });
+
+  it("answers from the copy at once when the browser says it is offline, and still lets the server read finish", async () => {
+    const { outbox, maple, hold, answer } = await slowServer();
+    hold("listComps");
+    hold("getDeal");
+    browserSaysOffline();
+    const heard = vi.fn();
+    outbox.onRefreshed(heard);
+    let comps: unknown;
+    let found: StoredDeal | null | undefined;
+    void outbox.listComps(REGION).then((answered) => (comps = answered));
+    void outbox.getDeal(maple.id).then((answered) => (found = answered));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(comps).toHaveLength(testSampleComps().length);
+    expect(found?.name).toBe("Maple Street");
+
+    await answer();
+    expect(heard.mock.calls.map(([refreshed]) => (refreshed as { read: string }).read).sort()).toEqual(["comps", "deal"]);
+    expect(heard.mock.calls.find(([r]) => (r as { read: string }).read === "comps")?.[0]).toMatchObject({ region: REGION });
+    expect(heard.mock.calls.find(([r]) => (r as { read: string }).read === "deal")?.[0]).toMatchObject({ id: maple.id });
+  });
+
+  it("with no copy, waits for the server however long it takes", async () => {
+    const { outbox, hold, answer } = await slowServer();
+    hold("getMarketSettings");
+    browserSaysOffline();
+    let settings: unknown;
+    void outbox.getMarketSettings(REGION).then((answered) => (settings = answered));
+    await vi.advanceTimersByTimeAsync(10 * READ_GRACE_MS);
+    expect(settings).toBeUndefined();
+    await answer();
+    expect(settings).toMatchObject({ region: REGION });
+  });
+
+  it("takes a server answer that comes within the grace, tells no one, and leaves no timer", async () => {
+    const { outbox, maple } = await slowServer();
+    const heard = vi.fn();
+    outbox.onRefreshed(heard);
+    const timers = vi.getTimerCount();
+    expect((await outbox.getDeal(maple.id))?.name).toBe("Maple Street");
+    expect((await outbox.listDeals()).notice).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(READ_GRACE_MS);
+    expect(heard).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(timers);
+  });
+
+  it("never races a read from the server only (Load their version)", async () => {
+    const { outbox, maple, hold, answer } = await slowServer();
+    hold("getDeal");
+    browserSaysOffline();
+    let found: StoredDeal | null | undefined;
+    void outbox.getDeal(maple.id, { fromServer: true }).then((answered) => (found = answered));
+    await vi.advanceTimersByTimeAsync(10 * READ_GRACE_MS);
+    expect(found).toBeUndefined();
+    await answer();
+    expect(found?.id).toBe(maple.id);
+  });
+
+  it("tells no one of a late list when the copy was written meanwhile: that write is newer", async () => {
+    const { outbox, hold, answer } = await slowServer();
+    hold("listDeals");
+    browserSaysOffline();
+    const heard = vi.fn();
+    outbox.onRefreshed(heard);
+    await outbox.listDeals();
+    const created = await outbox.createDeal({ name: "Made meanwhile", inputs: sampleDealInputs() });
+    await answer();
+    expect(heard).not.toHaveBeenCalled();
+    browserSaysOffline();
+    expect((await outbox.listDeals()).deals.map((d) => d.id)).toContain(created.id);
+  });
+
+  it("tells no one of a late deal that has an edit waiting: the outbox's copy is the owner's", async () => {
+    const { outbox, maple, hold, answer } = await slowServer();
+    hold("getDeal");
+    browserSaysOffline();
+    const heard = vi.fn();
+    outbox.onRefreshed(heard);
+    await outbox.getDeal(maple.id);
+    outbox.queue({ ...maple, name: "Edited meanwhile" });
+    await answer();
+    expect(heard).not.toHaveBeenCalled();
+  });
+
+  it("tells no one when the late answer is that the deal is gone: the owner's open copy is left to the save to settle", async () => {
+    const { server, outbox, maple, hold, answer } = await slowServer();
+    await server.deleteDeal(maple.id);
+    hold("getDeal");
+    browserSaysOffline();
+    const heard = vi.fn();
+    outbox.onRefreshed(heard);
+    expect((await outbox.getDeal(maple.id))?.name).toBe("Maple Street");
+    await answer();
+    expect(heard).not.toHaveBeenCalled();
   });
 });

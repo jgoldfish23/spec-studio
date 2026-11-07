@@ -2,9 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthError } from "../auth/authGateway";
 import { MemoryStorage } from "../local/memoryStorage";
 import { createSupabaseAuth } from "../auth/supabaseAuth";
-import { createOfflineRepository } from "../offline/offlineRepository";
+import { createDeviceCopy } from "../offline/deviceCopy";
+import {
+  createOfflineRepository,
+  READ_GRACE_MS,
+} from "../offline/offlineRepository";
 import { sampleDealInputs } from "../sample";
 import { DataError } from "../types";
+import type { Repository } from "../types";
 import { createSupabaseCompany } from "../auth/supabaseCompany";
 import {
   createSupabase,
@@ -15,8 +20,16 @@ import {
 import { dealToRow } from "./mappers";
 import { createSupabaseRepository } from "./supabaseRepository";
 
-/** Stores a signed-in session the way supabase-js keeps one, so the client starts signed in without a request. */
-function seedSession(storage: Storage, url: string, token = "user-jwt") {
+/**
+ * Stores a signed-in session the way supabase-js keeps one, so the client starts signed in without a request. With
+ * `expiresIn` below zero, the access token has expired: the client must refresh it before any data request.
+ */
+function seedSession(
+  storage: Storage,
+  url: string,
+  token = "user-jwt",
+  expiresIn = 3600,
+) {
   const ref = new URL(url).hostname.split(".")[0];
   storage.setItem(
     `sb-${ref}-auth-token`,
@@ -25,7 +38,7 @@ function seedSession(storage: Storage, url: string, token = "user-jwt") {
       refresh_token: "refresh",
       token_type: "bearer",
       expires_in: 3600,
-      expires_at: Math.floor(Date.now() / 1000) + 3600,
+      expires_at: Math.floor(Date.now() / 1000) + expiresIn,
       user: { id: "user-a", aud: "authenticated", email: "pat@example.com" },
     }),
   );
@@ -188,6 +201,86 @@ describe("the time limit on each request", () => {
     const before = vi.getTimerCount();
     await repository.listDeals();
     expect(vi.getTimerCount()).toBe(before);
+  });
+
+  it("fails a data read that gets no answer as offline at once, without postgrest-js's three retries", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const storage = new MemoryStorage();
+    seedSession(storage, "http://no-bars.test");
+    const client = createSupabase(
+      { url: "http://no-bars.test", anonKey: "anon" },
+      storage,
+      () => {
+        calls += 1;
+        return Promise.reject(new TypeError("Failed to fetch"));
+      },
+    );
+    let reason: unknown;
+    void createSupabaseRepository(client, COMPANY)
+      .listDeals()
+      .catch((error: unknown) => (reason = error));
+    // postgrest-js would wait 1, 2 and 4 s between tries of a GET whose fetch rejected.
+    await vi.advanceTimersByTimeAsync(100);
+    expect(reason).toBeInstanceOf(DataError);
+    expect((reason as DataError).kind).toBe("offline");
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(calls).toBe(1);
+  });
+
+  it("still retries a read the server answered with a 503", async () => {
+    vi.useFakeTimers();
+    const answers = [503, 200];
+    const storage = new MemoryStorage();
+    seedSession(storage, "http://busy.test");
+    const client = createSupabase(
+      { url: "http://busy.test", anonKey: "anon" },
+      storage,
+      () =>
+        Promise.resolve(
+          answers.shift() === 503
+            ? new Response("{}", { status: 503 })
+            : new Response(JSON.stringify([dealToRow(DEAL, COMPANY)]), {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              }),
+        ),
+    );
+    let list: Awaited<ReturnType<Repository["listDeals"]>> | undefined;
+    void createSupabaseRepository(client, COMPANY)
+      .listDeals()
+      .then((answer) => (list = answer));
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(answers).toEqual([]);
+    expect(list?.deals.map((d) => d.name)).toEqual(["Maple Street"]);
+  });
+
+  it("with an expired session and no connection, a list read answers from the device copy within the grace", async () => {
+    vi.useFakeTimers();
+    // auth-js warns about each refresh it could not make; that is its output, not ours.
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const device = new MemoryStorage();
+    // The next morning on the job site: the access token expired overnight, and there is one bar or none.
+    seedSession(device, "http://next-morning.test", "user-jwt", -3600);
+    createDeviceCopy(device, "user-a").putDealList([DEAL]);
+    const client = createSupabase(
+      { url: "http://next-morning.test", anonKey: "anon" },
+      device,
+      () => Promise.reject(new TypeError("Failed to fetch")),
+    );
+    const outbox = createOfflineRepository(
+      createSupabaseRepository(client, COMPANY),
+      device,
+      "user-a",
+    );
+    let list: Awaited<ReturnType<typeof outbox.listDeals>> | undefined;
+    void outbox.listDeals().then((answer) => (list = answer));
+    // auth-js tries the refresh again and again for most of 30 s before any data request goes out.
+    await vi.advanceTimersByTimeAsync(READ_GRACE_MS);
+    expect(list?.deals.map((d) => d.name)).toEqual(["Maple Street"]);
+    expect(list?.notice).toBe(
+      "Showing what's saved on this device — can't reach the server.",
+    );
   });
 
   it("still lets the caller's own signal abort a request", async () => {

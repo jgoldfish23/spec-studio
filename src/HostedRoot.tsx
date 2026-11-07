@@ -1,4 +1,5 @@
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
+import type { QueryKey } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { App } from "./App";
 import type { HostedConfig } from "./config";
@@ -12,7 +13,9 @@ import type { OwnerMemory } from "./data/auth/rememberedOwner";
 import { createSupabaseAuth } from "./data/auth/supabaseAuth";
 import { createSupabaseCompany } from "./data/auth/supabaseCompany";
 import { createOfflineRepository } from "./data/offline/offlineRepository";
+import type { Refreshed } from "./data/offline/offlineRepository";
 import { useOutboxSync } from "./data/offline/useOutboxSync";
+import { queryKeys } from "./data/queries";
 import { createQueryClient } from "./data/queryClient";
 import { RepositoryProvider } from "./data/RepositoryProvider";
 import { guardSession } from "./data/sessionGuard";
@@ -383,6 +386,24 @@ async function endSession(auth: AuthGateway): Promise<boolean> {
   }
 }
 
+/** The query a refreshed read answers. */
+function refreshedKey(refreshed: Refreshed): QueryKey {
+  switch (refreshed.read) {
+    case "deals":
+      return queryKeys.deals;
+    case "deal":
+      return queryKeys.deal(refreshed.id);
+    case "comps":
+      return queryKeys.comps(refreshed.region);
+    case "costBook":
+      return queryKeys.costBook(refreshed.region);
+    case "marketSettings":
+      return queryKeys.marketSettings(refreshed.region);
+    case "companySettings":
+      return queryKeys.companySettings;
+  }
+}
+
 /** The app for one owner and company: their outbox in front of the company's data, kept syncing. */
 function SignedInApp({
   user,
@@ -414,6 +435,17 @@ function SignedInApp({
         repository.stopDeviceCopy();
       }),
     [auth, user.id, end, repository],
+  );
+  // A screen opened from the device's copy (one bar, or no network) shows the server's answer when it comes. The answer
+  // is put in place rather than read again: on a connection slower than the grace, a new read would be answered from
+  // the copy again, and so on for ever.
+  const queryClient = useQueryClient();
+  useEffect(
+    () =>
+      repository.onRefreshed((refreshed) =>
+        queryClient.setQueryData(refreshedKey(refreshed), refreshed.value),
+      ),
+    [repository, queryClient],
   );
   const { pendingCount } = useOutboxSync(repository);
   const [signOutFailed, setSignOutFailed] = useState(false);

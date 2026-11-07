@@ -29,11 +29,6 @@ const SYNC_NOTE = "1 change waiting to sync";
 const CONFLICT = "This deal was changed on another device or tab.";
 const OTHER_BROWSER =
   "This link was opened in a different browser than the one that asked for it. Type the 6-digit code from the same email instead.";
-/**
- * Offline, each read of the server is tried three more times (1, 2 and 4 s apart, supabase-js's retry of a failed
- * GET) before the app falls back to this device's copy, so a page opened offline takes about 7 s to draw.
- */
-const OFFLINE_READS_MS = 20_000;
 
 /** Errors the page logs or throws, for a spec in which nothing should go wrong. */
 function collectProblems(page: Page): string[] {
@@ -165,9 +160,10 @@ test("an edit made offline waits on the device, survives a reload, and syncs whe
   await expect(page.getByText(SYNC_NOTE)).toBeVisible();
   expect(lotPriceOf(fake.deal(id))).toBe(before);
 
-  // Reloaded with no connection: the deal opens from the outbox, with the edit, and it still waits.
+  // Reloaded with no connection: the deal opens from the outbox, with the edit, and it still waits. A read that gets no
+  // answer fails at once (it is not tried again), so the page draws from the device within the usual wait.
   await page.reload();
-  await expect(page.getByLabel("Lot price")).toHaveValue("398,000", { timeout: OFFLINE_READS_MS });
+  await expect(page.getByLabel("Lot price")).toHaveValue("398,000");
   await expect(page.getByText(SYNC_NOTE)).toBeVisible();
   expect(lotPriceOf(fake.deal(id))).toBe(before);
 

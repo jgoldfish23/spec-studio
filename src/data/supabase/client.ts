@@ -30,6 +30,38 @@ export function withTimeout(
   };
 }
 
+/** Whether a request is a data request: PostgREST, a table or an `rpc`, under `/rest/v1/`. */
+function isDataRequest(input: Parameters<typeof fetch>[0]): boolean {
+  const path = new URL(
+    input instanceof Request ? input.url : String(input),
+    "http://localhost",
+  ).pathname;
+  return path.includes("/rest/v1/");
+}
+
+/**
+ * `fetchImpl` for which a data request (`/rest/v1/`) that got no answer at all fails as an `AbortError`. The browser
+ * rejects such a fetch with a `TypeError`, and postgrest-js tries a read again three times, 1, 2 and 4 s apart: about
+ * 7 s on every screen before the app hears it is offline and opens the device's copy. An `AbortError` is never retried
+ * and reads as offline at once (postgrest-js reports status 0). An answer the server did give is untouched, so a 503 or
+ * 520 is still retried; so is everything outside `/rest/v1/` (sign-in keeps auth-js's own handling).
+ */
+export function withFastOffline(fetchImpl: typeof fetch): typeof fetch {
+  return (input, init) => {
+    const request = fetchImpl(input, init);
+    if (!isDataRequest(input)) return request;
+    return request.catch((error: unknown) => {
+      if (error instanceof TypeError) {
+        throw new DOMException(
+          "No answer from the server for a data request.",
+          "AbortError",
+        );
+      }
+      throw error;
+    });
+  };
+}
+
 /**
  * `fetchImpl` that never sends a data request (PostgREST: a table or an `rpc`, under `/rest/v1/`) as the anon key.
  * When `auth.getSession()` has no session (a refresh that failed on a flaky connection), supabase-js falls back to the
@@ -46,11 +78,7 @@ export function withSignedInData(
 ): typeof fetch {
   const anonBearer = `Bearer ${anonKey}`;
   return (input, init) => {
-    const path = new URL(
-      input instanceof Request ? input.url : String(input),
-      "http://localhost",
-    ).pathname;
-    if (path.includes("/rest/v1/")) {
+    if (isDataRequest(input)) {
       const headers = new Headers(
         init?.headers ?? (input instanceof Request ? input.headers : undefined),
       );
@@ -85,11 +113,14 @@ export function createSupabase(
       detectSessionInUrl: false,
       storage,
     },
-    // Every request is time-limited, so a connection that never answers reads as offline; a data request with no
+    // Every request is time-limited, so a connection that never answers reads as offline; a data request that gets
+    // no answer fails at once rather than being tried again for 7 s (`withFastOffline`); and a data request with no
     // signed-in session is refused the same way (see `withSignedInData`).
     global: {
       fetch: withSignedInData(
-        withTimeout(fetchOverride ?? ((input, init) => fetch(input, init))),
+        withFastOffline(
+          withTimeout(fetchOverride ?? ((input, init) => fetch(input, init))),
+        ),
         config.anonKey,
       ),
     },

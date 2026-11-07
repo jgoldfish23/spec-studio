@@ -1,6 +1,23 @@
+import type { Comp, CostBookView, MarketSettings } from "@engine";
 import { DataError } from "../types";
-import type { DealListResult, Repository, StoredDeal } from "../types";
+import type { CompanySettings, DealListResult, Repository, StoredDeal } from "../types";
 import { createDeviceCopy } from "./deviceCopy";
+
+/**
+ * How long a read waits for the server when the device holds a copy to show instead. One bar, or a session auth-js is
+ * still trying to renew offline (up to 30 s), must not leave the owner looking at a blank screen: after this the copy
+ * is shown, and the server's answer, if it comes, replaces it (`onRefreshed`).
+ */
+export const READ_GRACE_MS = 3_000;
+
+/** A read that was answered from the device's copy, then got the server's answer after all. */
+export type Refreshed =
+  | { read: "deals"; value: DealListResult }
+  | { read: "deal"; id: string; value: StoredDeal }
+  | { read: "comps"; region: string; value: Comp[] }
+  | { read: "costBook"; region: string; value: CostBookView }
+  | { read: "marketSettings"; region: string; value: MarketSettings }
+  | { read: "companySettings"; value: CompanySettings };
 
 /** One deal waiting on this device to reach the server. `problem` is set when the server refused it. */
 export interface PendingSave {
@@ -38,6 +55,11 @@ export interface OfflineRepository extends Repository {
   forgetDeviceCopy(): void;
   /** The owner's session ended: the copy stays as it is, and a read still on its way adds nothing to it. */
   stopDeviceCopy(): void;
+  /**
+   * Calls `listener` with the server's answer to a read that was answered from the device's copy (the server was slow,
+   * or the browser said it was offline), so the screens can show it. Returns the unsubscribe.
+   */
+  onRefreshed(listener: (refreshed: Refreshed) => void): () => void;
 }
 
 export function isOfflineRepository(repository: Repository): repository is OfflineRepository {
@@ -85,6 +107,12 @@ const isEntry = (value: unknown): value is Entry => {
 
 const isOffline = (error: unknown): boolean => error instanceof DataError && error.kind === "offline";
 
+/** The browser says it has no network at all. Its "online" means less: a network, not a server that answers. */
+const browserOffline = (): boolean => globalThis.navigator?.onLine === false;
+
+/** Makes the request now; a request that throws as it starts is a rejected promise like any other failure. */
+const ask = <T>(request: () => Promise<T>): Promise<T> => new Promise<T>((resolve) => resolve(request()));
+
 /** A write refused because the store is full, as each browser says it. */
 const isQuotaError = (error: unknown): boolean =>
   error instanceof DOMException &&
@@ -98,13 +126,16 @@ const isQuotaError = (error: unknown): boolean =>
  * best effort: if the browser refuses the write, the save still goes to the server.
  *
  * It also keeps a device copy of the owner's reads (`deviceCopy.ts`): each successful read, and what each successful
- * write returns, is kept, and served only when the server can't be reached (`DataError` `offline`), so a returning
- * owner can open the app, a deal and its figures offline. Any other failure throws as before. For deals the outbox
+ * write returns, is kept, so a returning owner can open the app, a deal and its figures offline. The copy answers a
+ * read when the server can't be reached (`DataError` `offline`), at once when the browser says it is offline, and when
+ * the server has not answered within `READ_GRACE_MS`. Any other failure throws as before. A read the copy answered
+ * still goes on: when the server answers, the copy keeps it and `onRefreshed` listeners hear it. For deals the outbox
  * still wins: an outbox copy overlays the copied deal and its row in the list.
  */
 export function createOfflineRepository(remote: Repository, storage: Storage, scope: string): OfflineRepository {
   const key = `spec-studio:outbox:${scope}`;
   const listeners = new Set<() => void>();
+  const refreshListeners = new Set<(refreshed: Refreshed) => void>();
   let reportedUnreadable = false;
   let reportedWrite = false;
   // The device copy reports its own refused writes, once, apart from the outbox's.
@@ -186,6 +217,19 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
     }
   }
 
+  function refreshed(value: Refreshed): void {
+    for (const listener of [...refreshListeners]) {
+      try {
+        listener(value);
+      } catch (error) {
+        if (!reportedListener) {
+          reportedListener = true;
+          console.error("An offline outbox listener threw.", error);
+        }
+      }
+    }
+  }
+
   /** Applies `change` to the stored entries and writes them back. */
   function update(change: (entries: Entry[]) => Entry[]): void {
     write(change(read()));
@@ -239,26 +283,66 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
   }
 
   /**
-   * Reads from the server and keeps what it says, unless the copy (`name`) was written while the read was out: that is
-   * newer. When the server can't be reached, the copy answers if there is one.
+   * The server's answer, or the device's (`copied`, undefined when there is none) when the server can't be reached,
+   * when the browser says it is offline, or when the server has not answered within `READ_GRACE_MS`. A server answer
+   * that comes after the copy answered goes to `late`.
    */
-  async function readThrough<T>(
+  function raced<T>(server: Promise<T>, copied: () => T | undefined, late: (value: T) => void): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      let answered = false;
+      let grace: ReturnType<typeof setTimeout> | undefined;
+      const fromCopy = (): boolean => {
+        const value = copied();
+        if (value === undefined) return false;
+        answered = true;
+        resolve(value);
+        return true;
+      };
+      server.then(
+        (value) => {
+          clearTimeout(grace);
+          if (answered) return late(value);
+          answered = true;
+          resolve(value);
+        },
+        (error: unknown) => {
+          clearTimeout(grace);
+          if (answered || (isOffline(error) && fromCopy())) return;
+          answered = true;
+          reject(error);
+        },
+      );
+      // With no copy, the read waits for the server however long it takes: there is nothing else to show.
+      if (browserOffline()) fromCopy();
+      else grace = setTimeout(() => void (answered || fromCopy()), READ_GRACE_MS);
+    });
+  }
+
+  /**
+   * Reads from the server and keeps what it says, unless the copy (`name`) was written while the read was out: that is
+   * newer. The copy answers instead as `raced` says; a late answer it keeps is passed on as `refresh` makes it.
+   */
+  function readThrough<T>(
     name: string,
     read: () => Promise<T>,
     keep: (value: T) => void,
     copied: () => T | null,
+    refresh: (value: T) => Refreshed,
   ): Promise<T> {
     const current = copy.since(name);
-    let value: T;
-    try {
-      value = await read();
-    } catch (error) {
-      const fallback = isOffline(error) ? copied() : null;
-      if (fallback !== null) return fallback;
-      throw error;
-    }
-    if (current()) keep(value);
-    return value;
+    let fresh = false;
+    const server = ask(read).then((value) => {
+      fresh = current();
+      if (fresh) keep(value);
+      return value;
+    });
+    return raced(
+      server,
+      () => copied() ?? undefined,
+      (value) => {
+        if (fresh) refreshed(refresh(value));
+      },
+    );
   }
 
   /** Writes the deal's entry, replacing any older one. Synchronous, so a closing page keeps the edit. */
@@ -369,42 +453,55 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
     },
     forgetDeviceCopy: () => copy.forget(),
     stopDeviceCopy: () => copy.stop(),
+    onRefreshed(listener) {
+      refreshListeners.add(listener);
+      return () => void refreshListeners.delete(listener);
+    },
     saveDeal,
     async getDeal(id, options) {
       const entry = options?.fromServer ? undefined : read().find((e) => e.deal.id === id);
       if (entry) return localCopy(entry);
       const current = copy.since("deals");
-      let found: StoredDeal | null;
-      try {
-        found = await remote.getDeal(id);
-      } catch (error) {
-        const copied = isOffline(error) && !options?.fromServer ? copy.deal(id) : undefined;
-        if (copied) return copied;
-        throw error;
-      }
-      if (current()) {
-        if (found) copy.refreshDeal(found);
-        else copy.removeDeal(id);
-      }
-      return found;
-    },
-    async listDeals(): Promise<DealListResult> {
-      const copyUnchanged = copy.since("deals");
-      let list: DealListResult;
-      try {
-        list = await remote.listDeals();
-      } catch (error) {
-        const entries = read();
-        const copied = isOffline(error) ? copy.deals() : null;
-        if (isOffline(error) && (copied !== null || entries.length > 0)) {
-          return { deals: withOutbox(copied ?? [], entries), problems: [], notice: LIST_NOTICE };
+      let fresh = false;
+      const server = ask(() => remote.getDeal(id)).then((found) => {
+        fresh = current();
+        if (fresh) {
+          if (found) copy.refreshDeal(found);
+          else copy.removeDeal(id);
         }
-        throw error;
-      }
-      if (copyUnchanged()) copy.putDealList(list.deals);
-      // Read the outbox after the list: a save may have been queued while the list was on its way.
-      const current = read();
-      return current.length === 0 ? list : { ...list, deals: withOutbox(list.deals, current) };
+        return found;
+      });
+      // "Load their version": the server's deal or its failure, never this device's.
+      if (options?.fromServer) return server;
+      return raced(
+        server,
+        () => copy.deal(id),
+        (found) => {
+          // A deal the server no longer has is left on screen: the owner may be editing it, and the next save says
+          // it was deleted, with the choice to keep it as a new deal. An edit waiting in the outbox is the owner's own.
+          if (fresh && found && !read().some((e) => e.deal.id === id)) refreshed({ read: "deal", id, value: found });
+        },
+      );
+    },
+    listDeals(): Promise<DealListResult> {
+      const copyUnchanged = copy.since("deals");
+      let fresh = false;
+      const server = ask(() => remote.listDeals()).then((list) => {
+        fresh = copyUnchanged();
+        if (fresh) copy.putDealList(list.deals);
+        // Read the outbox after the list: a save may have been queued while the list was on its way.
+        const current = read();
+        return current.length === 0 ? list : { ...list, deals: withOutbox(list.deals, current) };
+      });
+      const fromDevice = (): DealListResult | undefined => {
+        const entries = read();
+        const copied = copy.deals();
+        if (copied === null && entries.length === 0) return undefined;
+        return { deals: withOutbox(copied ?? [], entries), problems: [], notice: LIST_NOTICE };
+      };
+      return raced(server, fromDevice, (value) => {
+        if (fresh) refreshed({ read: "deals", value });
+      });
     },
     async createDeal(input) {
       const created = await remote.createDeal(input);
@@ -429,6 +526,7 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
         () => remote.listComps(region),
         (comps) => copy.putComps(region, comps),
         () => copy.comps(region),
+        (value) => ({ read: "comps", region, value }),
       ),
     async saveComp(comp) {
       const saved = await remote.saveComp(comp);
@@ -445,6 +543,7 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
         () => remote.getCostBook(region),
         (book) => copy.putCostBook(region, book),
         () => copy.costBook(region),
+        (value) => ({ read: "costBook", region, value }),
       ),
     getMarketSettings: (region) =>
       readThrough(
@@ -452,6 +551,7 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
         () => remote.getMarketSettings(region),
         (settings) => copy.putMarketSettings(region, settings),
         () => copy.marketSettings(region),
+        (value) => ({ read: "marketSettings", region, value }),
       ),
     getCompanySettings: () =>
       readThrough(
@@ -459,6 +559,7 @@ export function createOfflineRepository(remote: Repository, storage: Storage, sc
         () => remote.getCompanySettings(),
         (settings) => copy.putCompanySettings(settings),
         () => copy.companySettings(),
+        (value) => ({ read: "companySettings", value }),
       ),
     async saveCompanySettings(settings) {
       const saved = await remote.saveCompanySettings(settings);
