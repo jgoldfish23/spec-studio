@@ -1047,6 +1047,36 @@ describe("HostedGate starting on one bar", () => {
     expect(screen.queryByText(notice)).not.toBeInTheDocument();
   });
 
+  it("opens a deal from the device when the browser says it is offline, and takes the server's newer version when it answers", async () => {
+    const world = createWorld({ user: ANA, companies: [[ANA, ANA_CO]] });
+    const maple = await remembered(world);
+    const server = world.server(ANA_CO.id);
+    // The office laptop saved the deal after this device last read it.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await server.saveDeal({ ...maple, name: "Maple Street, renamed at the office" });
+    let answer!: () => void;
+    const answered = new Promise<void>((resolve) => (answer = resolve));
+    const read = server.getDeal.bind(server);
+    vi.spyOn(server, "getDeal").mockImplementation(async (id) => {
+      await answered;
+      return read(id);
+    });
+    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    window.history.replaceState(null, "", `/#/deals/${maple.id}/lot`);
+    world.mount();
+    expect(
+      await screen.findByLabelText("Deal name", undefined, { timeout: 3000 }),
+    ).toHaveValue("Maple Street");
+
+    await act(async () => answer());
+    await waitFor(() =>
+      expect(screen.getByLabelText("Deal name")).toHaveValue(
+        "Maple Street, renamed at the office",
+      ),
+    );
+    expect(screen.getByText("Saved", { exact: true })).toBeVisible();
+  });
+
   it("opens a remembered owner from the device after 5 s, and never shows the 15 s can't-reach screen", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const world = createWorld({ user: ANA, companies: [[ANA, ANA_CO]] });

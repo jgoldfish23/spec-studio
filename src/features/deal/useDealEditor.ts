@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import { evaluateDeal, failedEvaluation } from "@engine";
 import type { DealEvaluation, DealInputs, EngineContext } from "@engine";
 import { queryKeys, useDeal, useEngineContext, useRepository } from "../../data/queries";
@@ -147,11 +147,54 @@ export function useDealEditor(dealId: string): DealEditor {
   const baseline = useRef(new Map<string, string>());
   /** Per deal, the stored `updatedAt` the last conflict found: the version "Keep mine" saves on top of. */
   const theirs = useRef(new Map<string, string>());
+  /**
+   * The `updatedAt` of the version the editor holds, for render (the baseline is a ref): the one it was seeded with,
+   * then each of its own saves'. A read of the deal at any other stamp is a version saved elsewhere.
+   */
+  const [known, setKnown] = useState<{ dealId: string; updatedAt: string } | null>(null);
+  /** An edit of this deal waits in the outbox (this tab's or another's): the owner's version, not to be replaced. */
+  const subscribeToOutbox = useCallback(
+    (listener: () => void) => (isOfflineRepository(repository) ? repository.subscribe(listener) : () => {}),
+    [repository],
+  );
+  const waitsInOutbox = useSyncExternalStore(
+    subscribeToOutbox,
+    () => isOfflineRepository(repository) && repository.pending().some((save) => save.dealId === dealId),
+  );
 
   // Seed once per deal id, from the first settled read. A later read of the same deal (a refetch, a cache update
   // after a save) must never replace what the owner has changed since.
   if (settled && stored !== undefined && seed?.dealId !== dealId) {
     setSeed({ dealId, name: stored.name, updatedAt: stored.updatedAt });
+    setKnown({ dealId, updatedAt: stored.updatedAt });
+    dispatch({ type: "reset", inputs: stored.inputs });
+    setEvaluated(stored.inputs);
+    setSaveStatus(SAVED);
+    setFailedWith(null);
+  }
+
+  // A newer version of the same deal, while the owner has changed nothing, is taken: the deal may have opened from
+  // the device's copy on a slow connection, and the server's answer came after. "Nothing" is no undo or redo history,
+  // no save waiting, running or failed, no choice being made, and no edit in the outbox; with any of those the owner's
+  // version stays, and the next save meets the conflict as before. The editor's own saves move `known` with them, so
+  // one landing is never newer.
+  const untouched =
+    editor !== null &&
+    editor.past.length === 0 &&
+    editor.future.length === 0 &&
+    saveStatus.kind === "saved" &&
+    !busy &&
+    !waitsInOutbox;
+  if (
+    settled &&
+    stored !== undefined &&
+    seed?.dealId === dealId &&
+    known?.dealId === dealId &&
+    stored.updatedAt !== known.updatedAt &&
+    untouched
+  ) {
+    setSeed({ dealId, name: stored.name, updatedAt: stored.updatedAt });
+    setKnown({ dealId, updatedAt: stored.updatedAt });
     dispatch({ type: "reset", inputs: stored.inputs });
     setEvaluated(stored.inputs);
     setSaveStatus(SAVED);
@@ -238,6 +281,7 @@ export function useDealEditor(dealId: string): DealEditor {
         }
         theirs.current.delete(saved.id);
         baseline.current.set(saved.id, saved.updatedAt);
+        setKnown((current) => (current?.dealId === saved.id ? { dealId: saved.id, updatedAt: saved.updatedAt } : current));
         queryClient.setQueryData(queryKeys.deal(saved.id), saved);
         void queryClient.invalidateQueries({ queryKey: queryKeys.deals });
         return saved;
@@ -301,15 +345,20 @@ export function useDealEditor(dealId: string): DealEditor {
     [stored, present, name],
   );
 
-  // Every change to the inputs or the name after the first load is saved. The first run for a deal is its baseline.
-  const lastSeen = useRef<{ dealId: string; inputs: DealInputs; name: string } | null>(null);
+  // Every change to the inputs or the name after the first load is saved. The first run for a deal, and for each version
+  // it is seeded with (a newer one taken, theirs loaded), is its baseline.
+  const lastSeen = useRef<{ dealId: string; seededAt: string | undefined; inputs: DealInputs; name: string } | null>(null);
   useEffect(() => {
     if (deal === undefined) return;
     const last = lastSeen.current;
-    lastSeen.current = { dealId: deal.id, inputs: deal.inputs, name: deal.name };
-    const changed = last !== null && last.dealId === deal.id && (last.inputs !== deal.inputs || last.name !== deal.name);
+    lastSeen.current = { dealId: deal.id, seededAt: seedStamp, inputs: deal.inputs, name: deal.name };
+    const changed =
+      last !== null &&
+      last.dealId === deal.id &&
+      last.seededAt === seedStamp &&
+      (last.inputs !== deal.inputs || last.name !== deal.name);
     if (changed) autosaver.current?.schedule(deal);
-  }, [deal]);
+  }, [deal, seedStamp]);
 
   // A deal opened from its outbox entry (after an offline reload, or one the server refused) holds an edit the server
   // does not have. It is sent again through the normal path, once per autosaver, so the status says what really
@@ -404,8 +453,9 @@ export function useDealEditor(dealId: string): DealEditor {
         if (fresh === null) return;
         baseline.current.set(dealId, fresh.updatedAt);
         // What was just loaded is not an edit: it must not be scheduled for saving.
-        lastSeen.current = { dealId, inputs: fresh.inputs, name: fresh.name };
+        lastSeen.current = { dealId, seededAt: fresh.updatedAt, inputs: fresh.inputs, name: fresh.name };
         setSeed({ dealId, name: fresh.name, updatedAt: fresh.updatedAt });
+        setKnown({ dealId, updatedAt: fresh.updatedAt });
         dispatch({ type: "reset", inputs: fresh.inputs });
         setEvaluated(fresh.inputs);
         setSaveStatus(SAVED);

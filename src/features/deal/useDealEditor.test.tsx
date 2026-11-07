@@ -12,12 +12,12 @@ import { queryKeys } from "../../data/queries";
 import { RepositoryProvider } from "../../data/RepositoryProvider";
 import { SAMPLE_DEAL_NAME, sampleDealInputs } from "../../data/sample";
 import { MemoryStorage } from "../../data/local/memoryStorage";
-import { createOfflineRepository } from "../../data/offline/offlineRepository";
+import { createOfflineRepository, READ_GRACE_MS } from "../../data/offline/offlineRepository";
 import type { OfflineRepository } from "../../data/offline/offlineRepository";
 import { DataError } from "../../data/types";
 import type { Repository, StoredDeal } from "../../data/types";
 import { resetLostSaves, useLostSaves } from "./lostSaves";
-import { useDealEditor } from "./useDealEditor";
+import { EVALUATE_DELAY_MS, useDealEditor } from "./useDealEditor";
 
 const ORIGINAL_PRICE = sampleDealInputs().lot.priceCents;
 const NEW_PRICE = 25_400_000;
@@ -1060,19 +1060,18 @@ describe("useDealEditor saves and the conflict check", () => {
     expect((await s.storedDeal(s.first.id))?.inputs.lot.priceCents).toBe(NEW_PRICE + 100_000);
   });
 
-  it("still ends in a conflict when a refetch brings another device's newer copy: the cache's stamp is not used", async () => {
+  it("still ends in a conflict when a refetch brings another device's newer copy while an edit waits: the cache's stamp is not used", async () => {
     const s = await setup();
     const view = await ready(s);
-    // Another device saves the deal, and this one reads it again.
+    // An edit waits for its save; meanwhile another device saves the deal, and this one reads it again. (With nothing
+    // in hand the editor would take the newer version instead: see "when a newer version of the deal arrives".)
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
     await advance(5);
     const other = createLocalRepository(s.storage);
     await other.saveDeal({ ...s.first, name: "Other device" });
     await act(async () => {
       await s.client.invalidateQueries({ queryKey: queryKeys.deal(s.first.id) });
     });
-    await advance(10);
-
-    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
     await advance(1000);
 
     expect(s.saveDeal.mock.calls[0]?.[0].updatedAt).toBe(s.first.updatedAt);
@@ -1734,5 +1733,110 @@ describe("useDealEditor on a deal opened with an edit waiting in the outbox (an 
     expect(created?.name).toBe("Mine");
     expect(created?.inputs.contingencyPct).toBe(0.03);
     expect(outbox.pending()).toEqual([]);
+  });
+});
+
+describe("useDealEditor when a newer version of the deal arrives after it opened (a slow server, the device's copy first)", () => {
+  /**
+   * The hosted wiring: an outbox whose server reads of the deal wait until `answer`, and a late answer put in the query
+   * cache as the hosted root puts it. The device read the deal once online; the office laptop has saved it since.
+   */
+  async function slowServer() {
+    let outbox!: OfflineRepository;
+    let hold = false;
+    const gates: (() => void)[] = [];
+    const s = await setup({}, (remote) => {
+      const reached: Repository = {
+        ...remote,
+        getDeal: async (id) => {
+          if (hold) await new Promise<void>((resolve) => gates.push(resolve));
+          return remote.getDeal(id);
+        },
+      };
+      return (outbox = createOfflineRepository(reached, new MemoryStorage(), "u"));
+    });
+    await outbox.getDeal(s.first.id);
+    outbox.onRefreshed((refreshed) => {
+      if (refreshed.read === "deal") s.client.setQueryData(queryKeys.deal(refreshed.id), refreshed.value);
+    });
+    await advance(5);
+    await createLocalRepository(s.storage).saveDeal({
+      ...s.first,
+      name: "Office copy",
+      inputs: { ...s.first.inputs, contingencyPct: 0.02 },
+    });
+    hold = true;
+    const answer = async () => {
+      hold = false;
+      for (const open of gates.splice(0)) open();
+      await advance(10);
+    };
+    return { s, outbox, answer };
+  }
+
+  /** Opens the deal: the server has not answered within the grace, so it opens from the device's copy. */
+  async function openedFromCopy(s: Setup) {
+    const view = s.render();
+    await advance(READ_GRACE_MS);
+    await settle(view);
+    expect(view.result.current.deal?.name).toBe(SAMPLE_DEAL_NAME);
+    expect(view.result.current.inputs?.contingencyPct).toBe(s.first.inputs.contingencyPct);
+    return view;
+  }
+
+  it("untouched, takes the server's newer version when it comes, and the first edit saves cleanly from it", async () => {
+    const { s, answer } = await slowServer();
+    const view = await openedFromCopy(s);
+
+    await answer();
+    expect(view.result.current.deal?.name).toBe("Office copy");
+    expect(view.result.current.inputs?.contingencyPct).toBe(0.02);
+    await advance(EVALUATE_DELAY_MS);
+    expect(view.result.current.evaluatedInputs?.contingencyPct).toBe(0.02);
+    expect(view.result.current.canUndo).toBe(false);
+    expect(view.result.current.saveStatus).toEqual({ kind: "saved" });
+    // Taking it is not an edit: nothing is saved for it.
+    await advance(5000);
+    expect(s.saveDeal).not.toHaveBeenCalled();
+
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+    await advance(1000);
+    expect(view.result.current.saveStatus).toEqual({ kind: "saved" });
+    const stored = await s.storedDeal(s.first.id);
+    expect(stored?.name).toBe("Office copy");
+    expect(stored?.inputs.contingencyPct).toBe(0.02);
+    expect(stored?.inputs.lot.priceCents).toBe(NEW_PRICE);
+  });
+
+  it("with an edit typed before the server answered, keeps the owner's edit, and the next save offers the choice", async () => {
+    const { s, answer } = await slowServer();
+    const view = await openedFromCopy(s);
+    act(() => view.result.current.edit(setPrice(NEW_PRICE)));
+
+    await answer();
+    expect(view.result.current.deal?.name).toBe(SAMPLE_DEAL_NAME);
+    expect(view.result.current.inputs?.lot.priceCents).toBe(NEW_PRICE);
+    expect(view.result.current.canUndo).toBe(true);
+    await advance(1000);
+    expect(view.result.current.saveStatus).toMatchObject({ kind: "error", reason: "conflict" });
+    expect((await s.storedDeal(s.first.id))?.name).toBe("Office copy");
+  });
+
+  it("is not taken over by its own save landing: a rename, which leaves no undo history, keeps the editor as it is", async () => {
+    const s = await setup();
+    const view = await ready(s);
+    const inputs = view.result.current.inputs;
+    act(() => {
+      view.result.current.rename("Renamed here");
+    });
+    await advance(1000);
+    expect(view.result.current.saveStatus).toEqual({ kind: "saved" });
+    expect(s.saveDeal).toHaveBeenCalledTimes(1);
+    // The save put its answer, with a new updatedAt, in the cache: that is this editor's own version, not a newer one.
+    expect(s.client.getQueryData<StoredDeal>(queryKeys.deal(s.first.id))?.updatedAt).not.toBe(s.first.updatedAt);
+    expect(view.result.current.inputs).toBe(inputs);
+    expect(view.result.current.deal?.name).toBe("Renamed here");
+    await advance(5000);
+    expect(s.saveDeal).toHaveBeenCalledTimes(1);
   });
 });
