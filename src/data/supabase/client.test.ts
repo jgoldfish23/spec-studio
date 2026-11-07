@@ -112,13 +112,29 @@ describe("the time limit on each request", () => {
   }
 
   it("gives up on a sign-in request after 20 s, which reads as offline", async () => {
-    vi.useFakeTimers();
+    // `setImmediate` stays real: it is how the test waits for work that no fake timer drives (below).
+    vi.useFakeTimers({
+      toFake: [
+        "setTimeout",
+        "clearTimeout",
+        "setInterval",
+        "clearInterval",
+        "Date",
+      ],
+    });
     const { state, client } = oneBar();
     state.hang = true;
     let reason: unknown;
     void createSupabaseAuth(client)
       .sendSignInEmail("pat@example.com", "http://app.test/")
       .catch((error: unknown) => (reason = error));
+    // Before the request goes out, sign-in makes its PKCE challenge with the real `crypto.subtle`, which no fake
+    // timer drives. Wait until the request is actually on its way, so the 20 s are counted from there.
+    for (let turn = 0; state.calls === 0 && turn < 1000; turn += 1) {
+      await vi.advanceTimersByTimeAsync(0);
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    expect(state.calls).toBe(1);
     await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS - 1);
     expect(reason).toBeUndefined();
     await vi.advanceTimersByTimeAsync(1);
