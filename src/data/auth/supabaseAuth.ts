@@ -61,8 +61,12 @@ export function createSupabaseAuth(client: SupabaseClient): AuthGateway {
     exchangeLinkCode: (code) =>
       signedIn(() => auth.exchangeCodeForSession(code)),
     async signOut() {
+      // This device only. auth-js's default ends every session the owner has, so signing out of the office laptop
+      // would sign the iPad on the job site out too, the next time its token is renewed.
       await call(() =>
-        auth.signOut().then((result) => ({ data: null, error: result.error })),
+        auth
+          .signOut({ scope: "local" })
+          .then((result) => ({ data: null, error: result.error })),
       );
     },
   };

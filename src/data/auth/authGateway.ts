@@ -48,6 +48,7 @@ export interface AuthGateway {
   verifyCode(email: string, code: string): Promise<AuthUser>;
   /** Finishes a sign-in from the `code` in the link's URL. */
   exchangeLinkCode(code: string): Promise<AuthUser>;
+  /** Ends the session on this device only: the owner stays signed in on their other devices. */
   signOut(): Promise<void>;
 }
 

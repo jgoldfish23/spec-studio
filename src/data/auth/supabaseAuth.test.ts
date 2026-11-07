@@ -241,6 +241,22 @@ describe("startup with a stored session the server can't refresh", () => {
 });
 
 describe("signOut", () => {
+  it("signs out on this device only: the owner's other devices stay signed in", async () => {
+    const { auth, requests } = setup((request) =>
+      request.url.pathname === "/auth/v1/logout"
+        ? new Response(null, { status: 204 })
+        : json(sessionBody),
+    );
+    await auth.verifyCode("pat@example.com", "123456");
+    await auth.signOut();
+    expect(
+      requests
+        .filter((r) => r.url.pathname === "/auth/v1/logout")
+        .map((r) => `${r.method} ${r.url.pathname}${r.url.search}`),
+    ).toEqual(["POST /auth/v1/logout?scope=local"]);
+    expect(await auth.currentUser()).toBeNull();
+  });
+
   it("maps a thrown network TypeError to offline", async () => {
     const { auth } = setup(() => json(sessionBody));
     await auth.verifyCode("pat@example.com", "123456");
