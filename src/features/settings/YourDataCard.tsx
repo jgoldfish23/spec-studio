@@ -74,7 +74,7 @@ export function YourDataCard() {
       const now = new Date().toISOString();
       const { file, unreadable } = await buildExport(repository, REGION, now);
       const name = downloadExport(file, now);
-      setMessage({ text: `Downloaded ${name}.${unreadableNote(unreadable)}`, problem: unreadable > 0 });
+      setMessage({ text: `Downloaded ${name}.${unreadableNote(unreadable)}`, problem: unreadable !== 0 });
     } catch (error) {
       setMessage({
         text: `Couldn't export your data: ${errorMessage(error)}`,
@@ -97,12 +97,12 @@ export function YourDataCard() {
         await navigator.clipboard.writeText(text);
         setMessage({
           text: `Copied your data to the clipboard.${lost}`,
-          problem: unreadable > 0,
+          problem: unreadable !== 0,
         });
       } catch {
         setMessage({
           text: `Couldn't copy automatically. Select the text below and copy it.${lost}`,
-          problem: unreadable > 0,
+          problem: unreadable !== 0,
         });
         setFallbackText(text);
       }

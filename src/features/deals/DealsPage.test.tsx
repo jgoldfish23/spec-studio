@@ -105,8 +105,12 @@ describe("Deals page", () => {
     await waitFor(() => expect(window.location.hash).toMatch(/^#\/deals\/[^/]+\/lot$/));
     const id = window.location.hash.split("/")[2] as string;
 
-    expect(await within(main()).findByText("Needs info")).toBeVisible();
-    expect(within(main()).getByText("Needs:")).toBeVisible();
+    // Right after the address changes, the list (whose new row also says "Needs info") can still be on screen, and
+    // the deal's skeleton comes next: wait for the deal's own summary, which is the only place "Needs:" appears.
+    await waitFor(() => {
+      expect(within(main()).getByText("Needs:")).toBeVisible();
+      expect(within(main()).getByText("Needs info")).toBeVisible();
+    });
     const city = within(main()).getByRole("link", { name: "City: Required" });
     expect(city).toHaveAttribute("href", `#/deals/${id}/lot`);
     expect(within(main()).getByLabelText("Deal name")).toHaveValue("Untitled deal");
@@ -435,7 +439,7 @@ describe("Deals page", () => {
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     expect(
       await within(dialog).findByText(
-        "Downloaded spec-studio-export-2026-10-31.json. 1 deal couldn't be read and isn't in the file.",
+        "Downloaded spec-studio-export-2026-10-31.json. Your saved deals couldn't be read and aren't in the file.",
       ),
     ).toBeVisible();
     expect(within(dialog).getByRole("button", { name: "Download a copy first" })).toBeEnabled();

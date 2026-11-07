@@ -38,7 +38,7 @@ export async function buildExport(
   repo: Repository,
   region: string,
   now: string,
-): Promise<{ file: ExportFile; unreadable: number }> {
+): Promise<{ file: ExportFile; unreadable: Unreadable }> {
   const [list, comps, companySettings, marketSettings, costBook] = await Promise.all([
     repo.listDeals(),
     repo.listComps(region),
@@ -56,12 +56,17 @@ export async function buildExport(
       marketSettings: [marketSettings],
       priceBook: costBook.priceBook,
     },
-    unreadable: list.problems.length,
+    // A store that cannot be read at all is one problem with the id "*": how many deals it held is not known.
+    unreadable: list.problems.some((problem) => problem.id === "*") ? "all" : list.problems.length,
   };
 }
 
+/** How many stored deals an export had to leave out: a count, or `"all"` when the deals store could not be read at all. */
+export type Unreadable = number | "all";
+
 /** " 2 deals couldn't be read and aren't in the file." — or nothing when every deal was read. */
-export function unreadableNote(unreadable: number): string {
+export function unreadableNote(unreadable: Unreadable): string {
+  if (unreadable === "all") return " Your saved deals couldn't be read and aren't in the file.";
   if (unreadable <= 0) return "";
   return unreadable === 1
     ? " 1 deal couldn't be read and isn't in the file."

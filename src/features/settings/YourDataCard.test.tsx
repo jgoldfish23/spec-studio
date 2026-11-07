@@ -78,7 +78,7 @@ describe("Your data card: export", () => {
     await openCard(harness);
     await user().click(within(card()).getByRole("button", { name: "Export all data" }));
     expect(await within(card()).findByRole("alert")).toHaveTextContent(
-      "Downloaded spec-studio-export-2026-11-02.json. 1 deal couldn't be read and isn't in the file.",
+      "Downloaded spec-studio-export-2026-11-02.json. Your saved deals couldn't be read and aren't in the file.",
     );
   });
 
@@ -113,7 +113,7 @@ describe("Your data card: export", () => {
     await openCard(harness);
     await u.click(within(card()).getByRole("button", { name: "Copy to clipboard" }));
     expect(await within(card()).findByRole("alert")).toHaveTextContent(
-      "Copied your data to the clipboard. 1 deal couldn't be read and isn't in the file.",
+      "Copied your data to the clipboard. Your saved deals couldn't be read and aren't in the file.",
     );
   });
 

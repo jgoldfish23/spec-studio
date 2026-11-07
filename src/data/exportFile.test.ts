@@ -352,14 +352,24 @@ describe("deals match by name and content", () => {
     expect(report.message).toContain("then it stopped: You're offline.");
   });
 
-  it("notes unreadable deals", async () => {
+  it("notes unreadable deals: all of them when the store itself can't be read, else how many", async () => {
     const storage = new MemoryStorage();
     const repo = createLocalRepository(storage);
     storage.setItem(DEALS_KEY, "{ not json");
+    expect((await buildExport(repo, REGION, NOW)).unreadable).toBe("all");
+
+    // One stored deal that doesn't read back, next to one that does: one is left out, and counted.
+    storage.removeItem(DEALS_KEY);
+    const good = await repo.createDeal({ name: "Readable", inputs: sampleDealInputs() });
+    const stored = JSON.parse(storage.getItem(DEALS_KEY) as string) as Record<string, typeof good>;
+    stored["bad-1"] = { ...good, id: "bad-1", inputs: { ...good.inputs, lot: { ...good.inputs.lot, priceCents: "x" as never } } };
+    storage.setItem(DEALS_KEY, JSON.stringify(stored));
     const built = await buildExport(repo, REGION, NOW);
     expect(built.unreadable).toBe(1);
+    expect(built.file.deals.map((deal) => deal.name)).toEqual(["Readable"]);
     expect(unreadableNote(1)).toBe(" 1 deal couldn't be read and isn't in the file.");
     expect(unreadableNote(3)).toBe(" 3 deals couldn't be read and aren't in the file.");
     expect(unreadableNote(0)).toBe("");
+    expect(unreadableNote("all")).toBe(" Your saved deals couldn't be read and aren't in the file.");
   });
 });
