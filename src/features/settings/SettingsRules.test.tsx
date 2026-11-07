@@ -1,6 +1,6 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, beforeEach } from "vitest";
-import { createHarness } from "../../testing/renderApp";
+import { createHarness, renderApp } from "../../testing/renderApp";
 import { card, newUser, openSettings, pasteOver, RULES_CARD, saveButton } from "./settingsTestUtils";
 
 beforeEach(() => {
@@ -67,12 +67,12 @@ describe("Go/no-go rules for new deals", () => {
     const user = newUser();
     const form = card(RULES_CARD);
     await pasteOver(user, form, "Minimum margin on sale price", "150");
-    expect(await within(form).findByText("Must be 1 or less (use a decimal, e.g. 0.09 for 9%)")).toBeVisible();
+    expect(await within(form).findByText("Must be between 0% and 100%")).toBeVisible();
     expect(within(form).getByLabelText("Minimum margin on sale price")).toHaveAttribute("aria-invalid", "true");
     expect(saveButton(form)).toBeDisabled();
 
     await pasteOver(user, form, "Minimum margin on sale price", "-2");
-    expect(await within(form).findByText("Must be 0 or more")).toBeVisible();
+    expect(await within(form).findByText("Must be between 0% and 100%")).toBeVisible();
     expect(saveButton(form)).toBeDisabled();
     expect((await harness.repository.getCompanySettings()).rules.minMarginOnSale).toBe(0.15);
 
@@ -92,5 +92,64 @@ describe("Go/no-go rules for new deals", () => {
     expect(await within(form).findByRole("alert")).toHaveTextContent("You're offline. Try again when you have a connection.");
     expect(within(form).queryByText("Saved")).not.toBeInTheDocument();
     expect(saveButton(form)).toBeEnabled();
+  });
+
+  it("turns Save off for text that is not a number or an empty box, and saves the shown value once it is fixed", async () => {
+    const harness = createHarness();
+    await openSettings(harness);
+    const user = newUser();
+    const form = card(RULES_CARD);
+    const margin = within(form).getByLabelText("Minimum margin on sale price");
+
+    await user.clear(margin);
+    await user.type(margin, "abc");
+    expect(await within(form).findByText("Enter a percent")).toBeVisible();
+    expect(saveButton(form)).toBeDisabled();
+
+    await user.clear(margin);
+    expect(saveButton(form)).toBeDisabled();
+
+    await user.type(margin, "21");
+    expect(saveButton(form)).toBeEnabled();
+    await user.click(saveButton(form));
+    await within(form).findByText("Saved");
+    expect((await harness.repository.getCompanySettings()).rules.minMarginOnSale).toBe(0.21);
+  });
+
+  it("keeps an edit made while the save is on its way, and is still unsaved", async () => {
+    const harness = createHarness();
+    let finish: () => void = () => {};
+    const real = harness.repository.saveCompanySettings.bind(harness.repository);
+    harness.repository.saveCompanySettings = (settings) =>
+      new Promise((resolve, reject) => {
+        finish = () => real(settings).then(resolve, reject);
+      });
+    await openSettings(harness);
+    const user = newUser();
+    const form = card(RULES_CARD);
+    await pasteOver(user, form, "Contingency for new deals", "9");
+    await user.click(saveButton(form));
+    await pasteOver(user, form, "Contingency for new deals", "11");
+    await act(async () => finish());
+
+    await waitFor(async () => expect((await harness.repository.getCompanySettings()).contingencyPct).toBe(0.09));
+    expect(within(form).getByLabelText("Contingency for new deals")).toHaveValue("11");
+    expect(within(form).queryByText("Saved")).not.toBeInTheDocument();
+    // Still unsaved: leaving asks.
+    await user.click(within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Deals" }));
+    expect(await screen.findByRole("alertdialog")).toBeVisible();
+  });
+
+  it("offers Try again when the rules cannot be read", async () => {
+    const harness = createHarness();
+    let fail = true;
+    const real = harness.repository.getCompanySettings.bind(harness.repository);
+    harness.repository.getCompanySettings = () => (fail ? Promise.reject(new Error("The server is down.")) : real());
+    harness.client.setDefaultOptions({ queries: { retry: false } });
+    renderApp("#/settings", harness);
+    expect(await screen.findByText("Couldn't load your rules: The server is down.")).toBeVisible();
+    fail = false;
+    await newUser().click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("region", { name: RULES_CARD })).toBeVisible();
   });
 });

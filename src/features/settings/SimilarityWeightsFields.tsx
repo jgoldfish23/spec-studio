@@ -1,6 +1,6 @@
 import type { MarketSettings } from "@engine";
 import { NumberField } from "../../ui/fields";
-import { FIELD_GRID } from "../proforma/FinancingCard";
+import { FIELD_GRID } from "../deal/stepShared";
 import { issueAt } from "./useSettingsForm";
 import type { SettingsIssue } from "./useSettingsForm";
 
@@ -28,10 +28,11 @@ interface Props {
   weights: Weights;
   issues: readonly SettingsIssue[];
   onChange: (weights: Weights) => void;
+  invalid: (key: string) => (invalid: boolean) => void;
 }
 
 /** How much each likeness counts when a comp is scored against the house. They are shares of 100. */
-export function SimilarityWeightsFields({ weights, issues, onChange }: Props) {
+export function SimilarityWeightsFields({ weights, issues, onChange, invalid }: Props) {
   const total = weightsTotalMessage(weights);
   return (
     <fieldset className="m-0 flex min-w-0 flex-col gap-3 border-0 p-0">
@@ -44,6 +45,8 @@ export function SimilarityWeightsFields({ weights, issues, onChange }: Props) {
             value={weights[key]}
             onChange={(n) => onChange({ ...weights, [key]: n })}
             error={issueAt(issues, `similarityWeights.${key}`)}
+            onInvalidChange={invalid(`similarityWeights.${key}`)}
+            min={0}
           />
         ))}
       </div>

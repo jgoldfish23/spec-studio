@@ -4,10 +4,8 @@ import { Card } from "../../ui/Card";
 import { MoneyField, NumberField, PercentField } from "../../ui/fields";
 import { fieldError } from "../deal/fieldErrors";
 import { SegmentedField } from "../deal/SegmentedField";
+import { FIELD_GRID } from "../deal/stepShared";
 import type { Edit } from "../deal/stepShared";
-
-/** Boxes in a row, wrapping to a column on a phone. */
-export const FIELD_GRID = "grid grid-cols-[repeat(auto-fit,minmax(min(100%,200px),1fr))] gap-4";
 
 interface CardProps {
   inputs: DealInputs;

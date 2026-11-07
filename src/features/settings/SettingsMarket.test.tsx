@@ -104,11 +104,11 @@ describe("Market settings — Northern Utah (Davis & Weber)", () => {
     const user = newUser();
     const form = card(MARKET_CARD);
     await pasteOver(user, form, "Basement value factor", "2");
-    expect(await within(form).findByText("Must be 1 or less")).toBeVisible();
+    expect(await within(form).findByText("Must be between 0 and 1")).toBeVisible();
     expect(saveButton(form)).toBeDisabled();
     await pasteOver(user, form, "Basement value factor", "0.6");
     await pasteOver(user, form, "Include comps scoring at least", "120");
-    expect(await within(form).findByText("Must be 100 or less")).toBeVisible();
+    expect(await within(form).findByText("Must be between 0 and 100")).toBeVisible();
     await pasteOver(user, form, "Include comps scoring at least", "75");
     await pasteOver(user, form, "Assumed days from contract to close", "20.5");
     expect(await within(form).findByText("Must be a whole number")).toBeVisible();
@@ -117,6 +117,18 @@ describe("Market settings — Northern Utah (Davis & Weber)", () => {
     expect(await within(form).findByText("Must be above 0")).toBeVisible();
     expect(saveButton(form)).toBeDisabled();
     expect(await harness.repository.getMarketSettings("utah-north")).toEqual(DEFAULT_MARKET_SETTINGS);
+  });
+
+  it("turns Save off for a seasonal or weight box holding text that is not a number", async () => {
+    await openSettings();
+    const user = newUser();
+    const form = card(MARKET_CARD);
+    await pasteOver(user, within(form).getByRole("group", { name: "Seasonal factors" }), "May", "abc");
+    expect(saveButton(form)).toBeDisabled();
+    await pasteOver(user, within(form).getByRole("group", { name: "Seasonal factors" }), "May", "0.9");
+    expect(saveButton(form)).toBeEnabled();
+    await user.clear(within(form).getByLabelText("Location"));
+    expect(saveButton(form)).toBeDisabled();
   });
 
   it("shows a failed save's message and stays unsaved", async () => {

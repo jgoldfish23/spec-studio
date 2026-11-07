@@ -3,6 +3,7 @@ import { useBlocker } from "react-router";
 import { DEFAULT_MARKET_SETTINGS } from "@engine";
 import { useCompanySettings, useMarketSettings } from "../../data/queries";
 import { errorMessage } from "../../lib/errorMessage";
+import { SECONDARY_BUTTON } from "../deal/stepShared";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { MarketSection } from "./MarketSection";
 import { QuantityRulesSection } from "./QuantityRulesSection";
@@ -10,6 +11,20 @@ import { RulesSection } from "./RulesSection";
 
 /** The one region the app knows: Northern Utah (Davis & Weber). */
 const REGION = DEFAULT_MARKET_SETTINGS.region;
+
+/** A read that failed: what happened, and a way to try again. */
+function LoadFailed({ text, onRetry }: { text: string; onRetry: () => void }) {
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <p role="alert" className="m-0 text-sm font-medium text-no-go">
+        {text}
+      </p>
+      <button type="button" onClick={onRetry} className={SECONDARY_BUTTON}>
+        Try again
+      </button>
+    </div>
+  );
+}
 
 const NOTE = "m-0 text-sm text-muted";
 
@@ -34,10 +49,7 @@ export function SettingsPage() {
       {company.data ? (
         <RulesSection saved={company.data} onDirtyChange={setRulesDirty} />
       ) : company.isError ? (
-        <p
-          role="alert"
-          className="m-0 text-sm font-medium text-no-go"
-        >{`Couldn't load your rules: ${errorMessage(company.error)}`}</p>
+        <LoadFailed text={`Couldn't load your rules: ${errorMessage(company.error)}`} onRetry={() => void company.refetch()} />
       ) : (
         <p role="status" className={NOTE}>
           Loading your rules…
@@ -47,10 +59,7 @@ export function SettingsPage() {
       {market.data ? (
         <MarketSection saved={market.data} onDirtyChange={setMarketDirty} />
       ) : market.isError ? (
-        <p
-          role="alert"
-          className="m-0 text-sm font-medium text-no-go"
-        >{`Couldn't load the market settings: ${errorMessage(market.error)}`}</p>
+        <LoadFailed text={`Couldn't load the market settings: ${errorMessage(market.error)}`} onRetry={() => void market.refetch()} />
       ) : (
         <p role="status" className={NOTE}>
           Loading the market settings…

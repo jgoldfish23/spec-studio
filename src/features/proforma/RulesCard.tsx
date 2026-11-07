@@ -5,8 +5,7 @@ import { Card } from "../../ui/Card";
 import { MoneyField, PercentField } from "../../ui/fields";
 import { fieldError } from "../deal/fieldErrors";
 import type { Edit } from "../deal/stepShared";
-import { SECONDARY_BUTTON } from "../deal/stepShared";
-import { FIELD_GRID } from "./FinancingCard";
+import { FIELD_GRID, SECONDARY_BUTTON } from "../deal/stepShared";
 
 interface CardProps {
   inputs: DealInputs;

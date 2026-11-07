@@ -18,3 +18,6 @@ export const SECONDARY_BUTTON = `inline-flex min-h-11 cursor-pointer items-cente
 
 /** What a card with nothing to show says, in muted type. */
 export const MUTED_NOTE = "m-0 text-sm text-muted";
+
+/** The grid a card's fields sit in: as many 200 px columns as fit, so a phone gets one. */
+export const FIELD_GRID = "grid grid-cols-[repeat(auto-fit,minmax(min(100%,200px),1fr))] gap-4";
