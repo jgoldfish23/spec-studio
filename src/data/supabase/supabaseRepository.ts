@@ -2,6 +2,7 @@ import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { DEFAULT_MARKET_SETTINGS, DEFAULT_RULES } from "@engine";
 import type { Comp, CostBookView, DealInputs, DefaultPrice, MarketSettings } from "@engine";
 import { isUuid } from "../../lib/uuid";
+import { DEAL_CHANGED_ELSEWHERE, DEAL_DELETED_ELSEWHERE } from "../messages";
 import { assertCompanySettingsReadBack, assertCompReadsBack, assertDealReadsBack, assertMarketSettingsReadBack } from "../readBack";
 import { DataError } from "../types";
 import type { CompanySettings, DealListResult, Repository, StoredDeal } from "../types";
@@ -44,8 +45,8 @@ function sameJson(a: unknown, b: unknown): boolean {
   return keys.length === Object.keys(right).length && keys.every((key) => Object.hasOwn(right, key) && sameJson(left[key], right[key]));
 }
 
-const CONFLICT = "This deal was changed on another device or tab.";
-const DELETED = "This deal was deleted on another device or tab.";
+const CONFLICT = DEAL_CHANGED_ELSEWHERE;
+const DELETED = DEAL_DELETED_ELSEWHERE;
 
 /** A filter value for PostgREST's `or`, quoted so that a comma or parenthesis in it cannot change the filter. */
 const quoted = (value: string): string => `"${value.replace(/["\\]/g, "\\$&")}"`;

@@ -1,4 +1,5 @@
 import type { Comp, CostBookView, MarketSettings } from "@engine";
+import { SIGNED_OUT_SAVED_ON_DEVICE } from "../messages";
 import { DataError } from "../types";
 import type { CompanySettings, DealListResult, Repository, StoredDeal } from "../types";
 import { createDeviceCopy } from "./deviceCopy";
@@ -76,7 +77,7 @@ export function isOfflineRepository(repository: Repository): repository is Offli
 }
 
 const OFFLINE = "Offline — your changes are saved on this device and will sync.";
-const SIGNED_OUT = "Signed out — sign in to sync. Your changes are saved on this device.";
+const SIGNED_OUT = SIGNED_OUT_SAVED_ON_DEVICE;
 /** The same failures when the outbox could not keep the edit: nothing is safe, and the owner must hear it. */
 const OFFLINE_NOT_KEPT = "Couldn't save — can't reach the server, and this browser can't keep your changes.";
 const SIGNED_OUT_NOT_KEPT =

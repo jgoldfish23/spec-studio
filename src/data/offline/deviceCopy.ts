@@ -78,6 +78,25 @@ function parseDeals(value: unknown): StoredDeal[] | null {
 }
 
 /**
+ * Removes every other owner's copy of reads from `storage`, for when `ownerId` signs in on this device: what someone
+ * else last read here must not stay readable in the browser. Outboxes are not copies and are left alone: they hold
+ * work, which waits for its own owner. Best effort.
+ */
+export function forgetOtherOwnersCopies(storage: Storage, ownerId: string): void {
+  const own = `${PREFIX}${ownerId}:`;
+  try {
+    const others: string[] = [];
+    for (let i = 0; i < storage.length; i++) {
+      const key = storage.key(i);
+      if (key !== null && key.startsWith(PREFIX) && !key.startsWith(own)) others.push(key);
+    }
+    for (const key of others) storage.removeItem(key);
+  } catch (error) {
+    console.error("Another owner's copy of their data on this device could not be removed.", error);
+  }
+}
+
+/**
  * The device copy of one owner's reads in `storage`. Reads check what they find against the same schemas the
  * repositories use: a copy that does not read back is ignored (and reported once), never thrown. Writes are best
  * effort: a full or blocked store is reported once, and the app goes on without a copy.

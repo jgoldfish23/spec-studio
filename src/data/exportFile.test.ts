@@ -6,6 +6,7 @@ import { createLocalRepository, DEALS_KEY } from "./local/localRepository";
 import { MemoryStorage } from "./local/memoryStorage";
 import {
   buildExport,
+  deviceCopyNote,
   EXPORT_FORMAT,
   exportFileName,
   parseExport,
@@ -15,6 +16,7 @@ import {
   unreadableNote,
 } from "./exportFile";
 import { SAMPLE_DEAL_NAME, sampleDealInputs } from "./sample";
+import { DataError } from "./types";
 import type { Repository, StoredDeal } from "./types";
 
 const REGION = DEFAULT_MARKET_SETTINGS.region;
@@ -350,6 +352,51 @@ describe("deals match by name and content", () => {
     const report = await runImport(other, planImport(file, none));
     expect(report.failed).toBe(true);
     expect(report.message).toContain("then it stopped: You're offline.");
+  });
+
+  it("counts a deal that came in when saving its status failed, and says whether the status follows", async () => {
+    const source = await seeded();
+    const [deal] = (await source.listDeals()).deals;
+    await source.saveDeal({ ...deal!, status: "sold" });
+    const file = parsed(await exported(source));
+
+    // Offline in hosted mode: the status save waits in the outbox.
+    const waiting = newRepo();
+    vi.spyOn(waiting, "saveDeal").mockRejectedValue(
+      new DataError("Offline — your changes are saved on this device and will sync.", { kind: "offline" }),
+    );
+    const report = await runImport(waiting, planImport(file, none));
+    expect(report).toMatchObject({ importedDeals: 1, importedComps: 8, failed: true });
+    expect(report.message).toBe(
+      `Imported 1 deal and 8 comps, then it stopped: Offline — your changes are saved on this device and will sync. The status of “${SAMPLE_DEAL_NAME}” (sold) is saved on this device and will follow when it syncs. Importing again skips what's already in.`,
+    );
+
+    // Any other failure: the deal is in, without its status.
+    const refused = newRepo();
+    vi.spyOn(refused, "saveDeal").mockRejectedValue(
+      new DataError("Couldn't save — the server said no. Try again in a minute.", { kind: "failed" }),
+    );
+    const second = await runImport(refused, planImport(file, none));
+    expect(second.importedDeals).toBe(1);
+    expect(second.message).toBe(
+      `Imported 1 deal and 8 comps, then it stopped: Couldn't save — the server said no. Try again in a minute. “${SAMPLE_DEAL_NAME}” came in without its status (sold). Importing again skips what's already in.`,
+    );
+  });
+
+  it("says when an export is what this device holds, because the server couldn't be reached", async () => {
+    const repo = await seeded();
+    const list = await repo.listDeals();
+    vi.spyOn(repo, "listDeals").mockResolvedValue({
+      ...list,
+      notice: "Showing what's saved on this device — can't reach the server.",
+    });
+    const built = await buildExport(repo, REGION, NOW);
+    expect(built.notice).toBe("Showing what's saved on this device — can't reach the server.");
+    expect(deviceCopyNote(built.notice)).toBe(
+      " The server couldn't be reached, so this is what's saved on this device. It may be missing changes made on other devices.",
+    );
+    expect((await buildExport(await seeded(), REGION, NOW)).notice).toBeUndefined();
+    expect(deviceCopyNote(undefined)).toBe("");
   });
 
   it("notes unreadable deals: all of them when the store itself can't be read, else how many", async () => {

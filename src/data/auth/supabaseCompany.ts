@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { SIGNED_OUT } from "../messages";
 import { DataError } from "../types";
 import { toDataError } from "../supabase/errors";
 import { ALREADY_HAS_COMPANY } from "./companyGateway";
@@ -45,7 +46,7 @@ export function createSupabaseCompany(client: SupabaseClient): CompanyGateway {
       });
       if (error) {
         if (error.code === "SS001")
-          throw new DataError("You've been signed out.", {
+          throw new DataError(SIGNED_OUT, {
             kind: "signedOut",
             cause: error,
           });

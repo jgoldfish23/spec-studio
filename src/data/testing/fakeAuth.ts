@@ -2,6 +2,7 @@ import { AuthError } from "../auth/authGateway";
 import type { AuthGateway, AuthUser } from "../auth/authGateway";
 import { ALREADY_HAS_COMPANY } from "../auth/companyGateway";
 import type { Company, CompanyGateway } from "../auth/companyGateway";
+import { SIGNED_OUT } from "../messages";
 import { DataError } from "../types";
 
 export const FAKE_CODE = "123456";
@@ -83,7 +84,7 @@ export function createFakeCompanies(
   const who = async (): Promise<string> => {
     const user = await auth?.currentUser();
     if (auth && !user)
-      throw new DataError("You've been signed out.", { kind: "signedOut" });
+      throw new DataError(SIGNED_OUT, { kind: "signedOut" });
     return user?.id ?? "fake-user";
   };
   return {

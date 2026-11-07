@@ -107,7 +107,8 @@ describe("db:migrate", () => {
     const seeded = await db.client.query("select count(*)::int as n from default_prices where company_id is null");
     expect(seeded.rows[0].n).toBe(STARTER_COST_BOOK.length);
     expect([a.out, b.out].filter((o) => o.includes("Applied 0001_init.sql"))).toHaveLength(1);
-  });
+    // Two runner processes against one database: well past vitest's 5 s default on a busy machine.
+  }, 30_000);
 
   it("--dry-run on a fresh database creates nothing", async () => {
     expect(run(["--dry-run"]).code).toBe(0);

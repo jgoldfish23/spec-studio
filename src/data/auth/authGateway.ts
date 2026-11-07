@@ -3,6 +3,7 @@ import {
   isAuthPKCECodeVerifierMissingError,
   isAuthRetryableFetchError,
 } from "@supabase/supabase-js";
+import { CANT_REACH_SERVER } from "../messages";
 
 /** The signed-in owner, as far as the app needs to know. */
 export type AuthUser = { id: string; email: string };
@@ -33,7 +34,7 @@ const AUTH_MESSAGES: Record<AuthErrorReason, string> = {
   badCode: "That code didn't work or has expired. Send a new one.",
   otherBrowser:
     "This link was opened in a different browser than the one that asked for it. Type the 6-digit code from the same email instead.",
-  offline: "Can't reach the server — check your connection.",
+  offline: CANT_REACH_SERVER,
   failed: "Couldn't sign in — try again in a minute.",
 };
 

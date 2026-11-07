@@ -2,8 +2,9 @@ import { z } from "zod";
 import { CompSchema, MarketSettingsSchema, PriceBookEntrySchema } from "@engine";
 import type { Comp, DealInputs, MarketSettings, PriceBookEntry } from "@engine";
 import { errorMessage } from "../lib/errorMessage";
+import { compIdentity } from "./messages";
 import { CompanySettingsSchema, firstProblem } from "./readBack";
-import { StoredDealSchema } from "./types";
+import { DataError, StoredDealSchema } from "./types";
 import type { CompanySettings, DealStatus, Repository, StoredDeal } from "./types";
 
 /** What the first line of every export file says, so a file from another version of the app is recognised. */
@@ -33,12 +34,16 @@ export interface ExportFile {
   priceBook: PriceBookEntry[];
 }
 
-/** Reads everything for `region` into an export. The shared starter prices are not the owner's data and are left out. */
+/**
+ * Reads everything for `region` into an export. The shared starter prices are not the owner's data and are left out.
+ * `notice` is the deal list's own (`DealListResult.notice`): set when the server couldn't be reached and the list is
+ * what this device holds, which may be missing changes made elsewhere (`deviceCopyNote` says so).
+ */
 export async function buildExport(
   repo: Repository,
   region: string,
   now: string,
-): Promise<{ file: ExportFile; unreadable: Unreadable }> {
+): Promise<{ file: ExportFile; unreadable: Unreadable; notice?: string }> {
   const [list, comps, companySettings, marketSettings, costBook] = await Promise.all([
     repo.listDeals(),
     repo.listComps(region),
@@ -58,7 +63,15 @@ export async function buildExport(
     },
     // A store that cannot be read at all is one problem with the id "*": how many deals it held is not known.
     unreadable: list.problems.some((problem) => problem.id === "*") ? "all" : list.problems.length,
+    ...(list.notice === undefined ? {} : { notice: list.notice }),
   };
+}
+
+/** " The server couldn't be reached, so this is …" for an export read from this device's copy, or nothing. */
+export function deviceCopyNote(notice: string | undefined): string {
+  return notice === undefined
+    ? ""
+    : " The server couldn't be reached, so this is what's saved on this device. It may be missing changes made on other devices.";
 }
 
 /** How many stored deals an export had to leave out: a count, or `"all"` when the deals store could not be read at all. */
@@ -163,8 +176,6 @@ export interface PlanOptions {
 }
 
 const squash = (text: string) => text.trim().replace(/\s+/g, " ").toLowerCase();
-/** How two comps are told to be the same: address (ignoring case and spacing) and sold date. */
-const compKey = (comp: Comp) => `${squash(comp.address)}|${comp.soldDate ?? ""}`;
 
 /** JSON with object keys sorted, so two equal values read the same however a store (Postgres jsonb) ordered the keys. */
 function stableStringify(value: unknown): string {
@@ -194,13 +205,13 @@ export function planImport(
   options: PlanOptions = {},
 ): ImportPlan {
   const newId = options.newId ?? (() => crypto.randomUUID());
-  const byKey = new Map<string, string>(existing.comps.map((comp) => [compKey(comp), comp.id]));
+  const byKey = new Map<string, string>(existing.comps.map((comp) => [compIdentity(comp), comp.id]));
   const existingIds = new Set(existing.comps.map((comp) => comp.id));
   const idMap = new Map<string, string>();
   const comps: Comp[] = [];
   const skippedComps: ImportPlan["skippedComps"] = [];
   for (const comp of file.comps) {
-    const key = compKey(comp);
+    const key = compIdentity(comp);
     const match = byKey.get(key);
     if (match !== undefined) {
       idMap.set(comp.id, match);
@@ -262,11 +273,21 @@ export interface ImportReport {
 
 const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-/** Saves the plan: comps first (so the deals' choices point at saved comps), then deals, then settings if planned. Stops at the first failure. */
+/** An error that leaves the save waiting on this device to sync (the outbox kept it). */
+const waitsOnDevice = (error: unknown): boolean =>
+  error instanceof DataError && (error.kind === "offline" || error.kind === "signedOut");
+
+/**
+ * Saves the plan: comps first (so the deals' choices point at saved comps), then deals, then settings if planned. Stops
+ * at the first failure. A deal is counted once it is created, even when the save of its status after that failed: the
+ * report says whether that status waits on this device to sync.
+ */
 export async function runImport(repo: Repository, plan: ImportPlan): Promise<ImportReport> {
   let importedComps = 0;
   let importedDeals = 0;
   let replaced = false;
+  /** A deal that came in when the save of its status then failed. */
+  let withoutStatus: { name: string; status: DealStatus; waits: boolean } | null = null;
   const counts = () => `${count(importedDeals, "deal", "deals")} and ${count(importedComps, "comp", "comps")}`;
   try {
     for (const comp of plan.comps) {
@@ -275,8 +296,14 @@ export async function runImport(repo: Repository, plan: ImportPlan): Promise<Imp
     }
     for (const deal of plan.deals) {
       const created = await repo.createDeal({ name: deal.name, inputs: deal.inputs });
-      if (deal.status !== created.status) await repo.saveDeal({ ...created, status: deal.status });
       importedDeals += 1;
+      if (deal.status === created.status) continue;
+      try {
+        await repo.saveDeal({ ...created, status: deal.status });
+      } catch (error) {
+        withoutStatus = { name: created.name, status: deal.status, waits: waitsOnDevice(error) };
+        throw error;
+      }
     }
     if (plan.settings) {
       await repo.saveCompanySettings(plan.settings.company);
@@ -285,11 +312,18 @@ export async function runImport(repo: Repository, plan: ImportPlan): Promise<Imp
     }
   } catch (error) {
     const reason = errorMessage(error).trim();
+    let status = "";
+    if (withoutStatus !== null) {
+      const { name, status: wanted, waits } = withoutStatus;
+      status = waits
+        ? ` The status of “${name}” (${wanted}) is saved on this device and will follow when it syncs.`
+        : ` “${name}” came in without its status (${wanted}).`;
+    }
     return {
       importedDeals,
       importedComps,
       failed: true,
-      message: `Imported ${counts()}, then it stopped: ${/[.!?]$/.test(reason) ? reason : `${reason}.`} Importing again skips what's already in.`,
+      message: `Imported ${counts()}, then it stopped: ${/[.!?]$/.test(reason) ? reason : `${reason}.`}${status} Importing again skips what's already in.`,
     };
   }
 

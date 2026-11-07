@@ -1,7 +1,6 @@
+import { SIGNED_OUT } from "./messages";
 import { DataError } from "./types";
 import type { Repository } from "./types";
-
-const SESSION_ENDED = "You've been signed out.";
 
 /**
  * `remote` for one owner's session: every call passes through until `end()`, then fails as signed out without
@@ -24,7 +23,7 @@ export function guardSession(remote: Repository): {
     guarded[name] = (...args: unknown[]) =>
       open
         ? method(...args)
-        : Promise.reject(new DataError(SESSION_ENDED, { kind: "signedOut" }));
+        : Promise.reject(new DataError(SIGNED_OUT, { kind: "signedOut" }));
   }
   return {
     remote: guarded as unknown as Repository,

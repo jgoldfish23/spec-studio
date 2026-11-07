@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { DEFAULT_MARKET_SETTINGS } from "@engine";
 import type { Comp } from "@engine";
-import { buildExport, downloadExport, unreadableNote } from "../../data/exportFile";
+import { buildExport, deviceCopyNote, downloadExport, unreadableNote } from "../../data/exportFile";
+import { compIdentity } from "../../data/messages";
 import { newDealInputs } from "../../data/newDeal";
 import {
   useCompanySettings,
@@ -192,9 +193,8 @@ export function DealsPage() {
     perform("Couldn't load the sample deal", async () => {
       // The comps first, so the sample is priced the moment it opens. Only the ones that are missing: a sample comp the
       // owner has changed keeps the change.
-      const key = (comp: Comp) => `${comp.address}|${comp.soldDate}`;
-      const stored = new Set((await repository.listComps(REGION)).filter(isSampleComp).map(key));
-      for (const comp of sampleComps()) if (!stored.has(key(comp))) await saveComp.mutateAsync(comp);
+      const stored = new Set((await repository.listComps(REGION)).filter(isSampleComp).map(compIdentity));
+      for (const comp of sampleComps()) if (!stored.has(compIdentity(comp))) await saveComp.mutateAsync(comp);
       const deal = await createDeal.mutateAsync({ name: SAMPLE_DEAL_NAME, inputs: sampleDealInputs() });
       void navigate(`/deals/${deal.id}/proforma`);
     });
@@ -216,8 +216,8 @@ export function DealsPage() {
     setCopyNote(null);
     try {
       const now = new Date().toISOString();
-      const { file, unreadable } = await buildExport(repository, REGION, now);
-      setCopyNote(`Downloaded ${downloadExport(file, now)}.${unreadableNote(unreadable)}`);
+      const { file, unreadable, notice } = await buildExport(repository, REGION, now);
+      setCopyNote(`Downloaded ${downloadExport(file, now)}.${unreadableNote(unreadable)}${deviceCopyNote(notice)}`);
     } catch (error) {
       setCopyNote(`Couldn't download a copy: ${errorMessage(error)}`);
     } finally {

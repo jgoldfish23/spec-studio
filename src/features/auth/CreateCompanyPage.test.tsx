@@ -162,7 +162,8 @@ describe("CreateCompanyPage", () => {
 });
 
 describe("CreateCompanyPage when the parent throws", () => {
-  it("does not show a creation failure for an error from onCreated", async () => {
+  it("reports an error from onCreated, says to reload, and does not call it a creation failure", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     const onCreated = vi.fn(() => {
       throw new Error("parent broke");
     });
@@ -174,12 +175,19 @@ describe("CreateCompanyPage when the parent throws", () => {
       />,
     );
     await userEvent.type(screen.getByLabelText("Company name"), "Acme");
-    // The error escapes the async handler as an unhandled rejection; swallow it for this test.
-    const swallow = vi.fn();
-    process.on("unhandledRejection", swallow);
     await create();
-    await vi.waitFor(() => expect(onCreated).toHaveBeenCalled());
-    process.off("unhandledRejection", swallow);
+    expect(
+      await screen.findByText(
+        "Your company is set up, but it couldn't be opened. Reload the page.",
+      ),
+    ).toBeInTheDocument();
+    expect(onCreated).toHaveBeenCalledOnce();
+    expect(logged).toHaveBeenCalledWith(
+      "Couldn't open the new company:",
+      new Error("parent broke"),
+    );
     expect(screen.queryByText(/Couldn't create/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create company" })).toBeEnabled();
+    logged.mockRestore();
   });
 });

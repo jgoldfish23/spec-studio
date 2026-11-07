@@ -345,10 +345,11 @@ describe("HostedGate", () => {
       world.mount();
       await screen.findByText("Loading…");
 
-      await act(() => vi.advanceTimersByTimeAsync(14_000));
+      // Fake time also moves with real time here (`shouldAdvanceTime`), so the "not yet" check keeps 3 s in hand.
+      await act(() => vi.advanceTimersByTimeAsync(12_000));
       expect(screen.getByText("Loading…")).toBeVisible();
       expect(screen.queryByText(UNREACHABLE)).not.toBeInTheDocument();
-      await act(() => vi.advanceTimersByTimeAsync(1_000));
+      await act(() => vi.advanceTimersByTimeAsync(3_000));
       expect(screen.getByText(UNREACHABLE)).toBeVisible();
 
       await user.click(screen.getByRole("button", { name: "Try again" }));
@@ -867,21 +868,59 @@ describe("HostedGate on a device that remembers its owner", () => {
     await benReloadsOffline(world, user);
   });
 
-  it("keeps the copy when the server ends the session, and still serves each owner only their own", async () => {
+  it("keeps the copy when the server ends the session, until another owner signs in here: then it goes, the outbox stays", async () => {
     const user = userEvent.setup();
     const world = await twoOwners();
+    const maple = (await world.server(ANA_CO.id).listDeals()).deals[0]!;
+    createOfflineRepository(
+      world.server(ANA_CO.id),
+      world.device,
+      ANA.id,
+    ).queue({ ...maple, name: "Maple Street, edited" });
+    vi.spyOn(world.server(ANA_CO.id), "saveDeal").mockRejectedValue(
+      offlineError(),
+    );
     world.mount();
     expect(
-      await screen.findByText("Maple Street", undefined, { timeout: 3000 }),
+      await screen.findByText("Maple Street, edited", undefined, {
+        timeout: 3000,
+      }),
     ).toBeVisible();
     const anaKeys = copyKeys(world, ANA);
+    expect(anaKeys.length).toBeGreaterThan(0);
 
     await act(() => world.auth.signOut());
     expect(await signInPage()).toBeVisible();
     expect(copyKeys(world, ANA)).toEqual(anaKeys);
 
     await benReloadsOffline(world, user);
-    expect(copyKeys(world, ANA)).toEqual(anaKeys);
+    expect(copyKeys(world, ANA)).toEqual([]);
+    expect(world.outbox(ANA).map((d) => d.name)).toEqual([
+      "Maple Street, edited",
+    ]);
+  });
+
+  it("clears the last owner's copy when another owner signs in after a reload, too", async () => {
+    const user = userEvent.setup();
+    const world = await twoOwners();
+    const first = world.mount();
+    expect(
+      await screen.findByText("Maple Street", undefined, { timeout: 3000 }),
+    ).toBeVisible();
+    await act(() => world.auth.signOut());
+    expect(await signInPage()).toBeVisible();
+    first.unmount();
+    expect(copyKeys(world, ANA).length).toBeGreaterThan(0);
+
+    // The page is reloaded on the sign-in page, and Ben signs in.
+    world.mount();
+    await signInPage();
+    await signIn(user, BEN.email);
+    expect(
+      await screen.findByText("Ben's corner lot", undefined, { timeout: 3000 }),
+    ).toBeVisible();
+    expect(copyKeys(world, ANA)).toEqual([]);
+    expect(copyKeys(world, BEN).length).toBeGreaterThan(0);
   });
 
   it("still says it can't reach the server for a remembered owner whose company was never loaded here", async () => {
@@ -1017,9 +1056,10 @@ describe("HostedGate starting on one bar", () => {
     vi.spyOn(world.companies, "myCompany").mockImplementation(never);
     world.mount();
 
-    await act(() => vi.advanceTimersByTimeAsync(4_000));
+    // Fake time also moves with real time here (`shouldAdvanceTime`), so the "not yet" check keeps 3 s in hand.
+    await act(() => vi.advanceTimersByTimeAsync(2_000));
     expect(screen.getByText("Loading…")).toBeVisible();
-    await act(() => vi.advanceTimersByTimeAsync(1_000));
+    await act(() => vi.advanceTimersByTimeAsync(3_000));
     expect(await screen.findByText("Maple Street")).toBeVisible();
     await act(() => vi.advanceTimersByTimeAsync(30_000));
     expect(screen.queryByText(UNREACHABLE)).not.toBeInTheDocument();

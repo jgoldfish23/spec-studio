@@ -9,6 +9,7 @@ import {
   firstProblem,
   readDeal,
 } from "../readBack";
+import { DEAL_CHANGED_ELSEWHERE, DEAL_DELETED_ELSEWHERE } from "../messages";
 import { LEGACY_SAMPLE_COMP_IDS } from "../sample";
 import { STARTER_COST_BOOK } from "../starterCostBook";
 import { DataError } from "../types";
@@ -20,8 +21,8 @@ export const COMPS_KEY = "spec-studio:v1:comps";
 export const COMPANY_SETTINGS_KEY = "spec-studio:company-settings";
 export const marketSettingsKey = (region: string): string => `spec-studio:market-settings:${region}`;
 
-const CONFLICT = "This deal was changed on another device or tab.";
-const DELETED = "This deal was deleted on another device or tab.";
+const CONFLICT = DEAL_CHANGED_ELSEWHERE;
+const DELETED = DEAL_DELETED_ELSEWHERE;
 const SAVE_FAILED = "Couldn't save — browser storage is full or unavailable";
 
 const defaultCompanySettings = (): CompanySettings => ({

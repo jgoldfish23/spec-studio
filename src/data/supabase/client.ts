@@ -63,9 +63,10 @@ export function withFastOffline(fetchImpl: typeof fetch): typeof fetch {
 }
 
 /**
- * `fetchImpl` that never sends a data request (PostgREST: a table or an `rpc`, under `/rest/v1/`) as the anon key.
- * When `auth.getSession()` has no session (a refresh that failed on a flaky connection), supabase-js falls back to the
- * anon key as the bearer, and RLS then answers the owner's reads with nothing: no company, no deals, and a save that
+ * `fetchImpl` that never sends a data request (PostgREST: a table or an `rpc`, under `/rest/v1/`) as the anon key, or
+ * with no `Authorization` at all. When `auth.getSession()` has no session (a refresh that failed on a flaky connection),
+ * supabase-js falls back to the anon key as the bearer (and could leave the header out, as its functions client already
+ * does for new-format keys), and RLS then answers the owner's reads with nothing: no company, no deals, and a save that
  * matches 0 rows and reads as "deleted". The app never makes a signed-out data request (sign-in is `/auth/v1/`), so
  * such a request is refused here without touching the network. It fails as an `AbortError`, the same rejection the
  * time limit uses: postgrest-js neither retries nor delays it and reports status 0, which reads as offline. If the
@@ -82,7 +83,8 @@ export function withSignedInData(
       const headers = new Headers(
         init?.headers ?? (input instanceof Request ? input.headers : undefined),
       );
-      if (headers.get("Authorization") === anonBearer) {
+      const authorization = headers.get("Authorization");
+      if (authorization === null || authorization === anonBearer) {
         return Promise.reject(
           new DOMException(
             "Refused: no signed-in session for a data request.",

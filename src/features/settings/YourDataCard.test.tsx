@@ -82,6 +82,29 @@ describe("Your data card: export", () => {
     );
   });
 
+  it("says when the export is only what this device holds, for the download and the copy alike", async () => {
+    const harness = createHarness();
+    await seedSampleDeal(harness.repository);
+    const list = await harness.repository.listDeals();
+    vi.spyOn(harness.repository, "listDeals").mockResolvedValue({
+      ...list,
+      notice: "Showing what's saved on this device — can't reach the server.",
+    });
+    const u = user();
+    const writeText = vi.fn(async () => {});
+    setClipboard({ writeText });
+    await openCard(harness);
+    await u.click(within(card()).getByRole("button", { name: "Export all data" }));
+    expect(await within(card()).findByRole("alert")).toHaveTextContent(
+      "Downloaded spec-studio-export-2026-11-02.json. The server couldn't be reached, so this is what's saved on this device. It may be missing changes made on other devices.",
+    );
+    await u.click(within(card()).getByRole("button", { name: "Copy to clipboard" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    expect(await within(card()).findByRole("alert")).toHaveTextContent(
+      "Copied your data to the clipboard. The server couldn't be reached, so this is what's saved on this device.",
+    );
+  });
+
   it("copies to the clipboard", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     const u = user();

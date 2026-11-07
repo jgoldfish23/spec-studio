@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { DEFAULT_MARKET_SETTINGS } from "@engine";
 import {
   buildExport,
+  deviceCopyNote,
   unreadableNote,
   downloadExport,
   MAX_EXPORT_CHARS,
@@ -72,9 +73,13 @@ export function YourDataCard() {
     setMessage(null);
     try {
       const now = new Date().toISOString();
-      const { file, unreadable } = await buildExport(repository, REGION, now);
+      const { file, unreadable, notice } = await buildExport(repository, REGION, now);
       const name = downloadExport(file, now);
-      setMessage({ text: `Downloaded ${name}.${unreadableNote(unreadable)}`, problem: unreadable !== 0 });
+      // A partial export, or one that may be missing changes made elsewhere, is said out loud.
+      setMessage({
+        text: `Downloaded ${name}.${unreadableNote(unreadable)}${deviceCopyNote(notice)}`,
+        problem: unreadable !== 0 || notice !== undefined,
+      });
     } catch (error) {
       setMessage({
         text: `Couldn't export your data: ${errorMessage(error)}`,
@@ -90,19 +95,20 @@ export function YourDataCard() {
     setMessage(null);
     setFallbackText(null);
     try {
-      const { file, unreadable } = await buildExport(repository, REGION, new Date().toISOString());
+      const { file, unreadable, notice } = await buildExport(repository, REGION, new Date().toISOString());
       const text = JSON.stringify(file, null, 2);
-      const lost = unreadableNote(unreadable);
+      const lost = `${unreadableNote(unreadable)}${deviceCopyNote(notice)}`;
+      const partial = unreadable !== 0 || notice !== undefined;
       try {
         await navigator.clipboard.writeText(text);
         setMessage({
           text: `Copied your data to the clipboard.${lost}`,
-          problem: unreadable !== 0,
+          problem: partial,
         });
       } catch {
         setMessage({
           text: `Couldn't copy automatically. Select the text below and copy it.${lost}`,
-          problem: unreadable !== 0,
+          problem: partial,
         });
         setFallbackText(text);
       }

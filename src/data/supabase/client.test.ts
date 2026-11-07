@@ -454,6 +454,14 @@ describe("no data request without a signed-in session", () => {
       expect(reached).toEqual([]);
     });
 
+    it("refuses a data request with no Authorization header at all", async () => {
+      await expect(guarded(rest)).rejects.toMatchObject({ name: "AbortError" });
+      await expect(
+        guarded(rest, { headers: { apikey: "anon-key" } }),
+      ).rejects.toMatchObject({ name: "AbortError" });
+      expect(reached).toEqual([]);
+    });
+
     it("passes a user bearer, a non-REST path, and a URL object", async () => {
       await guarded(rest, { headers: { Authorization: "Bearer user-jwt" } });
       await guarded("http://x.test/auth/v1/token", {

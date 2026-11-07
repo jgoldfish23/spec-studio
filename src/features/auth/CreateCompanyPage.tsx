@@ -17,6 +17,7 @@ export interface CreateCompanyPageProps {
 }
 
 const BAD_NAME = "Enter a company name of 120 characters or fewer.";
+const OPEN_FAILED = "Your company is set up, but it couldn't be opened. Reload the page.";
 
 /** First sign-in: the owner names the company, which starts with the standard rules and a 5% contingency. */
 export function CreateCompanyPage({
@@ -64,8 +65,14 @@ export function CreateCompanyPage({
       company = await explain(error);
     }
     if (company) {
-      onCreated(company);
-      return; // Stays busy: the caller replaces this page.
+      try {
+        onCreated(company);
+        return; // Stays busy: the caller replaces this page.
+      } catch (error) {
+        // The company exists; it is the app that could not take it. Creating again finds it and tries once more.
+        console.error("Couldn't open the new company:", error);
+        setProblem(OPEN_FAILED);
+      }
     }
     inFlight.current = false;
     setBusy(false);

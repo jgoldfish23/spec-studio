@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
+import { DEAL_CHANGED_ELSEWHERE, DEAL_DELETED_ELSEWHERE, SIGNED_OUT_SAVED_ON_DEVICE } from "../../data/messages";
 import { errorMessage } from "../../lib/errorMessage";
 import { needsChoice } from "./autosaver";
 import type { SaveStatus } from "./autosaver";
@@ -22,7 +23,7 @@ export function SafeOnDeviceNote({ status }: { status: SaveStatus }) {
   if (status.reason === "signedOut") {
     return (
       <p className="m-0 flex flex-wrap items-center gap-x-2 text-sm text-muted">
-        <span>Signed out — sign in to sync. Your changes are saved on this device.</span>
+        <span>{SIGNED_OUT_SAVED_ON_DEVICE}</span>
         <Link
           to="/sign-in"
           className={`inline-flex min-h-11 items-center font-semibold text-spruce underline-offset-2 hover:underline ${focusRing}`}
@@ -70,9 +71,7 @@ export function SaveProblem({ editor }: { editor: DealEditor }) {
   return (
     <div role="alert" className="flex flex-col gap-2 rounded-xl border border-[#F0D9A8] bg-marginal-bg px-4 py-3 text-marginal">
       <p className="m-0 font-semibold">
-        {status.reason === "conflict"
-          ? "This deal was changed on another device or tab."
-          : "This deal was deleted on another device or tab."}
+        {status.reason === "conflict" ? DEAL_CHANGED_ELSEWHERE : DEAL_DELETED_ELSEWHERE}
       </p>
       <div className="flex flex-wrap gap-3">
         {status.reason === "conflict" ? (

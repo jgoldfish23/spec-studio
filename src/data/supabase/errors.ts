@@ -1,7 +1,5 @@
+import { CANT_REACH_SERVER, SIGNED_OUT } from "../messages";
 import { DataError } from "../types";
-
-const OFFLINE = "Can't reach the server — check your connection.";
-const SIGNED_OUT = "You've been signed out.";
 
 /** PostgREST's codes for a token that is missing, expired or not accepted. */
 const AUTH_CODES: ReadonlySet<string> = new Set(["PGRST301", "PGRST303"]);
@@ -22,7 +20,7 @@ export function toDataError(error: unknown, action: string, recordId?: string, s
   const httpStatus = status ?? (typeof like.status === "number" ? like.status : undefined);
   const message = text(like.message);
   if (error instanceof TypeError || httpStatus === 0 || /^(TypeError|FetchError)\b/.test(message)) {
-    return new DataError(OFFLINE, { kind: "offline", recordId, cause: error });
+    return new DataError(CANT_REACH_SERVER, { kind: "offline", recordId, cause: error });
   }
   if (httpStatus === 401 || AUTH_CODES.has(text(like.code))) {
     return new DataError(SIGNED_OUT, { kind: "signedOut", recordId, cause: error });

@@ -12,6 +12,7 @@ import {
 import type { OwnerMemory } from "./data/auth/rememberedOwner";
 import { createSupabaseAuth } from "./data/auth/supabaseAuth";
 import { createSupabaseCompany } from "./data/auth/supabaseCompany";
+import { forgetOtherOwnersCopies } from "./data/offline/deviceCopy";
 import { createOfflineRepository } from "./data/offline/offlineRepository";
 import type { Refreshed } from "./data/offline/offlineRepository";
 import { useOutboxSync } from "./data/offline/useOutboxSync";
@@ -213,7 +214,7 @@ function Gate({ linkError, ...rest }: GateProps) {
   // Why the link failed belongs on the first sign-in page, not on one after a later sign-out.
   const [callbackError, setCallbackError] = useState(linkError);
   if (status === "signedIn" && callbackError) setCallbackError(undefined);
-  const generation = useSessionChanges(auth, user?.id);
+  const generation = useSessionChanges(auth, user?.id, rest.storage);
 
   if (status === "loading") return <Loading onRetry={retry} />;
   if (status === "unreachable")
@@ -241,11 +242,14 @@ function Gate({ linkError, ...rest }: GateProps) {
  * every sign-out bumps: the owner's app is keyed on it, so a sign-out and the same owner's sign-in heard in one render
  * still remount the app with a fresh connection (the sign-out ended the old one). A different owner signing in than
  * the last one here starts on `#/deals`, not on the last owner's deep link, and does not see the last owner's
- * lost-save notices, which name their deals. The same owner keeps both.
+ * lost-save notices, which name their deals. The same owner keeps both. An owner signing in, unless they were already
+ * the one signed in here, also takes every other owner's copy of reads off the device (their outbox stays): after a
+ * reload the device no longer knows who was last, so it is not only the last owner's.
  */
 function useSessionChanges(
   auth: AuthGateway,
   userId: string | undefined,
+  storage: Storage,
 ): number {
   const [generation, setGeneration] = useState(0);
   const lastOwner = useRef<string | undefined>(undefined);
@@ -259,13 +263,14 @@ function useSessionChanges(
           setGeneration((n) => n + 1);
           return;
         }
+        if (lastOwner.current !== next.id) forgetOtherOwnersCopies(storage, next.id);
         if (lastOwner.current !== undefined && lastOwner.current !== next.id) {
           resetLostSaves();
           window.history.replaceState(null, "", "#/deals");
         }
         lastOwner.current = next.id;
       }),
-    [auth],
+    [auth, storage],
   );
   return generation;
 }

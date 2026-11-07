@@ -161,6 +161,18 @@ describe("Deals page", () => {
       expect(comps.find((comp) => comp.id === first.id)?.soldPriceCents).toBe(123_456_700);
     });
 
+    it("are told apart as an import tells comps apart: an address retyped with other case or spacing is the same comp", async () => {
+      const user = userEvent.setup();
+      const harness = createHarness();
+      const [first] = sampleComps() as [Comp];
+      await harness.repository.saveComp({ ...first, address: `  ${first.address.toUpperCase().replace(/ /g, "  ")} ` });
+      renderApp("#/", harness);
+
+      await user.click(await screen.findByRole("button", { name: "Load sample deal" }));
+      await waitFor(() => expect(window.location.hash).toMatch(/\/proforma$/));
+      expect(await harness.repository.listComps("utah-north")).toHaveLength(8);
+    });
+
     it("get their own ids in each company's library, so two companies can both load the sample", async () => {
       const user = userEvent.setup();
       const ids: string[][] = [];
@@ -464,6 +476,29 @@ describe("Deals page", () => {
 });
 
 describe("Deals page notice", () => {
+  it("says a copy downloaded before removing everything is what this device holds, when the list came from it", async () => {
+    const user = userEvent.setup();
+    const harness = createHarness();
+    harness.storage.setItem(DEALS_KEY, "{ not json");
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    URL.createObjectURL = vi.fn(() => "blob:copy");
+    URL.revokeObjectURL = vi.fn();
+    const listDeals = harness.repository.listDeals.bind(harness.repository);
+    vi.spyOn(harness.repository, "listDeals").mockImplementation(async () => ({
+      ...(await listDeals()),
+      notice: "Showing what's saved on this device — can't reach the server.",
+    }));
+    renderApp("#/", harness);
+    await user.click(await screen.findByRole("button", { name: "Remove" }));
+    const dialog = screen.getByRole("alertdialog");
+    await user.click(within(dialog).getByRole("button", { name: "Download a copy first" }));
+    expect(
+      await within(dialog).findByText(
+        /^Downloaded spec-studio-export-2026-10-31\.json\. Your saved deals couldn't be read and aren't in the file\. The server couldn't be reached, so this is what's saved on this device\./,
+      ),
+    ).toBeVisible();
+  });
+
   it("shows the list's notice as a plain line, not an alert or a problem row", async () => {
     const harness = createHarness();
     const stored = await seedSampleDeal(harness.repository);
